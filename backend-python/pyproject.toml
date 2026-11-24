@@ -1,3 +1,28 @@
+[project]
+name = "tekio-admin-api"
+version = "1.0.0"
+description = "Backend FastAPI del Sistema Administrativo Tekio Electronics 2024, C.A."
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.34.0",
+    "sqlalchemy>=2.0.36",
+    "alembic>=1.14.0",
+    "pydantic[email]>=2.10.0",
+    "pydantic-settings>=2.7.0",
+    "pyjwt>=2.10.0",
+    "psycopg[binary]>=3.2.0",
+    "python-multipart>=0.0.20",
+    "openpyxl>=3.1.5",
+    "reportlab>=4.2.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.3.0",
+    "httpx>=0.28.0",
+]
+
 [tool.pytest.ini_options]
 pythonpath = ["."]
 testpaths = ["tests"]
