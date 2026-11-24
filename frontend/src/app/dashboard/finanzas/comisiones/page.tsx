@@ -170,11 +170,11 @@ export default function PaginaComisionesYCierre() {
               {formatearUsd(tablero.cashea_por_cobrar_usd)}
             </p>
           </div>
-          <div className="bg-[#191818] p-4 rounded-2xl border border-[#2E2D2D] border-t-2 border-t-[#E85A28] text-white">
+          <div className="bg-white/75 backdrop-blur-md p-4 rounded-2xl border border-[#E85A28]/30 bg-gradient-to-br from-[#FDF0EB]/90 to-white/80 shadow-[0_8px_30px_rgb(0,0,0,0.04)]">
             <p className="text-[11px] font-bold uppercase tracking-wider text-[#E85A28]">
               Utilidad Real Neta
             </p>
-            <p className="text-xl font-black mt-1 cifra-tabular">
+            <p className="text-xl font-black text-[#191818] mt-1 cifra-tabular">
               {formatearUsd(tablero.utilidad_real_neta_usd)}
             </p>
           </div>

@@ -1089,6 +1089,13 @@ def test_pdf_sin_etiquetas_internas_monto_total_regular_bs_y_envio_nacional(
     assert "Precio Regular" not in pdf_promo
     assert "CUADRADA" not in pdf_promo
 
+    # Confirmar estilo justificado (TA_JUSTIFY) y marca de agua presente en el PDF
+    from reportlab.lib.enums import TA_JUSTIFY
+    from app.servicios.pdf_nota import ESTILO_GARANTIA_JUSTIFICADO
+
+    assert ESTILO_GARANTIA_JUSTIFICADO.alignment == TA_JUSTIFY
+    assert "/Subtype /Image" in pdf_promo
+
     # 2. Venta Regular (Bs) + ENVIO nacional -> guarda empresa_envio y direccion_oficina, PDF muestra USD y Bs
     resp_envio = cliente.post(
         "/api/ventas",

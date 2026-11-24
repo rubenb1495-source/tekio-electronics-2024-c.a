@@ -152,4 +152,4 @@
 
 ## 8. Última Actualización
 - **Fecha:** 2026-11-24
-- **Último cambio:** Se integró el imagotipo oficial PNG de Tekio Electronics (`tekio-logo-horizontal.png`, variante `tekio-logo-horizontal-blanco.png` para fondos `#191818`, `tekio-isotipo.png` para sidebar colapsado y `app/icon.png` como favicon) en `LogoTekio.tsx` y en el encabezado de la Nota de Entrega PDF (`/backend-python/assets/tekio-logo-horizontal.png` con `preserveAspectRatio=True`). Validado con `pytest` (20/20) y `next build` (25/25).
+- **Último cambio:** Se aplicó la estética clara corporativa con marcos translúcidos (*glassmorphism* sutil en Sidebar claro, Topbar, `/login`, tarjetas KPI y paneles del dashboard), animación de apertura `SplashTekio.tsx` (una vez por sesión, respetando `prefers-reduced-motion`), marca de agua Tekio sutil en la app web (`@media print` incluido) y en todos los PDFs (`app/utils/pdf_branding.py` con `tekio-watermark.png` al 7%), y Políticas de Garantía justificadas (`TA_JUSTIFY`) ancladas al pie de la Nota PDF con encabezados claros (`#F3F4F6`). Validado con `pytest` (20/20) y `next build` (25/25).

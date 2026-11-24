@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Plus_Jakarta_Sans } from "next/font/google";
+import SplashTekio from "@/components/SplashTekio";
 import { ProveedorSesion } from "@/contexto/SesionContexto";
 import "./globals.css";
 
@@ -23,7 +24,8 @@ export default function DisenoRaiz({
 }>) {
   return (
     <html lang="es" className={plusJakarta.variable}>
-      <body className="font-sans antialiased min-h-screen bg-[#F6F6F6] text-[#191818]">
+      <body className="font-sans antialiased min-h-screen text-[#191818]">
+        <SplashTekio />
         <ProveedorSesion>{children}</ProveedorSesion>
       </body>
     </html>
