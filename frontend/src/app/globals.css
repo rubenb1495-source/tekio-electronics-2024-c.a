@@ -1,0 +1,14 @@
+@import "tailwindcss";
+
+:root {
+  --tekio-naranja: #e85a28;
+  --tekio-naranja-oscuro: #c9461a;
+  --fondo: #f8fafc;
+  --texto: #0f172a;
+}
+
+body {
+  background-color: var(--fondo);
+  color: var(--texto);
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}

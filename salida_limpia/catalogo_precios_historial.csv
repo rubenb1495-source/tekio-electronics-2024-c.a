@@ -1,0 +1,33 @@
+﻿Código,Descripción,Tipo,Precio promo USD,Precio regular USD (opcional),Vigente desde,Regular aplicado USD,Recargo %,Nota,Categoría,sku_original,sku_normalizado
+ADA-LETC,Adaptador Lenovo punta cuadrada a tipo C,Componente,5.0,,2026-10-01,6.5,0.30000000000000004,Cargado del Excel de octubre,,ADA-LETC,ADA-LETC
+ADP-GRUE-FIN-DELL,adaptador dell punta gruesa a fina,Componente,5.0,,2026-11-19,6.5,0.30000000000000004,,,adp-grue-fin-dell,ADP-GRUE-FIN-DELL
+ADP-WIFI,Adaptador Wifi Usb,Componente,5.0,,2026-10-27,6.5,0.30000000000000004,,,ADP-WIFI,ADP-WIFI
+BAT-33YDH,Batería Dell 33YDH,Componente,50.0,,2026-10-01,65.0,0.30000000000000004,Cargado del Excel de octubre,,BAT-33YDH,BAT-33YDH
+BAT-6MT4T,Batería Dell 6MT4T,Componente,50.0,,2026-10-01,65.0,0.30000000000000004,Cargado del Excel de octubre,,BAT-6MT4T,BAT-6MT4T
+BAT-DELL33YDH,Bateria Dell 33YDH,Componente,50.0,,2026-10-31,65.0,0.30000000000000004,,,bat-dell33ydh,BAT-DELL33YDH
+BAT-DELL6MT4T,Bateria Dell 6MT4T,Componente,50.0,,2026-11-03,65.0,0.30000000000000004,,,bat-dell6mt4t,BAT-DELL6MT4T
+BAT-E7280,Batería Dell E7280,Componente,18.7,,2026-11-03,24.31,0.30000000000000004,,,BAT-E7280,BAT-E7280
+BAT-HT03XL,Bateria Dell HT03XL,Componente,,,2026-10-01,0.0,,Cargado del Excel de octubre,,BAT-HT03XL,BAT-HT03XL
+BAT-HT03XL,Bateria Dell HT03XL,Componente,50.0,,2026-11-09,65.0,0.30000000000000004,,,BAT-HT03XL,BAT-HT03XL
+BAT-MAYOR,Baterías varias (venta al mayor),Componente,212.0,,2026-10-01,275.6,0.30000000000000004,Cargado del Excel de octubre,,BAT-MAYOR,BAT-MAYOR
+BAT-WDOXR,BATERIA DELL WDOXR,Componente,50.0,,2026-10-27,65.0,0.30000000000000004,,,BAT-wdoxr,BAT-WDOXR
+BAT-YRDD6,Batería Dell YRDD6,Componente,25.0,,2026-10-01,32.5,0.30000000000000004,Cargado del Excel de octubre,,BAT-YRDD6,BAT-YRDD6
+CAR-DELL-PFINA,cargador dell punta fina,Componente,30.0,,2026-11-20,39.0,0.30000000000000004,,,car-dell-pfina,CAR-DELL-PFINA
+CAR-DELL-PG,Cargador Dell Punta Gruesa,Componente,30.0,,2026-10-31,39.0,0.30000000000000004,,,Car-dell-PG,CAR-DELL-PG
+CAR-HPPAZU,Cargador HP punta azul,Componente,25.0,32.5,2026-10-01,32.5,0.30000000000000004,Cargado del Excel de octubre,,CAR-HPPAZU,CAR-HPPAZU
+CAR-HPPAZU,Cargador HP punta azul,Componente,25.0,,2026-10-23,32.5,0.30000000000000004,Cargado del Excel de octubre,,CAR-HPPAZU,CAR-HPPAZU
+CAR-LE-CUA,Cargador Lenovo Cuadrado ,Componente,0.0,,2026-10-27,0.0,,,,CAR-LE-CUA,CAR-LE-CUA
+CAR-TIPOC,Cargador Tipo C,Componente,30.0,,2026-11-03,39.0,0.30000000000000004,,,CAR-TIPOC,CAR-TIPOC
+DDR38GB,MEMORIA RAM DDR3 8GB,Componente,10.0,,2026-11-10,13.0,0.30000000000000004,,,DDR38GB,DDR38GB
+DDR416GB,MEMORIA RAM DDR4 16GB,Componente,60.5,,2026-11-03,78.65,0.30000000000000004,,,DDR416GB,DDR416GB
+DDR48GB,MEMORIA RAM DDR4 8GB,Componente,33.0,,2026-11-03,42.9,0.30000000000000004,,,DDR48GB,DDR48GB
+FLEX-BAT-DELL,Flex de batería Dell,Componente,2.53,,2026-11-03,3.29,0.3003952569169961,,,FLEX-BAT-DELL,FLEX-BAT-DELL
+MA-INALAM,MOUSE INALÁMBRICO,Componente,10.0,,2026-10-23,13.0,0.30000000000000004,,,MA-INALAM,MA-INALAM
+MOUSE-LEN,MOUSE LENOVO ALAMBRICO,Componente,5.0,,2026-10-31,6.5,0.30000000000000004,,,MOUSE LEN,MOUSE-LEN
+PS-001,PS Portal,Componente,200.0,,2026-10-01,260.0,0.30000000000000004,Cargado del Excel de octubre,,PS-001,PS-001
+REV-CORT,Revisión de cortesía (sin recargo),Servicio,10.0,10.0,2026-10-01,10.0,0.0,Cargado del Excel de octubre,,REV-CORT,REV-CORT
+REVISION,Revisión técnica,Servicio,10.0,13.0,2026-10-01,13.0,0.30000000000000004,Cargado del Excel de octubre,,REVISION,REVISION
+REVISION,Revisión técnica,Servicio,10.0,,2026-10-23,13.0,0.30000000000000004,Cargado del Excel de octubre,,REVISION,REVISION
+SER-MANT,Mantenimiento (baño químico),Servicio,0.0,,2026-10-01,0.0,,Cargado del Excel de octubre,,SER-MANT,SER-MANT
+SER-REPARACION,Reparación (mano de obra),Servicio,0.0,,2026-10-01,0.0,,,,SER-REPARACION,SER-REPARACION
+SER-SIST,Instalación de sistema operativo,Servicio,0.0,,2026-10-01,0.0,,Cargado del Excel de octubre,,SER-SIST,SER-SIST

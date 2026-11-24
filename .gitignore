@@ -1,0 +1,42 @@
+# Variables de entorno
+.env
+.env.local
+.env.*.local
+
+# Bases de datos locales
+backend-python/datos/
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+
+# Node.js / pnpm / Next.js
+node_modules/
+.pnpm-store/
+.next/
+out/
+dist/
+build/
+*.tsbuildinfo
+
+# Python / uv
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Logs y archivos temporales
+*.log
+npm-debug.log*
+pnpm-debug.log*
+.DS_Store
+Thumbs.db
+
+# Editores
+.vscode/
+.idea/

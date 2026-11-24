@@ -1,0 +1,9 @@
+=== RESUMEN DE NORMALIZACIÓN DE SKUs - TEKIO ELECTRONICS ===
+Archivo origen: C:\Users\HomePC\.gemini\antigravity\scratch\tekio-control-ventas\TEKIO · Control de ventas\TEKIO · Configuración.xlsx
+Hoja procesada: Catálogo (encabezado en fila 4)
+Total filas válidas (historial completo): 32
+SKUs únicos en Catálogo Maestro: 29
+Versiones históricas adicionales de precios: 3
+SKUs con cambio de formato aplicado: 7
+Posibles duplicados por descripción idéntica (revisión manual): 0
+Archivos generados en: C:\Users\HomePC\.gemini\antigravity\scratch\tekio-admin\salida_limpia

@@ -1,0 +1,95 @@
+from __future__ import annotations
+
+from datetime import date
+from decimal import Decimal
+
+from pydantic import BaseModel, Field
+
+from app.modelos_finanzas import EstadoReingresoNC
+
+
+class ItemVentaEntrada(BaseModel):
+    equipo_id: int | None = None
+    articulo_id: int | None = None
+    cantidad: int = Field(default=1, gt=0)
+    precio_pactado_usd: Decimal | None = Field(default=None, ge=0)
+
+
+class PagoVentaEntrada(BaseModel):
+    instrumento_id: int
+    monto_moneda_origen: Decimal = Field(gt=0)
+    referencia: str = Field(default="", max_length=120)
+    # Obligatorios solo cuando el instrumento es "Equipo como parte de pago"
+    parte_pago_serial: str | None = None
+    parte_pago_modelo: str | None = None
+
+
+class VentaSimularEntrada(BaseModel):
+    sucursal_id: int
+    items: list[ItemVentaEntrada] = Field(min_length=1)
+    pagos: list[PagoVentaEntrada] = Field(default_factory=list)
+    recargo_especial: Decimal | None = Field(default=None, ge=0, le=500)
+    vuelto_usd: Decimal = Field(default=Decimal("0"), ge=0)
+
+
+class VentaCrearEntrada(BaseModel):
+    sucursal_id: int
+    fecha: date | None = None
+    cliente_id: int | None = None
+    asesor_id: int | None = None
+    tecnico_id: int | None = None
+    canal_visita: str = Field(default="Tienda", max_length=60)
+    entrega: str = Field(default="Tienda", max_length=60)
+    origen_equipo: str = Field(default="Propio", max_length=60)
+    es_factura: bool = False
+    numero_control: str = Field(default="", max_length=60)
+    recargo_especial: Decimal | None = Field(default=None, ge=0, le=500)
+    items: list[ItemVentaEntrada] = Field(min_length=1)
+    pagos: list[PagoVentaEntrada] = Field(default_factory=list)
+    vuelto_usd: Decimal = Field(default=Decimal("0"), ge=0)
+    queda_con_saldo: bool = False
+    nota: str = Field(default="", max_length=1000)
+
+
+class VentaAnularEntrada(BaseModel):
+    motivo: str = Field(min_length=3, max_length=500)
+
+
+class DevolucionCrearEntrada(BaseModel):
+    venta_original_id: int
+    equipo_id: int | None = None
+    articulo_id: int | None = None
+    cantidad: int = Field(default=1, gt=0)
+    motivo: str = Field(min_length=3, max_length=255)
+    estado_reingreso: EstadoReingresoNC = EstadoReingresoNC.POR_PREPARAR
+
+
+class PagoConfirmarEntrada(BaseModel):
+    aprobado: bool
+    nota: str = Field(default="", max_length=300)
+
+
+class AbonoCxcEntrada(BaseModel):
+    instrumento_id: int
+    monto_moneda_origen: Decimal = Field(gt=0)
+    referencia: str = Field(default="", max_length=120)
+    fecha: date | None = None
+
+
+class CasheaLiquidarEntrada(BaseModel):
+    cuentas_cashea_ids: list[int] = Field(min_length=1)
+    instrumento_destino_id: int
+    fecha_pago: date
+    comision_usd: Decimal = Field(default=Decimal("0"), ge=0)
+    impuestos_usd: Decimal = Field(default=Decimal("0"), ge=0)
+    referencia: str = Field(default="", max_length=120)
+
+
+class CruceManualEntrada(BaseModel):
+    pago_id: int
+    extracto_id: int
+
+
+class CierreMensualEntrada(BaseModel):
+    anio: int = Field(ge=2020, le=2100)
+    mes: int = Field(ge=1, le=12)
