@@ -19,7 +19,8 @@ from app.esquemas_taller import (
     PresupuestoCrearEntrada,
     RepuestoEstadoEntrada,
 )
-from app.modelos import CatalogoArticulo, CatalogoPrecio, RolUsuario, Sucursal, Usuario
+from app.modelos import CatalogoArticulo, CatalogoPrecio, RolUsuario, Sucursal, TipoArticulo, Usuario
+from app.modelos_finanzas import EstadoVenta, Venta, VentaDetalle
 from app.modelos_logistica import (
     Equipo,
     EstadoEquipo,
@@ -856,7 +857,59 @@ def obtener_resumen_tecnico(
             }
         )
 
-    comision_asesor = Decimal("0.00")
+    # Servicios técnicos cobrados desde el POS (50% sobre Precio Promo USD de líneas de servicio)
+    ventas_servicios_pos = (
+        bd.query(Venta)
+        .options(joinedload(Venta.detalles).joinedload(VentaDetalle.articulo))
+        .filter(
+            Venta.estado != EstadoVenta.ANULADA.value,
+            Venta.tecnico_id == id_objetivo,
+            extract("month", Venta.fecha) == mes_obj,
+            extract("year", Venta.fecha) == anio_obj,
+        )
+        .order_by(Venta.fecha.desc(), Venta.id.desc())
+        .all()
+    )
+    for v in ventas_servicios_pos:
+        for det in v.detalles:
+            if det.articulo is not None and det.articulo.tipo == TipoArticulo.SERVICIO.value:
+                subtotal_promo = det.precio_promo_usd * Decimal(det.cantidad)
+                comision = (subtotal_promo * Decimal("0.50")).quantize(
+                    Decimal("0.01"), rounding=ROUND_HALF_UP
+                )
+                comision_servicios += comision
+                detalle_servicios.append(
+                    {
+                        "numero_caso": v.numero_venta,
+                        "descripcion_equipo": (det.descripcion_servicio or det.descripcion),
+                        "mano_obra_usd": redondear_usd(subtotal_promo),
+                        "comision_50_usd": redondear_usd(comision),
+                        "estado": v.estado,
+                    }
+                )
+
+    # Ventas donde el técnico figura como asesor (1% sobre Precio Promo USD de productos/equipos/componentes)
+    ventas_como_asesor = (
+        bd.query(Venta)
+        .options(joinedload(Venta.detalles).joinedload(VentaDetalle.articulo))
+        .filter(
+            Venta.estado != EstadoVenta.ANULADA.value,
+            Venta.asesor_id == id_objetivo,
+            extract("month", Venta.fecha) == mes_obj,
+            extract("year", Venta.fecha) == anio_obj,
+        )
+        .all()
+    )
+    base_ventas_asesor = Decimal("0.00")
+    for v in ventas_como_asesor:
+        for det in v.detalles:
+            es_servicio = det.articulo is not None and det.articulo.tipo == TipoArticulo.SERVICIO.value
+            if not es_servicio:
+                base_ventas_asesor += det.precio_promo_usd * Decimal(det.cantidad)
+
+    comision_asesor = (base_ventas_asesor * Decimal("0.01")).quantize(
+        Decimal("0.01"), rounding=ROUND_HALF_UP
+    )
     total_mes = pago_preparaciones + comision_servicios + comision_asesor
 
     return {

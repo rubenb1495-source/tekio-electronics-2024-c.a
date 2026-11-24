@@ -24,6 +24,13 @@ export interface SimulacionVenta {
   estado: "CUADRADA" | "CON_SALDO";
 }
 
+export interface UsuarioOperativo {
+  id: number;
+  nombre: string;
+  rol: string;
+  sucursal_id: number | null;
+}
+
 export interface VentaResumen {
   id: number;
   numero_venta: string;
@@ -34,6 +41,8 @@ export interface VentaResumen {
   cliente: string;
   asesor_id: number | null;
   asesor: string;
+  tecnico_id?: number | null;
+  tecnico?: string | null;
   canal_visita: string;
   tipo_entrega: string;
   tasa_bcv_snapshot: number;
@@ -50,6 +59,8 @@ export interface VentaResumen {
     serial: string | null;
     articulo_id: number | null;
     descripcion: string;
+    descripcion_servicio?: string;
+    es_servicio_tecnico?: boolean;
     cantidad: number;
     precio_promo_usd: number;
     precio_regular_usd: number;

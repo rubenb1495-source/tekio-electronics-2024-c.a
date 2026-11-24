@@ -182,6 +182,7 @@ def evaluar_venta(
     detalles_calc: list[dict[str, Any]] = []
     total_promo = Decimal("0")
     total_regular = Decimal("0")
+    tiene_servicio_tecnico = False
 
     for it in items:
         if it.equipo_id is not None:
@@ -211,6 +212,7 @@ def evaluar_venta(
                     "articulo": None,
                     "articulo_id": equipo.articulo_id,
                     "descripcion": equipo.modelo or equipo.serial,
+                    "descripcion_servicio": (getattr(it, "descripcion_servicio", "") or "").strip(),
                     "cantidad": 1,
                     "precio_promo_usd": promo_unit,
                     "precio_regular_usd": reg_unit,
@@ -227,6 +229,8 @@ def evaluar_venta(
                     status_code=status.HTTP_404_NOT_FOUND,
                     detail=f"Artículo ID {it.articulo_id} no encontrado en catálogo.",
                 )
+            if art.tipo == TipoArticulo.SERVICIO.value:
+                tiene_servicio_tecnico = True
             if validar_disponibilidad and art.tipo != TipoArticulo.SERVICIO.value:
                 stock = calcular_stock_componente(bd, art.id, sucursal_id)
                 if stock < it.cantidad:
@@ -247,6 +251,7 @@ def evaluar_venta(
                     "articulo": art,
                     "articulo_id": art.id,
                     "descripcion": f"{art.sku} - {art.descripcion}",
+                    "descripcion_servicio": (getattr(it, "descripcion_servicio", "") or "").strip(),
                     "cantidad": it.cantidad,
                     "precio_promo_usd": promo_unit,
                     "precio_regular_usd": reg_unit,
@@ -385,6 +390,7 @@ def evaluar_venta(
         "total_cashea_usd": total_cashea_usd,
         "cashea_financiado_sugerido_usd": cashea_sugerido_usd,
         "cashea_financiado_sugerido_bs": cashea_sugerido_bs,
+        "tiene_servicio_tecnico": tiene_servicio_tecnico,
         "estado": estado,
         "detalles": detalles_calc,
         "pagos": pagos_calc,
@@ -403,6 +409,7 @@ def serializar_venta(venta: Venta, incluir_costos: bool) -> dict[str, Any]:
         "asesor_id": venta.asesor_id,
         "asesor": venta.asesor.nombre if venta.asesor else "Tienda",
         "tecnico_id": venta.tecnico_id,
+        "tecnico": venta.tecnico.nombre if venta.tecnico else None,
         "canal_visita": venta.canal_visita,
         "tipo_entrega": venta.tipo_entrega,
         "tasa_bcv_snapshot": float(venta.tasa_bcv_snapshot),
@@ -420,6 +427,8 @@ def serializar_venta(venta: Venta, incluir_costos: bool) -> dict[str, Any]:
                 "serial": d.equipo.serial if d.equipo else None,
                 "articulo_id": d.articulo_id,
                 "descripcion": d.descripcion,
+                "descripcion_servicio": d.descripcion_servicio or "",
+                "es_servicio_tecnico": bool(d.articulo and d.articulo.tipo == TipoArticulo.SERVICIO.value),
                 "cantidad": d.cantidad,
                 "precio_promo_usd": redondear_usd(d.precio_promo_usd),
                 "precio_regular_usd": redondear_usd(d.precio_regular_usd),
@@ -506,7 +515,9 @@ def listar_ventas(
         joinedload(Venta.sucursal),
         joinedload(Venta.cliente),
         joinedload(Venta.asesor),
+        joinedload(Venta.tecnico),
         joinedload(Venta.detalles).joinedload(VentaDetalle.equipo),
+        joinedload(Venta.detalles).joinedload(VentaDetalle.articulo),
         joinedload(Venta.pagos).joinedload(Pago.instrumento),
     )
     if sucursal_id is not None:
@@ -537,6 +548,23 @@ def crear_venta(
         vuelto_usd=datos.vuelto_usd,
         validar_disponibilidad=True,
     )
+
+    if calc["tiene_servicio_tecnico"]:
+        if datos.tecnico_id is None:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Debes seleccionar un Técnico responsable cuando la venta incluye Servicio Técnico / Mano de Obra.",
+            )
+        tecnico_obj = (
+            bd.query(Usuario)
+            .filter(Usuario.id == datos.tecnico_id, Usuario.activo.is_(True))
+            .first()
+        )
+        if tecnico_obj is None or tecnico_obj.rol != RolUsuario.TECNICO.value:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="El técnico seleccionado no existe o no tiene rol TECNICO activo.",
+            )
 
     if calc["estado"] == EstadoVenta.CON_SALDO.value and not datos.queda_con_saldo:
         if calc["usa_cashea"]:
@@ -588,6 +616,7 @@ def crear_venta(
                 equipo_id=det["equipo"].id if det["equipo"] else None,
                 articulo_id=det["articulo_id"],
                 descripcion=det["descripcion"],
+                descripcion_servicio=det["descripcion_servicio"],
                 cantidad=det["cantidad"],
                 precio_promo_usd=det["precio_promo_usd"],
                 precio_regular_usd=det["precio_regular_usd"],
@@ -743,7 +772,9 @@ def crear_venta(
             joinedload(Venta.sucursal),
             joinedload(Venta.cliente),
             joinedload(Venta.asesor),
+            joinedload(Venta.tecnico),
             joinedload(Venta.detalles).joinedload(VentaDetalle.equipo),
+            joinedload(Venta.detalles).joinedload(VentaDetalle.articulo),
             joinedload(Venta.pagos).joinedload(Pago.instrumento),
         )
         .filter(Venta.id == venta.id)
@@ -764,7 +795,9 @@ def descargar_nota_entrega_pdf(
             joinedload(Venta.sucursal),
             joinedload(Venta.cliente),
             joinedload(Venta.asesor),
+            joinedload(Venta.tecnico),
             joinedload(Venta.detalles).joinedload(VentaDetalle.equipo),
+            joinedload(Venta.detalles).joinedload(VentaDetalle.articulo),
             joinedload(Venta.pagos).joinedload(Pago.instrumento),
         )
         .filter(Venta.id == venta_id)

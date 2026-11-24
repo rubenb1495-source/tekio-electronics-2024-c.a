@@ -31,6 +31,29 @@ def listar_sucursales(
     return [SucursalSalida.model_validate(s) for s in sucursales]
 
 
+@enrutador.get("/usuarios/operativos")
+def listar_usuarios_operativos(
+    _usuario: Usuario = Depends(obtener_usuario_actual),
+    bd: Session = Depends(obtener_bd),
+) -> list[dict[str, object]]:
+    """Lista usuarios activos (solo campos públicos) para selectores de Asesor y Técnico en el POS."""
+    usuarios = (
+        bd.query(Usuario)
+        .filter(Usuario.activo.is_(True))
+        .order_by(Usuario.nombre.asc(), Usuario.id.asc())
+        .all()
+    )
+    return [
+        {
+            "id": u.id,
+            "nombre": u.nombre,
+            "rol": u.rol,
+            "sucursal_id": u.sucursal_id,
+        }
+        for u in usuarios
+    ]
+
+
 @enrutador.get("/usuarios", response_model=list[UsuarioSalida])
 def listar_usuarios(
     rol: RolUsuario | None = Query(default=None),

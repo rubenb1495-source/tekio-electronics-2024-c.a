@@ -13,6 +13,7 @@ class ItemVentaEntrada(BaseModel):
     articulo_id: int | None = None
     cantidad: int = Field(default=1, gt=0)
     precio_pactado_usd: Decimal | None = Field(default=None, ge=0)
+    descripcion_servicio: str = Field(default="", max_length=500)
 
 
 class PagoVentaEntrada(BaseModel):

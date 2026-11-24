@@ -152,4 +152,4 @@
 
 ## 8. Última Actualización
 - **Fecha:** 2026-11-24
-- **Último cambio:** Se corrigió el solapamiento visual del POS (`/dashboard/ventas/nueva`) con selector buscable de equipos (`z-50`, `min-w-0`), se aplicó la regla estricta de Precio Regular en ventas con Cashea (backend + frontend) con cálculo automático del monto financiado en USD Regular y Bs (BCV), y se validó con `pytest` (15/15) y `next build` (24/24).
+- **Último cambio:** Se agregaron selectores de Asesor y Técnico (`GET /api/usuarios/operativos`, técnico obligatorio para Servicio Técnico), módulo rápido de Servicio Técnico / Mano de Obra en POS con monto Promo editable, `descripcion_servicio` en `ventas_detalle` (con migración segura idempotente, PDF y WhatsApp), venta combinada con repuestos/componentes y cálculo exacto de comisiones estrictamente sobre Precio Promo USD (`1%` asesor, `0.5%` líder excluyendo ST, `50%` técnico solo sobre ST + `1%` si vende como asesor + preparaciones). Validado con `pytest` (16/16) y `next build` (24/24).

@@ -42,6 +42,7 @@ def generar_pdf_nota_entrega(venta: Venta) -> bytes:
     cliente_rif = venta.cliente.rif_cedula if venta.cliente and venta.cliente.rif_cedula else "N/A"
     sucursal_nombre = venta.sucursal.nombre if venta.sucursal else "Tekio central"
     asesor_nombre = venta.asesor.nombre if venta.asesor else "Tienda"
+    tecnico_nombre = venta.tecnico.nombre if venta.tecnico else None
 
     pdf.drawString(0.6 * inch, y, f"Cliente: {cliente_nombre}")
     pdf.drawRightString(ancho - 0.6 * inch, y, f"RIF / Cédula: {cliente_rif}")
@@ -49,6 +50,9 @@ def generar_pdf_nota_entrega(venta: Venta) -> bytes:
     pdf.setFont("Helvetica", 9.5)
     pdf.drawString(0.6 * inch, y, f"Sucursal: {sucursal_nombre} · Entrega: {venta.tipo_entrega}")
     pdf.drawRightString(ancho - 0.6 * inch, y, f"Asesor: {asesor_nombre} · Estado: {venta.estado}")
+    if tecnico_nombre:
+        y -= 14
+        pdf.drawString(0.6 * inch, y, f"Técnico responsable: {tecnico_nombre}")
 
     # Tabla de artículos
     y -= 28
@@ -71,6 +75,26 @@ def generar_pdf_nota_entrega(venta: Venta) -> bytes:
         pdf.drawRightString(ancho - 1.7 * inch, y, f"${float(det.precio_promo_usd):,.2f}")
         pdf.drawRightString(ancho - 0.7 * inch, y, f"${float(det.precio_regular_usd):,.2f}")
         y -= 16
+        desc_srv = (getattr(det, "descripcion_servicio", "") or "").strip()
+        if desc_srv:
+            pdf.setFont("Helvetica-Oblique", 8)
+            pdf.setFillColorRGB(0.3, 0.35, 0.4)
+            # Dividir en líneas de hasta 72 caracteres para no recortar la descripción del trabajo
+            palabras = f"Trabajo realizado: {desc_srv}".split()
+            linea_actual = ""
+            for palabra in palabras:
+                candidata = f"{linea_actual} {palabra}".strip()
+                if len(candidata) <= 74:
+                    linea_actual = candidata
+                else:
+                    pdf.drawString(1.3 * inch, y, linea_actual)
+                    y -= 11
+                    linea_actual = palabra
+            if linea_actual:
+                pdf.drawString(1.3 * inch, y, linea_actual)
+                y -= 12
+            pdf.setFillColor(colors.black)
+            pdf.setFont("Helvetica", 9)
 
     # Línea separadora y totales
     y -= 8

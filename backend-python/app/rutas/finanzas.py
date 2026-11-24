@@ -17,7 +17,7 @@ from app.esquemas_finanzas import (
     CruceManualEntrada,
     PagoConfirmarEntrada,
 )
-from app.modelos import RolUsuario, TasaDiaria, Usuario
+from app.modelos import RolUsuario, TasaDiaria, TipoArticulo, Usuario
 from app.modelos_finanzas import (
     CierreMensual,
     CuentaPorCobrar,
@@ -32,6 +32,7 @@ from app.modelos_finanzas import (
     TipoDocumentoPago,
     TipoMovimientoPago,
     Venta,
+    VentaDetalle,
 )
 from app.modelos_taller import (
     CasoPostventa,
@@ -483,21 +484,46 @@ def calcular_reporte_comisiones(
     usuarios = bd.query(Usuario).filter(Usuario.activo.is_(True)).all()
     usuarios_map = {u.id: u for u in usuarios}
 
-    consulta_ventas = bd.query(Venta).filter(
-        Venta.estado != EstadoVenta.ANULADA.value,
-        extract("month", Venta.fecha) == mes,
-        extract("year", Venta.fecha) == anio,
+    consulta_ventas = (
+        bd.query(Venta)
+        .options(joinedload(Venta.detalles).joinedload(VentaDetalle.articulo))
+        .filter(
+            Venta.estado != EstadoVenta.ANULADA.value,
+            extract("month", Venta.fecha) == mes,
+            extract("year", Venta.fecha) == anio,
+        )
     )
     if sucursal_id is not None:
         consulta_ventas = consulta_ventas.filter(Venta.sucursal_id == sucursal_id)
     ventas = consulta_ventas.all()
 
+    # Todas las comisiones se calculan estrictamente sobre Precio Promo USD:
+    # - Productos/equipos/componentes -> 1% al asesor_id (0% si Tienda) y 0.5% al LIDER sobre ventas de otros asesores.
+    # - Servicio Técnico / Mano de Obra (TipoArticulo.SERVICIO) -> 50% al tecnico_id (excluido de 1% asesor y 0.5% líder).
     ventas_por_asesor: dict[int, Decimal] = {}
     total_ventas_con_asesor = Decimal("0")
+    st_por_tecnico: dict[int, Decimal] = {}
+
     for v in ventas:
-        if v.asesor_id is not None:
-            ventas_por_asesor[v.asesor_id] = ventas_por_asesor.get(v.asesor_id, Decimal("0")) + v.total_promo_usd
-            total_ventas_con_asesor += v.total_promo_usd
+        if not v.detalles:
+            if v.asesor_id is not None:
+                ventas_por_asesor[v.asesor_id] = ventas_por_asesor.get(v.asesor_id, Decimal("0")) + v.total_promo_usd
+                total_ventas_con_asesor += v.total_promo_usd
+            continue
+
+        for det in v.detalles:
+            subtotal_promo = det.precio_promo_usd * Decimal(det.cantidad)
+            es_servicio = det.articulo is not None and det.articulo.tipo == TipoArticulo.SERVICIO.value
+            if es_servicio:
+                if v.tecnico_id is not None:
+                    com_50 = (subtotal_promo * Decimal("0.50")).quantize(
+                        Decimal("0.01"), rounding=ROUND_HALF_UP
+                    )
+                    st_por_tecnico[v.tecnico_id] = st_por_tecnico.get(v.tecnico_id, Decimal("0")) + com_50
+            else:
+                if v.asesor_id is not None:
+                    ventas_por_asesor[v.asesor_id] = ventas_por_asesor.get(v.asesor_id, Decimal("0")) + subtotal_promo
+                    total_ventas_con_asesor += subtotal_promo
 
     # Preparaciones y servicios técnicos del mes
     preparaciones = (
@@ -528,7 +554,6 @@ def calcular_reporte_comisiones(
         )
         .all()
     )
-    st_por_tecnico: dict[int, Decimal] = {}
     for c in casos_st:
         if c.tecnico_id is None:
             continue

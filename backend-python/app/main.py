@@ -5,6 +5,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy import inspect, text
 
 from app.base_datos import Base, SesionLocal, motor
 from app.configuracion import configuracion
@@ -16,9 +17,25 @@ from app.semilla import ejecutar_semilla
 from app.semilla_finanzas import ejecutar_semilla_finanzas
 
 
+def asegurar_columnas_compatibles() -> None:
+    """Agrega columnas nuevas de forma idempotente en PostgreSQL y SQLite sin perder datos."""
+    inspector = inspect(motor)
+    if inspector.has_table("ventas_detalle"):
+        columnas = {col["name"] for col in inspector.get_columns("ventas_detalle")}
+        if "descripcion_servicio" not in columnas:
+            with motor.begin() as conexion:
+                conexion.execute(
+                    text(
+                        "ALTER TABLE ventas_detalle "
+                        "ADD COLUMN descripcion_servicio TEXT NOT NULL DEFAULT ''"
+                    )
+                )
+
+
 @asynccontextmanager
 async def ciclo_vida(_app: FastAPI) -> AsyncIterator[None]:
     Base.metadata.create_all(bind=motor)
+    asegurar_columnas_compatibles()
     bd = SesionLocal()
     try:
         ejecutar_semilla(bd)

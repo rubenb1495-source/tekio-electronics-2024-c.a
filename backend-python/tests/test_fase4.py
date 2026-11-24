@@ -461,3 +461,186 @@ def test_venta_cashea_con_inicial_divisas_aplica_precio_regular_estricto(cliente
     assert len(cxc_cashea) == 1
     assert cxc_cashea[0]["monto_original_usd"] == 160.0
     assert cxc_cashea[0]["saldo_pendiente_usd"] == 160.0
+
+
+def test_servicio_tecnico_combinado_con_repuesto_tecnico_obligatorio_y_comisiones_promo(
+    cliente: TestClient,
+) -> None:
+    cab_dir, _ = login(cliente, "direccion@tekioelectronics.com", "Tekio2026!")
+    cab_asesora, _ = crear_usuario_rol(
+        cliente, cab_dir, "Asesora ST", "asesora_st@tekioelectronics.com", "ASESORA", 2
+    )
+    cab_lider, lider_u = crear_usuario_rol(
+        cliente, cab_dir, "Líder ST", "lider_st@tekioelectronics.com", "LIDER", 2
+    )
+    cab_tecnico, tecnico_u = crear_usuario_rol(
+        cliente, cab_dir, "Técnico Luis", "tecnico_st@tekioelectronics.com", "TECNICO", 2
+    )
+    hoy = obtener_fecha_hoy()
+
+    # 1. Endpoint GET /api/usuarios/operativos accesible para ASESORA
+    resp_ops = cliente.get("/api/usuarios/operativos", headers=cab_asesora)
+    assert resp_ops.status_code == 200, resp_ops.text
+    ops = resp_ops.json()
+    assert any(u["id"] == tecnico_u["id"] and u["rol"] == "TECNICO" for u in ops)
+    assert set(ops[0].keys()) == {"id", "nombre", "rol", "sucursal_id"}
+
+    # 2. Tasa del día: BCV = 60, USDT = 72, Recargo = 30%
+    cliente.post(
+        "/api/tasas",
+        headers=cab_dir,
+        json={
+            "fecha": hoy.isoformat(),
+            "tasa_bcv": 60.0,
+            "tasa_usdt": 72.0,
+            "recargo_porcentaje": 30.0,
+        },
+    )
+
+    sucs = {s["nombre"]: s["id"] for s in cliente.get("/api/sucursales", headers=cab_dir).json()}
+    central_id = sucs["Tekio central"]
+    insts = {
+        i["nombre"]: i["id"]
+        for i in cliente.get("/api/finanzas/instrumentos", headers=cab_dir).json()
+    }
+
+    # 3. Crear servicio técnico (SER-REPARACION) y componente (BAT-33YDH) en catálogo
+    resp_srv = cliente.post(
+        "/api/catalogo",
+        headers=cab_dir,
+        json={
+            "sku": "SER-REPARACION",
+            "descripcion": "Reparación de hardware / placa",
+            "tipo": "SERVICIO",
+            "categoria": "Taller",
+            "precio_promo_usd": 25.0,
+        },
+    )
+    assert resp_srv.status_code == 201, resp_srv.text
+    srv_id = resp_srv.json()["id"]
+
+    resp_bat = cliente.post(
+        "/api/catalogo",
+        headers=cab_dir,
+        json={
+            "sku": "BAT-33YDH",
+            "descripcion": "Batería Dell 33YDH",
+            "tipo": "COMPONENTE",
+            "categoria": "Baterías",
+            "precio_promo_usd": 60.0,
+            "costo_referencia_usd": 30.0,
+        },
+    )
+    assert resp_bat.status_code == 201, resp_bat.text
+    bat_id = resp_bat.json()["id"]
+
+    # Cargar stock de 2 baterías en Tekio central vía compra nacional
+    resp_cmp = cliente.post(
+        "/api/logistica/compras",
+        headers=cab_dir,
+        json={
+            "origen": "NACIONAL",
+            "fecha": hoy.isoformat(),
+            "llega_preparada": True,
+            "componentes": [
+                {
+                    "articulo_id": bat_id,
+                    "ubicacion_id": central_id,
+                    "cantidad": 2,
+                    "costo_unitario_usd": 30.0,
+                }
+            ],
+        },
+    )
+    assert resp_cmp.status_code == 201, resp_cmp.text
+
+    # 4. Intentar vender servicio técnico SIN tecnico_id -> 400
+    resp_sin_tec = cliente.post(
+        "/api/ventas",
+        headers=cab_asesora,
+        json={
+            "sucursal_id": central_id,
+            "asesor_id": tecnico_u["id"],
+            "items": [
+                {
+                    "articulo_id": srv_id,
+                    "cantidad": 1,
+                    "precio_pactado_usd": 40.0,
+                    "descripcion_servicio": "Cambio de pin de carga",
+                }
+            ],
+            "pagos": [{"instrumento_id": insts["Efectivo divisas"], "monto_moneda_origen": 40.0}],
+        },
+    )
+    assert resp_sin_tec.status_code == 400
+    assert "Técnico" in resp_sin_tec.json()["detail"]
+
+    # 5. Venta combinada: $40 Promo mano de obra + $60 Promo batería = $100 Promo / $130 Regular (pagada en Bs: 7,800 Bs)
+    resp_ok = cliente.post(
+        "/api/ventas",
+        headers=cab_asesora,
+        json={
+            "sucursal_id": central_id,
+            "asesor_id": tecnico_u["id"],
+            "tecnico_id": tecnico_u["id"],
+            "items": [
+                {
+                    "articulo_id": srv_id,
+                    "cantidad": 1,
+                    "precio_pactado_usd": 40.0,
+                    "descripcion_servicio": "Cambio de pin de carga y mantenimiento preventivo",
+                },
+                {
+                    "articulo_id": bat_id,
+                    "cantidad": 1,
+                },
+            ],
+            "pagos": [
+                {
+                    "instrumento_id": insts["Pago móvil Mercantil (Bs)"],
+                    "monto_moneda_origen": 7800.0,
+                    "referencia": "PM-ST-01",
+                }
+            ],
+        },
+    )
+    assert resp_ok.status_code == 201, resp_ok.text
+    vta = resp_ok.json()
+    assert vta["estado"] == "CUADRADA"
+    assert vta["total_promo_usd"] == 100.0
+    assert vta["total_regular_usd"] == 130.0
+    assert vta["tecnico"] == "Técnico Luis"
+    det_srv = next(d for d in vta["detalles"] if d["es_servicio_tecnico"])
+    assert det_srv["descripcion_servicio"] == "Cambio de pin de carga y mantenimiento preventivo"
+
+    # PDF se genera sin errores con descripcion_servicio
+    resp_pdf = cliente.get(f"/api/ventas/{vta['id']}/nota-pdf", headers=cab_asesora)
+    assert resp_pdf.status_code == 200
+    assert resp_pdf.content.startswith(b"%PDF-")
+
+    # Stock de BAT-33YDH bajó de 2 a 1
+    kardex = cliente.get(
+        f"/api/logistica/inventario/kardex?sucursal_id={central_id}", headers=cab_dir
+    ).json()
+    fila_bat = next(k for k in kardex["saldos"] if k["articulo_id"] == bat_id)
+    assert fila_bat["stock_actual"] == 1
+
+    # 6. Comisiones estrictamente sobre Precio Promo USD (NO sobre $130 Regular):
+    # - Técnico Luis: 50% de $40 servicio ($20.00) + 1% de $60 batería como asesor ($0.60) = $20.60
+    # - Líder ST: 0.5% de $60 batería ($0.30) — excluye la línea de servicio técnico
+    com = cliente.get(
+        f"/api/finanzas/comisiones?mes={hoy.month}&anio={hoy.year}", headers=cab_dir
+    ).json()
+    com_map = {c["usuario_id"]: c for c in com["comisiones"]}
+    assert com_map[tecnico_u["id"]]["comision_servicios_50_usd"] == 20.0
+    assert com_map[tecnico_u["id"]]["comision_ventas_1_usd"] == 0.6
+    assert com_map[tecnico_u["id"]]["total_comision_usd"] == 20.6
+    assert com_map[lider_u["id"]]["comision_lider_05_usd"] == 0.3
+
+    # 7. Resumen del técnico refleja 50% servicio POS + 1% ventas como asesor
+    resumen_tec = cliente.get(
+        f"/api/taller/resumen-tecnico?mes={hoy.month}&anio={hoy.year}", headers=cab_tecnico
+    ).json()
+    assert resumen_tec["comision_servicios_usd"] == 20.0
+    assert resumen_tec["comision_asesor_usd"] == 0.6
+    assert resumen_tec["total_mes_usd"] == 20.6

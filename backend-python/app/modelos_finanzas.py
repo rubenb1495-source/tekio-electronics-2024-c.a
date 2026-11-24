@@ -135,6 +135,7 @@ class VentaDetalle(Base):
     equipo_id: Mapped[int | None] = mapped_column(ForeignKey("equipos.id"), nullable=True)
     articulo_id: Mapped[int | None] = mapped_column(ForeignKey("catalogo_articulos.id"), nullable=True)
     descripcion: Mapped[str] = mapped_column(String(255), default="", nullable=False)
+    descripcion_servicio: Mapped[str] = mapped_column(Text, default="", nullable=False)
     cantidad: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
     precio_promo_usd: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=Decimal("0"), nullable=False)
     precio_regular_usd: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=Decimal("0"), nullable=False)
