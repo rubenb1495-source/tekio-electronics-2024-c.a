@@ -3,12 +3,16 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertCircle,
+  Check,
   CheckCircle2,
   ChevronDown,
   Copy,
+  ExternalLink,
   FileDown,
   Gift,
+  MessageSquare,
   Plus,
+  Printer,
   Search,
   ShoppingCart,
   Trash2,
@@ -23,6 +27,7 @@ import {
 } from "@/lib/whatsapp";
 import {
   ErrorApi,
+  abrirPdfEnPestanaApi,
   descargarPdfApi,
   formatearBs,
   formatearUsd,
@@ -172,6 +177,9 @@ export default function PaginaNuevaVentaPOS() {
   const [guardando, setGuardando] = useState(false);
   const [ventaCreada, setVentaCreada] = useState<VentaResumen | null>(null);
   const [copiado, setCopiado] = useState(false);
+  const [abriendoPdf, setAbriendoPdf] = useState(false);
+  const inicioPosRef = useRef<HTMLDivElement | null>(null);
+  const panelPostVentaRef = useRef<HTMLDivElement | null>(null);
 
   // Cerrar los desplegables al hacer clic fuera
   useEffect(() => {
@@ -657,6 +665,7 @@ export default function PaginaNuevaVentaPOS() {
 
   const registrarVenta = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
+    if (guardando || ventaCreada) return;
     setError(null);
     if (carrito.length === 0) {
       setError("Agrega al menos un equipo, repuesto o servicio al carrito.");
@@ -735,22 +744,22 @@ export default function PaginaNuevaVentaPOS() {
         }),
       });
       setVentaCreada(creada);
-      setCotizacionOrigenId(null);
-      setCotizacionNumero(null);
-      setCarrito([]);
-      setNota("");
-      setDelNombre("");
-      setDelTelefono("");
-      setDelDireccion("");
-      setDelReferencia("");
-      setDelZona("");
-      setDelHorario("");
-      setEnvDestinatario("");
-      setEnvCedula("");
-      setEnvTelefono("");
-      setEnvEstadoCiudad("");
-      setEnvAgencia("");
-      setEnvDireccionOficina("");
+      setCopiado(false);
+      // Refrescar equipos disponibles de la sucursal para excluir seriales recién vendidos
+      if (sucursalId) {
+        solicitarApi<EquipoInventario[]>(
+          `/api/logistica/inventario/equipos?sucursal_id=${sucursalId}&estado=LISTO`
+        )
+          .then((lista) => setEquiposListos(lista))
+          .catch(() => {});
+      }
+      // Desplazar suavemente hacia el panel fijo de acciones post-venta
+      setTimeout(() => {
+        panelPostVentaRef.current?.scrollIntoView({
+          behavior: "smooth",
+          block: "start",
+        });
+      }, 80);
     } catch (err) {
       setError(
         err instanceof ErrorApi ? err.message : "No se pudo registrar la venta."
@@ -758,6 +767,105 @@ export default function PaginaNuevaVentaPOS() {
     } finally {
       setGuardando(false);
     }
+  };
+
+  const normalizarTelefonoWa = (telefono?: string | null): string | null => {
+    if (!telefono) return null;
+    const soloDigitos = telefono.replace(/\D/g, "");
+    if (soloDigitos.length < 10) return null;
+    if (soloDigitos.startsWith("0") && soloDigitos.length === 11) {
+      return `58${soloDigitos.slice(1)}`;
+    }
+    if (soloDigitos.length === 10 && soloDigitos.startsWith("4")) {
+      return `58${soloDigitos}`;
+    }
+    return soloDigitos;
+  };
+
+  const abrirNotaParaImprimir = async (venta: VentaResumen) => {
+    setAbriendoPdf(true);
+    setError(null);
+    try {
+      await abrirPdfEnPestanaApi(`/api/ventas/${venta.id}/nota-pdf`);
+    } catch (err) {
+      setError(
+        err instanceof ErrorApi
+          ? err.message
+          : "No se pudo abrir la Nota de Entrega para imprimir."
+      );
+    } finally {
+      setAbriendoPdf(false);
+    }
+  };
+
+  const iniciarNuevaVenta = () => {
+    setVentaCreada(null);
+    setCopiado(false);
+    setError(null);
+    setCarrito([]);
+    setSimulacion(null);
+    setClienteId("");
+    setBusquedaCliente("");
+    setMenuClientesAbierto(false);
+    setEquipoSel("");
+    setBusquedaEquipo("");
+    setMenuEquiposAbierto(false);
+    setArticuloSel("");
+    setBusquedaSku("");
+    setMenuSkuAbierto(false);
+    setServicioDescripcion("");
+    setPanelServicioAbierto(false);
+    setCanalVisita("Tienda");
+    setEntrega("Tienda");
+    setQuedaConSaldo(false);
+    setNota("");
+    setCotizacionOrigenId(null);
+    setCotizacionNumero(null);
+    setDelNombre("");
+    setDelTelefono("");
+    setDelDireccion("");
+    setDelReferencia("");
+    setDelZona("");
+    setDelHorario("");
+    setEnvDestinatario("");
+    setEnvCedula("");
+    setEnvTelefono("");
+    setEnvEmpresa("MRW");
+    setEnvEmpresaOtra("");
+    setEnvEstadoCiudad("");
+    setEnvAgencia("");
+    setEnvDireccionOficina("");
+    setEnvModalidad("Cobro en destino");
+    if (
+      usuario &&
+      (usuario.rol === "ASESORA" ||
+        usuario.rol === "LIDER" ||
+        usuario.rol === "TECNICO")
+    ) {
+      setAsesorId(String(usuario.id));
+    } else {
+      setAsesorId("");
+    }
+    setTecnicoId(usuario && usuario.rol === "TECNICO" ? String(usuario.id) : "");
+    setPagos([
+      {
+        instrumento_id: instrumentos[0] ? String(instrumentos[0].id) : "",
+        monto_moneda_origen: "",
+        referencia: "",
+        parte_pago_serial: "",
+        parte_pago_modelo: "",
+      },
+    ]);
+    setTimeout(() => {
+      if (inicioPosRef.current) {
+        inicioPosRef.current.scrollIntoView({
+          behavior: "smooth",
+          block: "start",
+        });
+      } else {
+        window.scrollTo({ top: 0, behavior: "smooth" });
+      }
+    }, 40);
   };
 
   const copiarWhatsApp = async (venta: VentaResumen) => {
@@ -824,7 +932,7 @@ export default function PaginaNuevaVentaPOS() {
   const usaCasheaEfectivo = simulacion?.usa_cashea || usaCasheaLocal;
 
   return (
-    <div className="space-y-6 min-w-0">
+    <div ref={inicioPosRef} className="space-y-6 min-w-0">
       <div>
         <h2 className="text-2xl font-black text-slate-900 flex items-center gap-2">
           <ShoppingCart className="w-6 h-6 text-[#E85A28] shrink-0" />
@@ -2034,13 +2142,153 @@ export default function PaginaNuevaVentaPOS() {
 
           <button
             type="submit"
-            disabled={guardando || carrito.length === 0}
-            className="w-full py-3 rounded-xl bg-[#E85A28] hover:bg-[#C9461A] disabled:opacity-50 text-white font-black text-sm cursor-pointer"
+            disabled={guardando || carrito.length === 0 || ventaCreada !== null}
+            className="w-full py-3 rounded-xl bg-[#E85A28] hover:bg-[#C9461A] disabled:opacity-50 disabled:cursor-not-allowed text-white font-black text-sm cursor-pointer transition-colors"
           >
-            {guardando ? "Registrando venta..." : "Confirmar y Emitir Nota"}
+            {guardando
+              ? "Registrando venta..."
+              : ventaCreada
+              ? `Nota ${ventaCreada.numero_venta} emitida · Usa el panel inferior`
+              : "Confirmar y Emitir Nota"}
           </button>
         </div>
       </form>
+
+      {/* Panel fijo de Acciones Post-Venta en la parte baja del POS */}
+      {ventaCreada && (() => {
+        const mensajeWa = formatearWhatsAppVenta(ventaCreada);
+        const telefonoWa = normalizarTelefonoWa(ventaCreada.cliente_telefono);
+        const urlWa = telefonoWa
+          ? `https://wa.me/${telefonoWa}?text=${encodeURIComponent(mensajeWa)}`
+          : null;
+
+        return (
+          <section
+            ref={panelPostVentaRef}
+            aria-label="Acciones post-venta"
+            className="bg-white/80 backdrop-blur-md border-2 border-[#E85A28]/50 shadow-[0_12px_36px_rgb(232,90,40,0.08)] rounded-2xl p-5 sm:p-6 space-y-5"
+          >
+            {/* Encabezado de confirmación */}
+            <div className="flex flex-wrap items-start justify-between gap-4 border-b border-neutral-200/80 pb-4">
+              <div className="flex items-start gap-3">
+                <div className="w-11 h-11 rounded-2xl bg-[#FDF0EB] border border-[#E85A28]/30 flex items-center justify-center shrink-0">
+                  <CheckCircle2 className="w-6 h-6 text-[#E85A28]" />
+                </div>
+                <div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="inline-flex items-center px-3 py-1 rounded-full bg-[#E85A28] text-white text-xs font-black tracking-wide">
+                      Nota {ventaCreada.numero_venta}
+                    </span>
+                    <span className="inline-flex items-center px-2.5 py-0.5 rounded-full bg-emerald-50 border border-emerald-200 text-emerald-700 text-xs font-bold">
+                      {ventaCreada.estado}
+                    </span>
+                  </div>
+                  <h3 className="text-lg font-black text-[#191818] mt-1">
+                    ¡Venta registrada correctamente!
+                  </h3>
+                  <p className="text-xs text-neutral-600 mt-0.5">
+                    Cliente: <strong className="text-[#191818]">{ventaCreada.cliente}</strong>
+                    {ventaCreada.cliente_rif ? ` (${ventaCreada.cliente_rif})` : ""} · Total Promo:{" "}
+                    <strong className="tabular-nums text-[#191818]">
+                      {formatearUsd(ventaCreada.total_promo_usd)}
+                    </strong>{" "}
+                    · Regular:{" "}
+                    <strong className="tabular-nums text-[#191818]">
+                      {formatearUsd(ventaCreada.total_regular_usd)}
+                    </strong>
+                  </p>
+                </div>
+              </div>
+
+              {/* Botón + Nueva Venta */}
+              <button
+                type="button"
+                onClick={iniciarNuevaVenta}
+                className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-[#191818] hover:bg-[#2E2D2D] text-white text-xs font-bold transition-colors cursor-pointer shrink-0"
+              >
+                <Plus className="w-4 h-4" />
+                + Nueva Venta
+              </button>
+            </div>
+
+            {/* Acciones principales: Imprimir / Descargar + WhatsApp */}
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
+              {/* Columna izquierda: Impresión y descarga PDF */}
+              <div className="lg:col-span-5 space-y-3">
+                <p className="text-xs font-bold uppercase tracking-wide text-neutral-500">
+                  Nota de Entrega PDF
+                </p>
+                <div className="flex flex-col sm:flex-row lg:flex-col gap-2.5">
+                  <button
+                    type="button"
+                    disabled={abriendoPdf}
+                    onClick={() => void abrirNotaParaImprimir(ventaCreada)}
+                    className="w-full inline-flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-[#E85A28] hover:bg-[#D14D1F] disabled:opacity-60 text-white text-sm font-black shadow-sm transition-colors cursor-pointer"
+                  >
+                    <Printer className="w-4 h-4" />
+                    {abriendoPdf ? "Abriendo PDF..." : "Imprimir Nota"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      void descargarPdfApi(
+                        `/api/ventas/${ventaCreada.id}/nota-pdf`,
+                        `Nota_${ventaCreada.numero_venta}.pdf`
+                      )
+                    }
+                    className="w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl border border-neutral-300 bg-white/90 hover:bg-neutral-50 text-[#191818] text-xs font-bold transition-colors cursor-pointer"
+                  >
+                    <FileDown className="w-4 h-4 text-[#E85A28]" />
+                    Descargar PDF ({ventaCreada.numero_venta})
+                  </button>
+                </div>
+                <p className="text-[11px] text-neutral-500 leading-relaxed">
+                  El botón <strong>Imprimir Nota</strong> abre el documento oficial en una pestaña nueva listo para imprimir sin perder esta pantalla.
+                </p>
+              </div>
+
+              {/* Columna derecha: Vista previa y envío por WhatsApp */}
+              <div className="lg:col-span-7 space-y-2.5 min-w-0">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <p className="text-xs font-bold uppercase tracking-wide text-neutral-500 flex items-center gap-1.5">
+                    <MessageSquare className="w-3.5 h-3.5 text-emerald-600" />
+                    Mensaje formateado para WhatsApp
+                  </p>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => void copiarWhatsApp(ventaCreada)}
+                      className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition-colors cursor-pointer"
+                    >
+                      {copiado ? (
+                        <Check className="w-3.5 h-3.5" />
+                      ) : (
+                        <Copy className="w-3.5 h-3.5" />
+                      )}
+                      {copiado ? "¡Copiado!" : "Copiar para WhatsApp"}
+                    </button>
+                    {urlWa && (
+                      <a
+                        href={urlWa}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl border border-emerald-300 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 text-xs font-bold transition-colors"
+                      >
+                        <ExternalLink className="w-3.5 h-3.5" />
+                        Abrir en WhatsApp
+                      </a>
+                    )}
+                  </div>
+                </div>
+
+                <div className="max-h-56 overflow-y-auto rounded-xl border border-neutral-200/90 bg-neutral-50/90 p-3.5 text-xs font-mono text-[#191818] whitespace-pre-wrap leading-relaxed select-all">
+                  {mensajeWa}
+                </div>
+              </div>
+            </div>
+          </section>
+        );
+      })()}
 
       {/* Modal + Nuevo Cliente (Natural / Jurídico) */}
       {modalCliente && (
@@ -2214,54 +2462,6 @@ export default function PaginaNuevaVentaPOS() {
                 </button>
               </div>
             </form>
-          </div>
-        </div>
-      )}
-
-      {/* Modal de éxito: PDF + WhatsApp */}
-      {ventaCreada && (
-        <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-xl space-y-4 text-center">
-            <CheckCircle2 className="w-12 h-12 text-emerald-600 mx-auto" />
-            <h3 className="text-xl font-black text-slate-900">
-              ¡Venta {ventaCreada.numero_venta} registrada!
-            </h3>
-            <p className="text-sm text-slate-600">
-              Estado: <strong>{ventaCreada.estado}</strong> · Total Promo:{" "}
-              <strong>{formatearUsd(ventaCreada.total_promo_usd)}</strong> ·
-              Regular:{" "}
-              <strong>{formatearUsd(ventaCreada.total_regular_usd)}</strong>
-            </p>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-2">
-              <button
-                type="button"
-                onClick={() =>
-                  void descargarPdfApi(
-                    `/api/ventas/${ventaCreada.id}/nota-pdf`,
-                    `Nota_${ventaCreada.numero_venta}.pdf`
-                  )
-                }
-                className="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-[#E85A28] text-white text-xs font-bold cursor-pointer"
-              >
-                <FileDown className="w-4 h-4" />
-                Descargar Nota PDF
-              </button>
-              <button
-                type="button"
-                onClick={() => copiarWhatsApp(ventaCreada)}
-                className="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-emerald-600 text-white text-xs font-bold cursor-pointer"
-              >
-                <Copy className="w-4 h-4" />
-                {copiado ? "¡Copiado!" : "Copiar WhatsApp"}
-              </button>
-            </div>
-            <button
-              type="button"
-              onClick={() => setVentaCreada(null)}
-              className="w-full py-2 rounded-xl border border-slate-300 text-xs font-semibold cursor-pointer"
-            >
-              Registrar otra venta
-            </button>
           </div>
         </div>
       )}

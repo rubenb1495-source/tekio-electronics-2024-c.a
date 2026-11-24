@@ -173,6 +173,36 @@ export async function descargarPdfApi(
   window.URL.revokeObjectURL(url);
 }
 
+export async function abrirPdfEnPestanaApi(ruta: string): Promise<void> {
+  const token = obtenerToken();
+  const cabeceras = new Headers();
+  if (token) {
+    cabeceras.set("Authorization", `Bearer ${token}`);
+  }
+  const respuesta = await fetch(`${URL_BASE_API}${ruta}`, {
+    headers: cabeceras,
+  });
+  if (!respuesta.ok) {
+    throw new ErrorApi(
+      "No se pudo abrir el PDF de la Nota de Entrega.",
+      respuesta.status
+    );
+  }
+  const blob = await respuesta.blob();
+  const url = window.URL.createObjectURL(blob);
+  const ventana = window.open(url, "_blank", "noopener,noreferrer");
+  if (!ventana) {
+    const enlace = document.createElement("a");
+    enlace.href = url;
+    enlace.target = "_blank";
+    enlace.rel = "noopener noreferrer";
+    document.body.appendChild(enlace);
+    enlace.click();
+    enlace.remove();
+  }
+  setTimeout(() => window.URL.revokeObjectURL(url), 60000);
+}
+
 export function formatearUsd(valor: number | null | undefined): string {
   if (valor === null || valor === undefined || Number.isNaN(valor)) return "—";
   return `$${valor.toLocaleString("es-VE", {
