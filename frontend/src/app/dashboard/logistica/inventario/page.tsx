@@ -12,6 +12,7 @@ import {
   XCircle,
 } from "lucide-react";
 import { usarSesion } from "@/contexto/SesionContexto";
+import BarraListaPrecios from "@/components/BarraListaPrecios";
 import {
   ErrorApi,
   formatearUsd,
@@ -209,6 +210,9 @@ export default function PaginaInventario() {
           </button>
         )}
       </div>
+
+      {/* Lista de precios exportable (solo LISTO, sin costos) */}
+      <BarraListaPrecios sucursalInicialId={filtroSucursal} />
 
       {/* Pestañas */}
       <div className="flex flex-wrap gap-2 border-b border-slate-200 pb-2">

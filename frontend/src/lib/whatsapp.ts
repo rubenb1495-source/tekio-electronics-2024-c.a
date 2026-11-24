@@ -1,6 +1,11 @@
 import { formatearBs, formatearUsd } from "@/servicios/api";
 import type { PagoBandeja, VentaResumen } from "@/tipos/finanzas";
 import type { TrasladoResumen } from "@/tipos/logistica";
+import type {
+  CotizacionResumen,
+  DevolucionGarantiaResumen,
+  ListaPreciosRespuesta,
+} from "@/tipos/operaciones";
 
 /**
  * Copia texto al portapapeles con fallback seguro para navegadores sin Clipboard API.
@@ -278,5 +283,164 @@ export function formatearWhatsAppTraslado(traslado: TrasladoResumen): string {
     lineas.push("", `📝 *Observaciones:* ${traslado.nota.trim()}`);
   }
 
+  return lineas.join("\n");
+}
+
+const ETIQUETAS_DEVOLUCION: Record<string, string> = {
+  CAMBIO_IGUAL: "Cambio por Equipo Igual",
+  GARANTIA_COMPONENTE: "Garantía de Componente / Taller",
+  CAMBIO_UPGRADE: "Cambio con Upgrade",
+  CAMBIO_DOWNGRADE: "Cambio con Downgrade",
+  REEMBOLSO_TOTAL: "Reembolso Total",
+};
+
+/**
+ * 4. Mensaje WhatsApp para Devoluciones, Cambios y Garantías (nunca expone costos internos).
+ */
+export function formatearWhatsAppDevolucion(
+  dev: DevolucionGarantiaResumen
+): string {
+  const lineas: string[] = [
+    `🔄 *TEKIO ELECTRONICS · ${dev.numero_operacion}*`,
+    `📋 Resolución: *${ETIQUETAS_DEVOLUCION[dev.tipo_resolucion] || dev.tipo_resolucion}*`,
+    `📅 Fecha: ${dev.fecha} · Venta original: *${dev.numero_venta || "N/A"}*`,
+    `👤 Cliente: ${dev.cliente}${dev.cliente_telefono ? ` · Tel: ${dev.cliente_telefono}` : ""}`,
+    `🏪 Sucursal: ${dev.sucursal || "Tekio central"} · Autorizado por: ${dev.autorizado_por || "Tekio"}`,
+    "",
+  ];
+
+  if (dev.equipo_origen_serial) {
+    lineas.push(
+      `📥 *Equipo recibido:* ${dev.equipo_origen_modelo || "Equipo"} · Serial: \`${dev.equipo_origen_serial}\` (Reingreso: ${dev.estado_reingreso_origen})`
+    );
+  }
+  if (dev.equipo_destino_serial) {
+    lineas.push(
+      `📤 *Equipo entregado:* ${dev.equipo_destino_modelo || "Equipo"} · Serial: \`${dev.equipo_destino_serial}\``
+    );
+  }
+  if (dev.caso_taller_numero) {
+    lineas.push(`🔧 *Caso Taller (Garantía):* ${dev.caso_taller_numero}`);
+  }
+  if (dev.articulo_repuesto_descripcion) {
+    lineas.push(
+      `🧩 *Repuesto cubierto:* ${dev.articulo_repuesto_descripcion} ($0.00 al cliente)`
+    );
+  }
+
+  if (dev.tipo_resolucion === "CAMBIO_IGUAL" || dev.tipo_resolucion === "GARANTIA_COMPONENTE") {
+    lineas.push("💵 *Diferencia:* $0.00 (Cubierto por garantía Tekio)");
+  } else if (dev.tipo_resolucion === "CAMBIO_UPGRADE") {
+    lineas.push(
+      `💵 *Diferencia abonada:* ${formatearUsd(Math.abs(dev.diferencia_usd))}${dev.instrumento ? ` · ${dev.instrumento}` : ""}${dev.referencia_pago ? ` · Ref: ${dev.referencia_pago}` : ""}`
+    );
+  } else if (dev.tipo_resolucion === "CAMBIO_DOWNGRADE") {
+    lineas.push(
+      dev.dejar_saldo_favor
+        ? `💳 *Saldo a favor del cliente:* ${formatearUsd(Math.abs(dev.diferencia_usd))}`
+        : `💸 *Diferencia reembolsada:* ${formatearUsd(Math.abs(dev.diferencia_usd))}${dev.instrumento ? ` · ${dev.instrumento}` : ""}`
+    );
+  } else if (dev.tipo_resolucion === "REEMBOLSO_TOTAL") {
+    lineas.push(
+      `💸 *Reembolso total:* ${formatearUsd(Math.abs(dev.diferencia_usd))}${dev.instrumento ? ` · ${dev.instrumento}` : ""}${dev.referencia_pago ? ` · Ref: ${dev.referencia_pago}` : ""}`
+    );
+  }
+
+  if (dev.motivo) {
+    lineas.push("", `📝 *Motivo:* ${dev.motivo}`);
+  }
+  return lineas.join("\n");
+}
+
+/**
+ * 5. Lista de Precios para WhatsApp (solo equipos LISTO, sin costos internos).
+ */
+export function formatearWhatsAppListaPrecios(
+  lista: ListaPreciosRespuesta
+): string {
+  const lineas: string[] = [
+    `💻 *TEKIO ELECTRONICS · LISTA DE EQUIPOS DISPONIBLES*`,
+    `📅 Fecha: ${lista.fecha_emision} · 🏪 ${lista.sucursal}`,
+    ...(lista.tasa_bcv > 0
+      ? [`💱 Tasa BCV ref.: ${formatearBs(lista.tasa_bcv)}`]
+      : []),
+    "",
+  ];
+
+  if (lista.items.length === 0) {
+    lineas.push("_Actualmente no hay equipos disponibles para esta sucursal._");
+  } else {
+    for (const item of lista.items) {
+      const bsTxt =
+        item.precio_bs && item.precio_bs > 0
+          ? ` (${formatearBs(item.precio_bs)})`
+          : "";
+      lineas.push(
+        `• *${item.modelo}* (${item.disponibles} disp.)\n  💵 Divisas: *${formatearUsd(item.precio_divisas_usd)}* | Bs/Regular: ${formatearUsd(item.precio_regular_usd)}${bsTxt}`
+      );
+    }
+  }
+
+  lineas.push(
+    "",
+    "🛡️ _Todos nuestros equipos incluyen 180 días de garantía Tekio Electronics._",
+    "📲 WhatsApp: +58 424-4152658 · Valencia, Edo. Carabobo"
+  );
+  return lineas.join("\n");
+}
+
+/**
+ * 6. Mensaje WhatsApp para Cotizaciones (sin costos internos).
+ */
+export function formatearWhatsAppCotizacion(cot: CotizacionResumen): string {
+  const esDivisas = cot.modalidad_precio === "DIVISAS";
+  const esCashea = cot.modalidad_precio === "CASHEA";
+  const esJuridico =
+    (cot.cliente_tipo_persona || "NATURAL").toUpperCase() === "JURIDICO";
+  const etiquetaDoc = esJuridico ? "RIF" : "Cédula de Identidad";
+
+  const lineas: string[] = [
+    `📋 *TEKIO ELECTRONICS · COTIZACIÓN ${cot.numero_cotizacion}*`,
+    `📅 Emisión: ${cot.fecha} · ⏳ Vigencia: ${cot.vigencia_horas}h`,
+    `👤 Cliente: ${cot.cliente}${cot.cliente_rif ? ` · ${etiquetaDoc}: ${cot.cliente_rif}` : ""}`,
+    `🏪 Sucursal: ${cot.sucursal || "Tekio central"} · 🤝 Asesor: ${cot.asesor || "Tienda"}`,
+    "",
+    "📦 *Detalle cotizado:*",
+  ];
+
+  for (const d of cot.detalles) {
+    const unit = esDivisas ? d.precio_promo_usd : d.precio_regular_usd;
+    const sub = unit * d.cantidad;
+    const obsTxt = unit === 0 ? " *[OBSEQUIO]*" : ` — ${formatearUsd(sub)}`;
+    lineas.push(`• ${d.cantidad}x ${d.descripcion}${obsTxt}`);
+    if (d.descripcion_servicio) {
+      lineas.push(`  ↳ _${d.descripcion_servicio}_`);
+    }
+  }
+
+  const totalUsd = esDivisas ? cot.total_promo_usd : cot.total_regular_usd;
+  lineas.push(
+    "",
+    `💵 *Monto Total:* *${formatearUsd(totalUsd)} USD*` +
+      (!esDivisas && cot.total_regular_bs > 0
+        ? ` (≈ *${formatearBs(cot.total_regular_bs)}* a tasa BCV ${formatearBs(cot.tasa_bcv_snapshot)})`
+        : "")
+  );
+
+  if (esCashea) {
+    const ini = totalUsd * 0.4;
+    const cuota = (totalUsd - ini) / 3;
+    lineas.push(
+      `🟣 _Ref. Cashea (40%):_ Inicial aprox. ${formatearUsd(ini)} + 3 cuotas de ${formatearUsd(cuota)}`
+    );
+  }
+
+  if (cot.nota) {
+    lineas.push(`📝 Nota: ${cot.nota}`);
+  }
+  lineas.push(
+    "",
+    "⚠️ _Presupuesto sujeto a disponibilidad de inventario y tasa BCV vigente al momento del pago._"
+  );
   return lineas.join("\n");
 }

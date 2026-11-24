@@ -120,6 +120,8 @@ export default function PaginaNuevaVentaPOS() {
   const [entrega, setEntrega] = useState("Tienda");
   const [quedaConSaldo, setQuedaConSaldo] = useState(false);
   const [nota, setNota] = useState("");
+  const [cotizacionOrigenId, setCotizacionOrigenId] = useState<number | null>(null);
+  const [cotizacionNumero, setCotizacionNumero] = useState<string | null>(null);
 
   // Planilla Delivery
   const [delNombre, setDelNombre] = useState("");
@@ -282,6 +284,72 @@ export default function PaginaNuevaVentaPOS() {
   useEffect(() => {
     void cargarBase();
   }, [cargarBase]);
+
+  // Precargar datos si se llega desde "Convertir a Venta" (?cotizacion_id=ID)
+  useEffect(() => {
+    if (cargando || typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    const cotIdStr = params.get("cotizacion_id");
+    if (!cotIdStr || cotizacionOrigenId !== null) return;
+    const cotIdNum = Number(cotIdStr);
+    if (!Number.isFinite(cotIdNum) || cotIdNum <= 0) return;
+
+    solicitarApi<{
+      id: number;
+      numero_cotizacion: string;
+      sucursal_id: number;
+      cliente_id: number | null;
+      cliente: string;
+      cliente_rif: string;
+      asesor_id: number | null;
+      nota: string;
+      detalles: {
+        equipo_id: number | null;
+        serial: string | null;
+        articulo_id: number | null;
+        descripcion: string;
+        descripcion_servicio: string;
+        cantidad: number;
+        precio_promo_usd: number;
+        precio_pactado_usd: number | null;
+      }[];
+    }>(`/api/cotizaciones/${cotIdNum}`)
+      .then((cot) => {
+        setCotizacionOrigenId(cot.id);
+        setCotizacionNumero(cot.numero_cotizacion);
+        if (cot.sucursal_id) setSucursalId(String(cot.sucursal_id));
+        if (cot.cliente_id) {
+          setClienteId(String(cot.cliente_id));
+          setBusquedaCliente(
+            `${cot.cliente}${cot.cliente_rif ? ` (${cot.cliente_rif})` : ""}`
+          );
+        }
+        if (cot.asesor_id) setAsesorId(String(cot.asesor_id));
+        if (cot.nota) setNota(cot.nota);
+
+        const itemsCargados: ItemCarrito[] = cot.detalles
+          .filter((d) => d.equipo_id !== null || d.articulo_id !== null)
+          .map((d) => ({
+            tipo: d.equipo_id ? "EQUIPO" : "ARTICULO",
+            equipo_id: d.equipo_id ?? undefined,
+            articulo_id: d.articulo_id ?? undefined,
+            etiqueta: d.serial
+              ? `${d.serial} — ${d.descripcion}`
+              : d.descripcion,
+            descripcion_servicio: d.descripcion_servicio || "",
+            cantidad: d.cantidad,
+            precio_promo_usd: d.precio_promo_usd,
+            precio_pactado_usd:
+              d.precio_pactado_usd !== null
+                ? d.precio_pactado_usd
+                : d.precio_promo_usd,
+          }));
+        if (itemsCargados.length > 0) {
+          setCarrito(itemsCargados);
+        }
+      })
+      .catch(() => {});
+  }, [cargando, cotizacionOrigenId]);
 
   useEffect(() => {
     if (!sucursalId) return;
@@ -663,9 +731,12 @@ export default function PaginaNuevaVentaPOS() {
           pagos: pagosValidos,
           queda_con_saldo: quedaConSaldo,
           nota: nota.trim(),
+          cotizacion_id: cotizacionOrigenId,
         }),
       });
       setVentaCreada(creada);
+      setCotizacionOrigenId(null);
+      setCotizacionNumero(null);
       setCarrito([]);
       setNota("");
       setDelNombre("");
@@ -764,6 +835,14 @@ export default function PaginaNuevaVentaPOS() {
           servicio técnico con cálculo en vivo de Precio Promo y Regular.
         </p>
       </div>
+
+      {cotizacionNumero && (
+        <div className="flex items-center justify-between gap-2.5 p-3.5 rounded-xl bg-tekio-naranja-suave/80 border border-tekio-naranja/30 text-sm text-tekio-carbon">
+          <span>
+            Convirtiendo cotización <strong>{cotizacionNumero}</strong> a venta. Al registrar el pago se marcará automáticamente como <strong>CONVERTIDA</strong>.
+          </span>
+        </div>
+      )}
 
       {error && (
         <div className="flex items-center gap-2.5 p-4 rounded-xl bg-red-50 border border-red-200 text-sm text-red-700">

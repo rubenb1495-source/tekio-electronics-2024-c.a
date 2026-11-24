@@ -36,6 +36,7 @@ class EstadoVenta(str, Enum):
     CUADRADA = "CUADRADA"
     CON_SALDO = "CON_SALDO"
     ANULADA = "ANULADA"
+    DEVUELTA = "DEVUELTA"
 
 
 class TipoMovimientoPago(str, Enum):
@@ -52,6 +53,7 @@ class TipoDocumentoPago(str, Enum):
     COMPRA = "COMPRA"
     GUIA = "GUIA"
     PARTE_DE_PAGO = "PARTE_DE_PAGO"
+    DEVOLUCION = "DEVOLUCION"
 
 
 class EstadoVerificacionPago(str, Enum):

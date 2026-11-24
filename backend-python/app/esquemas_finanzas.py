@@ -52,6 +52,7 @@ class VentaCrearEntrada(BaseModel):
     vuelto_usd: Decimal = Field(default=Decimal("0"), ge=0)
     queda_con_saldo: bool = False
     nota: str = Field(default="", max_length=1000)
+    cotizacion_id: int | None = None
 
 
 class VentaAnularEntrada(BaseModel):

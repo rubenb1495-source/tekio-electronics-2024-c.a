@@ -5,6 +5,7 @@ export interface InstrumentoFinanciero {
   tipo_precio: "PROMO" | "REGULAR";
   requiere_verificacion: boolean;
   liquida_en_bs: boolean;
+  activo?: boolean;
 }
 
 export interface SimulacionVenta {
@@ -58,7 +59,7 @@ export interface VentaResumen {
   total_regular_usd: number;
   vuelto_caja_chica_usd?: number;
   creado_en?: string | null;
-  estado: "CUADRADA" | "CON_SALDO" | "ANULADA";
+  estado: "CUADRADA" | "CON_SALDO" | "ANULADA" | "DEVUELTA";
   motivo_anulacion: string;
   nota: string;
   detalles: {

@@ -122,6 +122,7 @@ class Tercero(Base):
     rif_cedula: Mapped[str] = mapped_column(String(40), default="", nullable=False)
     telefono: Mapped[str] = mapped_column(String(40), default="", nullable=False)
     direccion: Mapped[str] = mapped_column(String(255), default="", nullable=False)
+    saldo_favor_usd: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=Decimal("0"), nullable=False)
     activo: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
 
 

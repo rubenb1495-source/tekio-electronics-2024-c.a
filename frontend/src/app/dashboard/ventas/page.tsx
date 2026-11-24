@@ -10,6 +10,7 @@ import {
   FileDown,
   Plus,
   Receipt,
+  RotateCcw,
 } from "lucide-react";
 import BuscadorTabla from "@/componentes/BuscadorTabla";
 import {
@@ -245,18 +246,27 @@ export default function PaginaHistorialVentas() {
                         <Copy className="w-3.5 h-3.5" />
                         {copiadoId === v.id ? "¡Copiado!" : "WhatsApp"}
                       </button>
-                      {v.estado !== "ANULADA" && (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setMotivo("");
-                            setVentaAnular(v);
-                          }}
-                          className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border border-red-300 text-red-700 text-xs font-bold cursor-pointer"
-                        >
-                          <Ban className="w-3.5 h-3.5" />
-                          Anular
-                        </button>
+                      {v.estado !== "ANULADA" && v.estado !== "DEVUELTA" && (
+                        <>
+                          <Link
+                            href={`/dashboard/ventas/devoluciones?venta_id=${v.id}`}
+                            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border border-amber-300 bg-amber-50 text-amber-800 text-xs font-bold"
+                          >
+                            <RotateCcw className="w-3.5 h-3.5" />
+                            Garantía / Cambio
+                          </Link>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setMotivo("");
+                              setVentaAnular(v);
+                            }}
+                            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border border-red-300 text-red-700 text-xs font-bold cursor-pointer"
+                          >
+                            <Ban className="w-3.5 h-3.5" />
+                            Anular
+                          </button>
+                        </>
                       )}
                     </td>
                   </tr>

@@ -112,10 +112,16 @@ export default function DisenoDashboard({
           visible: true,
         },
         {
-          href: "/dashboard/devoluciones",
-          etiqueta: "Devoluciones / NC",
+          href: "/dashboard/cotizaciones",
+          etiqueta: "Cotizaciones",
+          icono: <ClipboardList className="w-4 h-4 shrink-0" />,
+          visible: true,
+        },
+        {
+          href: "/dashboard/ventas/devoluciones",
+          etiqueta: "Devoluciones y Garantías",
           icono: <RotateCcw className="w-4 h-4 shrink-0" />,
-          visible: esLogistica,
+          visible: true,
         },
         {
           href: "/dashboard/tasas",

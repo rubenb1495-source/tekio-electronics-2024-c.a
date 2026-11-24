@@ -488,7 +488,7 @@ def calcular_reporte_comisiones(
         bd.query(Venta)
         .options(joinedload(Venta.detalles).joinedload(VentaDetalle.articulo))
         .filter(
-            Venta.estado != EstadoVenta.ANULADA.value,
+            Venta.estado.notin_([EstadoVenta.ANULADA.value, EstadoVenta.DEVUELTA.value]),
             extract("month", Venta.fecha) == mes,
             extract("year", Venta.fecha) == anio,
         )
@@ -545,6 +545,42 @@ def calcular_reporte_comisiones(
             else:
                 if v.asesor_id is not None:
                     ventas_por_asesor[v.asesor_id] = ventas_por_asesor.get(v.asesor_id, Decimal("0")) + subtotal_promo
+
+    # Ajustes de comisión por cambios Upgrade (+) y Downgrade (-) del período
+    from app.modelos_operaciones import DevolucionGarantia, TipoResolucionDevolucion
+
+    ajustes_dev = (
+        bd.query(DevolucionGarantia)
+        .options(joinedload(DevolucionGarantia.venta))
+        .filter(
+            DevolucionGarantia.tipo_resolucion.in_(
+                [
+                    TipoResolucionDevolucion.CAMBIO_UPGRADE.value,
+                    TipoResolucionDevolucion.CAMBIO_DOWNGRADE.value,
+                ]
+            ),
+            extract("month", DevolucionGarantia.fecha) == mes,
+            extract("year", DevolucionGarantia.fecha) == anio,
+        )
+        .all()
+    )
+    for dev in ajustes_dev:
+        vta = dev.venta
+        if vta is None or vta.asesor_id is None:
+            continue
+        if vta.estado in (EstadoVenta.ANULADA.value, EstadoVenta.DEVUELTA.value):
+            continue
+        dif = dev.diferencia_promo_usd or Decimal("0")
+        ventas_globales_por_asesor[vta.asesor_id] = max(
+            Decimal("0"),
+            ventas_globales_por_asesor.get(vta.asesor_id, Decimal("0")) + dif,
+        )
+        total_ventas_con_asesor_global = max(Decimal("0"), total_ventas_con_asesor_global + dif)
+        if sucursal_id is None or vta.sucursal_id == sucursal_id:
+            ventas_por_asesor[vta.asesor_id] = max(
+                Decimal("0"),
+                ventas_por_asesor.get(vta.asesor_id, Decimal("0")) + dif,
+            )
 
     # Preparaciones y servicios técnicos del mes
     preparaciones = (
@@ -665,7 +701,7 @@ def obtener_tablero_financiero(
         bd.query(Venta)
         .options(joinedload(Venta.detalles), joinedload(Venta.pagos))
         .filter(
-            Venta.estado != EstadoVenta.ANULADA.value,
+            Venta.estado.notin_([EstadoVenta.ANULADA.value, EstadoVenta.DEVUELTA.value]),
             Venta.fecha >= f_desde,
             Venta.fecha <= f_hasta,
         )

@@ -10,6 +10,7 @@ import {
   Tag,
 } from "lucide-react";
 import { usarSesion } from "@/contexto/SesionContexto";
+import BarraListaPrecios from "@/components/BarraListaPrecios";
 import {
   ErrorApi,
   fechaHoyCaracas,
@@ -261,6 +262,9 @@ export default function PaginaCatalogo() {
           </button>
         )}
       </div>
+
+      {/* Lista de precios exportable (solo LISTO, sin costos) */}
+      <BarraListaPrecios categoria={filtroCategoria} />
 
       {/* Buscador y filtros */}
       <div className="bg-white p-4 rounded-2xl border border-slate-200 grid grid-cols-1 md:grid-cols-4 gap-3">

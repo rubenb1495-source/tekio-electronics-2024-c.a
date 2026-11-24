@@ -11,8 +11,9 @@ from app.base_datos import Base, SesionLocal, motor
 from app.configuracion import configuracion
 from app import modelos_finanzas as _modelos_finanzas  # noqa: F401
 from app import modelos_logistica as _modelos_logistica  # noqa: F401
+from app import modelos_operaciones as _modelos_operaciones  # noqa: F401
 from app import modelos_taller as _modelos_taller  # noqa: F401
-from app.rutas import autenticacion, catalogo, finanzas, logistica, taller, tasas, usuarios, ventas
+from app.rutas import autenticacion, catalogo, finanzas, logistica, operaciones, taller, tasas, usuarios, ventas
 from app.semilla import ejecutar_semilla
 from app.semilla_finanzas import ejecutar_semilla_finanzas
 
@@ -37,6 +38,7 @@ def asegurar_columnas_compatibles() -> None:
             ("tipo_documento", "VARCHAR(5) NOT NULL DEFAULT ''"),
             ("documento", "VARCHAR(40) NOT NULL DEFAULT ''"),
             ("direccion", "VARCHAR(255) NOT NULL DEFAULT ''"),
+            ("saldo_favor_usd", "NUMERIC(14, 2) NOT NULL DEFAULT 0"),
         ]
         for nombre_col, ddl_col in nuevas_terceros:
             if nombre_col not in columnas_ter:
@@ -97,3 +99,4 @@ app.include_router(logistica.enrutador)
 app.include_router(taller.enrutador)
 app.include_router(ventas.enrutador)
 app.include_router(finanzas.enrutador)
+app.include_router(operaciones.enrutador)

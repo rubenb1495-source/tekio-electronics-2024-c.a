@@ -913,6 +913,14 @@ def crear_venta(
             )
         )
 
+    if datos.cotizacion_id is not None:
+        from app.modelos_operaciones import Cotizacion, EstadoCotizacion
+
+        cot_origen = bd.query(Cotizacion).filter(Cotizacion.id == datos.cotizacion_id).first()
+        if cot_origen is not None:
+            cot_origen.estado = EstadoCotizacion.CONVERTIDA.value
+            cot_origen.venta_id = venta.id
+
     bd.commit()
 
     venta_completa = (
