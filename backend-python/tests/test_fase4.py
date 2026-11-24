@@ -483,7 +483,8 @@ def test_servicio_tecnico_combinado_con_repuesto_tecnico_obligatorio_y_comisione
     assert resp_ops.status_code == 200, resp_ops.text
     ops = resp_ops.json()
     assert any(u["id"] == tecnico_u["id"] and u["rol"] == "TECNICO" for u in ops)
-    assert set(ops[0].keys()) == {"id", "nombre", "rol", "sucursal_id"}
+    assert any(u["id"] == lider_u["id"] and u["es_lider"] is True for u in ops)
+    assert set(ops[0].keys()) == {"id", "nombre", "rol", "es_lider", "sucursal_id"}
 
     # 2. Tasa del día: BCV = 60, USDT = 72, Recargo = 30%
     cliente.post(
@@ -644,3 +645,204 @@ def test_servicio_tecnico_combinado_con_repuesto_tecnico_obligatorio_y_comisione
     assert resumen_tec["comision_servicios_usd"] == 20.0
     assert resumen_tec["comision_asesor_usd"] == 0.6
     assert resumen_tec["total_mes_usd"] == 20.6
+
+
+def test_obsequio_imputa_costo_al_equipo_descuenta_stock_y_rbac(cliente: TestClient) -> None:
+    cab_dir, _ = login(cliente, "direccion@tekioelectronics.com", "Tekio2026!")
+    cab_asesora, asesora_u = crear_usuario_rol(
+        cliente, cab_dir, "Asesora Obsequio", "asesora_obs@tekioelectronics.com", "ASESORA", 2
+    )
+    hoy = obtener_fecha_hoy()
+
+    sucs = {s["nombre"]: s["id"] for s in cliente.get("/api/sucursales", headers=cab_dir).json()}
+    central_id = sucs["Tekio central"]
+    insts = {
+        i["nombre"]: i["id"]
+        for i in cliente.get("/api/finanzas/instrumentos", headers=cab_dir).json()
+    }
+
+    # Crear cargador ($35 Promo, costo $18) e ingresar 3 unidades + 1 equipo ($350 Promo, costo $200)
+    resp_carg = cliente.post(
+        "/api/catalogo",
+        headers=cab_dir,
+        json={
+            "sku": "CARG-65W-OBS",
+            "descripcion": "Cargador USB-C 65W",
+            "tipo": "ACCESORIO",
+            "categoria": "Cargadores",
+            "precio_promo_usd": 35.0,
+            "costo_referencia_usd": 18.0,
+        },
+    )
+    assert resp_carg.status_code == 201, resp_carg.text
+    carg_id = resp_carg.json()["id"]
+
+    resp_cmp = cliente.post(
+        "/api/logistica/compras",
+        headers=cab_dir,
+        json={
+            "origen": "NACIONAL",
+            "fecha": hoy.isoformat(),
+            "llega_preparada": True,
+            "equipos": [
+                {
+                    "serial": "OBS-EQ-1",
+                    "modelo": "Dell Latitude 7420",
+                    "ubicacion_id": central_id,
+                    "costo_compra_usd": 200.0,
+                    "precio_promo_usd": 350.0,
+                }
+            ],
+            "componentes": [
+                {
+                    "articulo_id": carg_id,
+                    "ubicacion_id": central_id,
+                    "cantidad": 3,
+                    "costo_unitario_usd": 18.0,
+                }
+            ],
+        },
+    )
+    assert resp_cmp.status_code == 201, resp_cmp.text
+    eq = cliente.get("/api/logistica/inventario/equipos?busqueda=OBS-EQ-1", headers=cab_dir).json()[0]
+
+    # Venta con descuento ($350 -> $320) + cargador como OBSEQUIO ($0.00)
+    resp_vta = cliente.post(
+        "/api/ventas",
+        headers=cab_asesora,
+        json={
+            "sucursal_id": central_id,
+            "asesor_id": asesora_u["id"],
+            "items": [
+                {"equipo_id": eq["id"], "precio_pactado_usd": 320.0},
+                {"articulo_id": carg_id, "cantidad": 1, "precio_pactado_usd": 0.0},
+            ],
+            "pagos": [{"instrumento_id": insts["Efectivo divisas"], "monto_moneda_origen": 320.0}],
+        },
+    )
+    assert resp_vta.status_code == 201, resp_vta.text
+    vta_asesora = resp_vta.json()
+    assert vta_asesora["estado"] == "CUADRADA"
+    assert vta_asesora["total_promo_usd"] == 320.0
+    # RBAC: asesora NO ve costos
+    assert "costo_total_usd" not in vta_asesora
+    assert "utilidad_real_usd" not in vta_asesora
+    assert all("costo_total_snapshot_usd" not in d for d in vta_asesora["detalles"])
+
+    # Stock del cargador bajó de 3 a 2
+    kardex = cliente.get(
+        f"/api/logistica/inventario/kardex?sucursal_id={central_id}", headers=cab_dir
+    ).json()
+    fila_carg = next(k for k in kardex["saldos"] if k["articulo_id"] == carg_id)
+    assert fila_carg["stock_actual"] == 2
+
+    # Vista de DIRECCION: costo del cargador ($18) sumado al equipo ($200 -> $218), $0 en cargador, utilidad = $102
+    ventas_dir = cliente.get("/api/ventas", headers=cab_dir).json()
+    vta_dir = next(v for v in ventas_dir if v["id"] == vta_asesora["id"])
+    det_eq = next(d for d in vta_dir["detalles"] if d["equipo_id"] == eq["id"])
+    det_carg = next(d for d in vta_dir["detalles"] if d["articulo_id"] == carg_id)
+    assert det_eq["costo_total_snapshot_usd"] == 218.0
+    assert det_carg["costo_total_snapshot_usd"] == 0.0
+    assert vta_dir["costo_total_usd"] == 218.0
+    assert vta_dir["utilidad_real_usd"] == 102.0
+
+    # Comisión de asesora sobre $320 pactados ($3.20; obsequio $0 genera $0)
+    com = cliente.get(
+        f"/api/finanzas/comisiones?mes={hoy.month}&anio={hoy.year}", headers=cab_dir
+    ).json()
+    com_asesora = next(c for c in com["comisiones"] if c["usuario_id"] == asesora_u["id"])
+    assert com_asesora["ventas_promo_usd"] == 320.0
+    assert com_asesora["comision_ventas_1_usd"] == 3.2
+
+    # Nota PDF válida
+    resp_pdf = cliente.get(f"/api/ventas/{vta_asesora['id']}/nota-pdf", headers=cab_asesora)
+    assert resp_pdf.status_code == 200
+    assert resp_pdf.content.startswith(b"%PDF-")
+
+
+def test_lider_multitienda_comision_en_multiples_sucursales(cliente: TestClient) -> None:
+    cab_dir, _ = login(cliente, "direccion@tekioelectronics.com", "Tekio2026!")
+    sucs = {s["nombre"]: s["id"] for s in cliente.get("/api/sucursales", headers=cab_dir).json()}
+    central_id = sucs["Tekio central"]
+    gran_bazar_id = sucs["Gran Bazar"]
+
+    _, lider_u = crear_usuario_rol(
+        cliente, cab_dir, "Líder Multi", "lider_multi@tekioelectronics.com", "LIDER", central_id
+    )
+    _, asesora_c = crear_usuario_rol(
+        cliente, cab_dir, "Asesora Central", "asesora_c@tekioelectronics.com", "ASESORA", central_id
+    )
+    _, asesora_gb = crear_usuario_rol(
+        cliente, cab_dir, "Asesora GB", "asesora_gb@tekioelectronics.com", "ASESORA", gran_bazar_id
+    )
+    hoy = obtener_fecha_hoy()
+    insts = {
+        i["nombre"]: i["id"]
+        for i in cliente.get("/api/finanzas/instrumentos", headers=cab_dir).json()
+    }
+
+    cliente.post(
+        "/api/logistica/compras",
+        headers=cab_dir,
+        json={
+            "origen": "NACIONAL",
+            "fecha": hoy.isoformat(),
+            "llega_preparada": True,
+            "equipos": [
+                {"serial": "MULTI-1", "modelo": "HP 1", "ubicacion_id": central_id, "costo_compra_usd": 300.0, "precio_promo_usd": 500.0},
+                {"serial": "MULTI-2", "modelo": "HP 2", "ubicacion_id": central_id, "costo_compra_usd": 250.0, "precio_promo_usd": 400.0},
+                {"serial": "MULTI-3", "modelo": "HP 3", "ubicacion_id": gran_bazar_id, "costo_compra_usd": 350.0, "precio_promo_usd": 600.0},
+            ],
+        },
+    )
+    eqs = {
+        e["serial"]: e["id"]
+        for e in cliente.get("/api/logistica/inventario/equipos", headers=cab_dir).json()
+    }
+
+    # Venta 1: Líder $500 en Tekio central -> 1% = $5.00
+    assert cliente.post(
+        "/api/ventas",
+        headers=cab_dir,
+        json={
+            "sucursal_id": central_id,
+            "asesor_id": lider_u["id"],
+            "items": [{"equipo_id": eqs["MULTI-1"]}],
+            "pagos": [{"instrumento_id": insts["Efectivo divisas"], "monto_moneda_origen": 500.0}],
+        },
+    ).status_code == 201
+
+    # Venta 2: Asesora Central $400 en Tekio central -> 0.5% al Líder = $2.00
+    assert cliente.post(
+        "/api/ventas",
+        headers=cab_dir,
+        json={
+            "sucursal_id": central_id,
+            "asesor_id": asesora_c["id"],
+            "items": [{"equipo_id": eqs["MULTI-2"]}],
+            "pagos": [{"instrumento_id": insts["Efectivo divisas"], "monto_moneda_origen": 400.0}],
+        },
+    ).status_code == 201
+
+    # Venta 3: Asesora Gran Bazar $600 en Gran Bazar -> 0.5% al Líder = $3.00
+    assert cliente.post(
+        "/api/ventas",
+        headers=cab_dir,
+        json={
+            "sucursal_id": gran_bazar_id,
+            "asesor_id": asesora_gb["id"],
+            "items": [{"equipo_id": eqs["MULTI-3"]}],
+            "pagos": [{"instrumento_id": insts["Efectivo divisas"], "monto_moneda_origen": 600.0}],
+        },
+    ).status_code == 201
+
+    # Comisiones: Líder suma 1% propio ($5.00) + 0.5% de otras asesoras en AMBAS tiendas ($2.00 + $3.00 = $5.00) = $10.00
+    com = cliente.get(
+        f"/api/finanzas/comisiones?mes={hoy.month}&anio={hoy.year}", headers=cab_dir
+    ).json()
+    com_map = {c["usuario_id"]: c for c in com["comisiones"]}
+    assert com_map[lider_u["id"]]["comision_ventas_1_usd"] == 5.0
+    assert com_map[lider_u["id"]]["comision_lider_05_usd"] == 5.0
+    assert com_map[lider_u["id"]]["total_comision_usd"] == 10.0
+    assert com_map[asesora_c["id"]]["comision_ventas_1_usd"] == 4.0
+    assert com_map[asesora_gb["id"]]["comision_ventas_1_usd"] == 6.0

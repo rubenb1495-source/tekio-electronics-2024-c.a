@@ -152,4 +152,4 @@
 
 ## 8. Última Actualización
 - **Fecha:** 2026-11-24
-- **Último cambio:** Se agregaron selectores de Asesor y Técnico (`GET /api/usuarios/operativos`, técnico obligatorio para Servicio Técnico), módulo rápido de Servicio Técnico / Mano de Obra en POS con monto Promo editable, `descripcion_servicio` en `ventas_detalle` (con migración segura idempotente, PDF y WhatsApp), venta combinada con repuestos/componentes y cálculo exacto de comisiones estrictamente sobre Precio Promo USD (`1%` asesor, `0.5%` líder excluyendo ST, `50%` técnico solo sobre ST + `1%` si vende como asesor + preparaciones). Validado con `pytest` (16/16) y `next build` (24/24).
+- **Último cambio:** Se implementaron precios Promo editables y botón Obsequio (`\$0.00`) en todas las líneas del POS (con `OBSEQUIO (\$0.00)` en PDF/WhatsApp e imputación automática del costo de obsequios al equipo sin duplicar costos en utilidad y manteniendo ocultos los costos por RBAC), `es_lider` multi-tienda en `GET /api/usuarios/operativos` y en `/api/finanzas/comisiones` (`1%` propio + `0.5%` de otros asesores en todas las sucursales). Validado con `pytest` (18/18) y `next build` (24/24).

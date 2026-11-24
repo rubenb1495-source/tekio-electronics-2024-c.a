@@ -484,7 +484,7 @@ def calcular_reporte_comisiones(
     usuarios = bd.query(Usuario).filter(Usuario.activo.is_(True)).all()
     usuarios_map = {u.id: u for u in usuarios}
 
-    consulta_ventas = (
+    consulta_ventas_globales = (
         bd.query(Venta)
         .options(joinedload(Venta.detalles).joinedload(VentaDetalle.articulo))
         .filter(
@@ -493,22 +493,44 @@ def calcular_reporte_comisiones(
             extract("year", Venta.fecha) == anio,
         )
     )
-    if sucursal_id is not None:
-        consulta_ventas = consulta_ventas.filter(Venta.sucursal_id == sucursal_id)
-    ventas = consulta_ventas.all()
+    ventas_globales = consulta_ventas_globales.all()
+    ventas = (
+        [v for v in ventas_globales if v.sucursal_id == sucursal_id]
+        if sucursal_id is not None
+        else ventas_globales
+    )
 
-    # Todas las comisiones se calculan estrictamente sobre Precio Promo USD:
-    # - Productos/equipos/componentes -> 1% al asesor_id (0% si Tienda) y 0.5% al LIDER sobre ventas de otros asesores.
+    # Todas las comisiones se calculan estrictamente sobre Precio Promo USD pactado:
+    # - Productos/equipos/componentes -> 1% al asesor_id (0% si Tienda; obsequios $0 -> $0 comisión).
+    # - Asesor Líder (multi-tienda) -> 1% propio + 0.5% de todos los demás asesores en TODAS las sucursales (excluyendo ST).
     # - Servicio Técnico / Mano de Obra (TipoArticulo.SERVICIO) -> 50% al tecnico_id (excluido de 1% asesor y 0.5% líder).
     ventas_por_asesor: dict[int, Decimal] = {}
-    total_ventas_con_asesor = Decimal("0")
+    ventas_globales_por_asesor: dict[int, Decimal] = {}
+    total_ventas_con_asesor_global = Decimal("0")
     st_por_tecnico: dict[int, Decimal] = {}
+
+    for v in ventas_globales:
+        if not v.detalles:
+            if v.asesor_id is not None:
+                ventas_globales_por_asesor[v.asesor_id] = (
+                    ventas_globales_por_asesor.get(v.asesor_id, Decimal("0")) + v.total_promo_usd
+                )
+                total_ventas_con_asesor_global += v.total_promo_usd
+            continue
+
+        for det in v.detalles:
+            subtotal_promo = det.precio_promo_usd * Decimal(det.cantidad)
+            es_servicio = det.articulo is not None and det.articulo.tipo == TipoArticulo.SERVICIO.value
+            if not es_servicio and v.asesor_id is not None:
+                ventas_globales_por_asesor[v.asesor_id] = (
+                    ventas_globales_por_asesor.get(v.asesor_id, Decimal("0")) + subtotal_promo
+                )
+                total_ventas_con_asesor_global += subtotal_promo
 
     for v in ventas:
         if not v.detalles:
             if v.asesor_id is not None:
                 ventas_por_asesor[v.asesor_id] = ventas_por_asesor.get(v.asesor_id, Decimal("0")) + v.total_promo_usd
-                total_ventas_con_asesor += v.total_promo_usd
             continue
 
         for det in v.detalles:
@@ -523,7 +545,6 @@ def calcular_reporte_comisiones(
             else:
                 if v.asesor_id is not None:
                     ventas_por_asesor[v.asesor_id] = ventas_por_asesor.get(v.asesor_id, Decimal("0")) + subtotal_promo
-                    total_ventas_con_asesor += subtotal_promo
 
     # Preparaciones y servicios técnicos del mes
     preparaciones = (
@@ -571,7 +592,8 @@ def calcular_reporte_comisiones(
 
         com_lider_05 = Decimal("0")
         if u.rol == RolUsuario.LIDER.value:
-            ventas_equipo_resto = max(Decimal("0"), total_ventas_con_asesor - ventas_propias)
+            ventas_propias_global = ventas_globales_por_asesor.get(uid, Decimal("0"))
+            ventas_equipo_resto = max(Decimal("0"), total_ventas_con_asesor_global - ventas_propias_global)
             com_lider_05 = (ventas_equipo_resto * Decimal("0.005")).quantize(
                 Decimal("0.01"), rounding=ROUND_HALF_UP
             )

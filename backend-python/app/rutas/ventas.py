@@ -257,6 +257,7 @@ def evaluar_venta(
                     "precio_regular_usd": reg_unit,
                     "precio_pactado_usd": it.precio_pactado_usd,
                     "costo_total_snapshot_usd": costo_ref * Decimal(it.cantidad),
+                    "costo_unitario_kardex_usd": costo_ref,
                 }
             )
             total_promo += promo_unit * Decimal(it.cantidad)
@@ -266,6 +267,38 @@ def evaluar_venta(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Cada ítem debe indicar equipo_id o articulo_id.",
             )
+
+    # Imputación de costo de obsequios ($0) al equipo principal sin duplicar costos en utilidad total
+    lineas_equipo = [d for d in detalles_calc if d["equipo"] is not None]
+    lineas_obsequio = [
+        d
+        for d in detalles_calc
+        if d["equipo"] is None
+        and d["articulo"] is not None
+        and d["articulo"].tipo != TipoArticulo.SERVICIO.value
+        and d["precio_promo_usd"] == Decimal("0")
+    ]
+    if lineas_equipo and lineas_obsequio:
+        costo_total_obsequios = sum(
+            (d["costo_total_snapshot_usd"] for d in lineas_obsequio), Decimal("0")
+        )
+        if costo_total_obsequios > 0:
+            cantidad_equipos = len(lineas_equipo)
+            cuota_base = (costo_total_obsequios / Decimal(cantidad_equipos)).quantize(
+                Decimal("0.01"), rounding=ROUND_HALF_UP
+            )
+            acumulado = Decimal("0")
+            for idx_eq, det_eq in enumerate(lineas_equipo):
+                if idx_eq == cantidad_equipos - 1:
+                    ajuste = costo_total_obsequios - acumulado
+                else:
+                    ajuste = cuota_base
+                    acumulado += cuota_base
+                det_eq["costo_total_snapshot_usd"] = (
+                    det_eq["costo_total_snapshot_usd"] + ajuste
+                ).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        for det_obs in lineas_obsequio:
+            det_obs["costo_total_snapshot_usd"] = Decimal("0")
 
     # Evaluar pagos mixtos
     pagos_calc: list[dict[str, Any]] = []
@@ -648,9 +681,9 @@ def crear_venta(
                     equipo_id=None,
                     sucursal_id=datos.sucursal_id,
                     cantidad=-det["cantidad"],
-                    costo_unitario_usd=det["costo_total_snapshot_usd"],
+                    costo_unitario_usd=det.get("costo_unitario_kardex_usd", det["costo_total_snapshot_usd"]),
                     documento_ref=numero_venta,
-                    motivo=f"Venta {numero_venta}",
+                    motivo=f"Venta {numero_venta}" + (" (Obsequio)" if det["precio_promo_usd"] == Decimal("0") else ""),
                     usuario_id=usuario_actual.id,
                 )
             )

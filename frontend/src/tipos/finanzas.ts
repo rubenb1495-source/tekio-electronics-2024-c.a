@@ -28,6 +28,7 @@ export interface UsuarioOperativo {
   id: number;
   nombre: string;
   rol: string;
+  es_lider?: boolean;
   sucursal_id: number | null;
 }
 

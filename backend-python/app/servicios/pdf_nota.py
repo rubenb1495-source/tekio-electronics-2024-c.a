@@ -69,11 +69,17 @@ def generar_pdf_nota_entrega(venta: Venta) -> bytes:
     pdf.setFont("Helvetica", 9)
     for det in venta.detalles:
         serial_txt = f" [Serial: {det.equipo.serial}]" if det.equipo else ""
-        desc = f"{det.descripcion}{serial_txt}"[:68]
+        es_obsequio = float(det.precio_promo_usd) == 0.0 and float(det.precio_regular_usd) == 0.0
+        etiqueta_obs = " [OBSEQUIO]" if es_obsequio else ""
+        desc = f"{det.descripcion}{serial_txt}{etiqueta_obs}"[:68]
         pdf.drawString(0.7 * inch, y, str(det.cantidad))
         pdf.drawString(1.2 * inch, y, desc)
-        pdf.drawRightString(ancho - 1.7 * inch, y, f"${float(det.precio_promo_usd):,.2f}")
-        pdf.drawRightString(ancho - 0.7 * inch, y, f"${float(det.precio_regular_usd):,.2f}")
+        if es_obsequio:
+            pdf.drawRightString(ancho - 1.7 * inch, y, "OBSEQUIO ($0.00)")
+            pdf.drawRightString(ancho - 0.7 * inch, y, "$0.00")
+        else:
+            pdf.drawRightString(ancho - 1.7 * inch, y, f"${float(det.precio_promo_usd):,.2f}")
+            pdf.drawRightString(ancho - 0.7 * inch, y, f"${float(det.precio_regular_usd):,.2f}")
         y -= 16
         desc_srv = (getattr(det, "descripcion_servicio", "") or "").strip()
         if desc_srv:
