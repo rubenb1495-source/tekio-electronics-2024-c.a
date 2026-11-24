@@ -42,6 +42,7 @@ export interface VentaResumen {
   cliente: string;
   cliente_rif?: string;
   cliente_telefono?: string;
+  cliente_direccion?: string;
   asesor_id: number | null;
   asesor: string;
   tecnico_id?: number | null;

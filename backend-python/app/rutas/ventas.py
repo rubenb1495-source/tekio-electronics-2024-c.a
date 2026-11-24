@@ -15,7 +15,7 @@ from app.esquemas_finanzas import (
     VentaCrearEntrada,
     VentaSimularEntrada,
 )
-from app.esquemas_logistica import normalizar_serial
+from app.esquemas_logistica import ClienteRapidoCrearEntrada, TerceroSalida, normalizar_serial
 from app.modelos import (
     CatalogoArticulo,
     CatalogoPrecio,
@@ -50,7 +50,10 @@ from app.modelos_logistica import (
     EstadoEquipo,
     MovimientoInventario,
     OrigenCompra,
+    Tercero,
     TipoMovimientoInventario,
+    TipoPersona,
+    TipoTercero,
 )
 from app.rutas.logistica import calcular_stock_componente, generar_correlativo
 from app.rutas.tasas import obtener_fecha_hoy
@@ -439,8 +442,13 @@ def serializar_venta(venta: Venta, incluir_costos: bool) -> dict[str, Any]:
         "fecha": venta.fecha.isoformat(),
         "cliente_id": venta.cliente_id,
         "cliente": venta.cliente.nombre if venta.cliente else "Cliente general",
-        "cliente_rif": venta.cliente.rif_cedula if venta.cliente and venta.cliente.rif_cedula else "",
+        "cliente_rif": (
+            f"{venta.cliente.tipo_documento}-{venta.cliente.documento}"
+            if venta.cliente and venta.cliente.tipo_documento and venta.cliente.documento
+            else (venta.cliente.rif_cedula if venta.cliente and venta.cliente.rif_cedula else "")
+        ),
         "cliente_telefono": venta.cliente.telefono if venta.cliente and venta.cliente.telefono else "",
+        "cliente_direccion": venta.cliente.direccion if venta.cliente and venta.cliente.direccion else "",
         "asesor_id": venta.asesor_id,
         "asesor": venta.asesor.nombre if venta.asesor else "Tienda",
         "tecnico_id": venta.tecnico_id,
@@ -499,6 +507,94 @@ def serializar_venta(venta: Venta, incluir_costos: bool) -> dict[str, Any]:
         datos["costo_total_usd"] = redondear_usd(total_costo)
         datos["utilidad_real_usd"] = redondear_usd(total_real - total_costo)
     return datos
+
+
+@enrutador.get("/clientes", response_model=list[TerceroSalida])
+def listar_clientes(
+    busqueda: str | None = Query(default=None),
+    _usuario: Usuario = Depends(obtener_usuario_actual),
+    bd: Session = Depends(obtener_bd),
+) -> list[TerceroSalida]:
+    """Lista clientes activos (accesible para todos los roles del POS)."""
+    consulta = bd.query(Tercero).filter(
+        Tercero.activo.is_(True),
+        Tercero.tipo == TipoTercero.CLIENTE.value,
+    )
+    if busqueda and busqueda.strip():
+        patron = f"%{busqueda.strip()}%"
+        consulta = consulta.filter(
+            Tercero.nombre.ilike(patron)
+            | Tercero.documento.ilike(patron)
+            | Tercero.rif_cedula.ilike(patron)
+            | Tercero.telefono.ilike(patron)
+        )
+    filas = consulta.order_by(Tercero.nombre.asc()).all()
+    return [TerceroSalida.model_validate(f) for f in filas]
+
+
+def _registrar_cliente_rapido(
+    datos: ClienteRapidoCrearEntrada,
+    bd: Session,
+) -> TerceroSalida:
+    tipo_persona = datos.tipo_persona.value
+    tipo_doc = datos.tipo_documento.value
+    doc_limpio = datos.documento
+
+    if tipo_persona == TipoPersona.NATURAL.value and tipo_doc not in ("V", "E", "P"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Para Persona Natural el tipo de documento debe ser V, E o P.",
+        )
+    if tipo_persona == TipoPersona.JURIDICO.value and tipo_doc not in ("J", "G"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Para Persona Jurídica el tipo de documento debe ser J o G.",
+        )
+
+    rif_completo = f"{tipo_doc}-{doc_limpio}"
+    existente = (
+        bd.query(Tercero)
+        .filter(
+            Tercero.tipo == TipoTercero.CLIENTE.value,
+            (
+                ((Tercero.tipo_documento == tipo_doc) & (Tercero.documento == doc_limpio))
+                | (Tercero.rif_cedula == rif_completo)
+            ),
+        )
+        .first()
+    )
+    if existente is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Ya existe un cliente registrado con el documento {rif_completo}: '{existente.nombre}'.",
+        )
+
+    nuevo = Tercero(
+        nombre=datos.nombre.strip(),
+        tipo=TipoTercero.CLIENTE.value,
+        tipo_persona=tipo_persona,
+        tipo_documento=tipo_doc,
+        documento=doc_limpio,
+        rif_cedula=rif_completo,
+        telefono=datos.telefono.strip(),
+        direccion=datos.direccion.strip(),
+        activo=True,
+    )
+    bd.add(nuevo)
+    bd.commit()
+    bd.refresh(nuevo)
+    return TerceroSalida.model_validate(nuevo)
+
+
+@enrutador.post("/clientes", response_model=TerceroSalida, status_code=status.HTTP_201_CREATED)
+@enrutador.post("/terceros", response_model=TerceroSalida, status_code=status.HTTP_201_CREATED)
+def crear_cliente_rapido(
+    datos: ClienteRapidoCrearEntrada,
+    _usuario: Usuario = Depends(obtener_usuario_actual),
+    bd: Session = Depends(obtener_bd),
+) -> TerceroSalida:
+    """Crea un cliente Natural o Jurídico desde el POS (accesible para ASESORA, LIDER, TECNICO, LOGISTICA, ADMIN y DIRECCION)."""
+    return _registrar_cliente_rapido(datos, bd)
 
 
 @enrutador.post("/ventas/simular")

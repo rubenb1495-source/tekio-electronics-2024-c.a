@@ -864,3 +864,128 @@ def test_lider_multitienda_comision_en_multiples_sucursales(cliente: TestClient)
     assert com_map[lider_u["id"]]["total_comision_usd"] == 10.0
     assert com_map[asesora_c["id"]]["comision_ventas_1_usd"] == 4.0
     assert com_map[asesora_gb["id"]]["comision_ventas_1_usd"] == 6.0
+
+
+def test_creacion_rapida_clientes_natural_juridico_duplicado_409_y_pdf(
+    cliente: TestClient,
+) -> None:
+    cab_dir, _ = login(cliente, "direccion@tekioelectronics.com", "Tekio2026!")
+    cab_asesora, asesora_u = crear_usuario_rol(
+        cliente, cab_dir, "Asesora Clientes", "asesora_cli@tekioelectronics.com", "ASESORA", 2
+    )
+    hoy = obtener_fecha_hoy()
+
+    # 1. Crear cliente Persona Natural (V-) con rol ASESORA -> 201
+    resp_nat = cliente.post(
+        "/api/clientes",
+        headers=cab_asesora,
+        json={
+            "tipo_persona": "NATURAL",
+            "tipo_documento": "V",
+            "documento": "V-24 567 890",
+            "nombre": "María Alejandra Pérez",
+            "telefono": "0414-5551234",
+            "direccion": "Av. Bolívar Norte, Valencia",
+        },
+    )
+    assert resp_nat.status_code == 201, resp_nat.text
+    cli_nat = resp_nat.json()
+    assert cli_nat["tipo_persona"] == "NATURAL"
+    assert cli_nat["tipo_documento"] == "V"
+    assert cli_nat["documento"] == "24567890"
+    assert cli_nat["rif_cedula"] == "V-24567890"
+    assert cli_nat["direccion"] == "Av. Bolívar Norte, Valencia"
+
+    # 2. Intentar duplicar el mismo documento V-24567890 -> 409 Conflict con el nombre del cliente
+    resp_dup = cliente.post(
+        "/api/clientes",
+        headers=cab_asesora,
+        json={
+            "tipo_persona": "NATURAL",
+            "tipo_documento": "V",
+            "documento": "24567890",
+            "nombre": "Otra Persona",
+        },
+    )
+    assert resp_dup.status_code == 409
+    assert "María Alejandra Pérez" in resp_dup.json()["detail"]
+
+    # 3. Crear cliente Persona Jurídica (J-) con rol ASESORA -> 201
+    resp_jur = cliente.post(
+        "/api/terceros",
+        headers=cab_asesora,
+        json={
+            "tipo_persona": "JURIDICO",
+            "tipo_documento": "J",
+            "documento": "501234567",
+            "nombre": "Inversiones Carabobo, C.A.",
+            "telefono": "0241-8229900",
+            "direccion": "Zona Industrial Norte, Galpón 4, Valencia",
+        },
+    )
+    assert resp_jur.status_code == 201, resp_jur.text
+    cli_jur = resp_jur.json()
+    assert cli_jur["tipo_persona"] == "JURIDICO"
+    assert cli_jur["rif_cedula"] == "J-501234567"
+
+    # 4. Registrar venta con el cliente Jurídico y verificar que el PDF incluye documento, teléfono y dirección
+    sucs = {s["nombre"]: s["id"] for s in cliente.get("/api/sucursales", headers=cab_dir).json()}
+    central_id = sucs["Tekio central"]
+    insts = {
+        i["nombre"]: i["id"]
+        for i in cliente.get("/api/finanzas/instrumentos", headers=cab_dir).json()
+    }
+    cliente.post(
+        "/api/logistica/compras",
+        headers=cab_dir,
+        json={
+            "origen": "NACIONAL",
+            "fecha": hoy.isoformat(),
+            "llega_preparada": True,
+            "equipos": [
+                {
+                    "serial": "CLI-PDF-1",
+                    "modelo": "HP EliteBook 840",
+                    "ubicacion_id": central_id,
+                    "costo_compra_usd": 200.0,
+                    "precio_promo_usd": 350.0,
+                }
+            ],
+        },
+    )
+    eq = cliente.get("/api/logistica/inventario/equipos?busqueda=CLI-PDF-1", headers=cab_dir).json()[0]
+
+    resp_vta = cliente.post(
+        "/api/ventas",
+        headers=cab_asesora,
+        json={
+            "sucursal_id": central_id,
+            "cliente_id": cli_jur["id"],
+            "asesor_id": asesora_u["id"],
+            "items": [{"equipo_id": eq["id"]}],
+            "pagos": [{"instrumento_id": insts["Efectivo divisas"], "monto_moneda_origen": 350.0}],
+        },
+    )
+    assert resp_vta.status_code == 201, resp_vta.text
+    vta = resp_vta.json()
+    assert vta["cliente_rif"] == "J-501234567"
+    assert vta["cliente_telefono"] == "0241-8229900"
+    assert vta["cliente_direccion"] == "Zona Industrial Norte, Galpón 4, Valencia"
+
+    resp_pdf = cliente.get(f"/api/ventas/{vta['id']}/nota-pdf", headers=cab_asesora)
+    assert resp_pdf.status_code == 200
+    import base64, re, zlib
+
+    texto_pdf = resp_pdf.content.decode("latin-1", errors="ignore")
+    for bloque in re.findall(rb"stream\r?\n(.*?)\s*endstream", resp_pdf.content, flags=re.S):
+        crudo = bloque.strip()
+        if crudo.endswith(b"~>"):
+            crudo = base64.a85decode(crudo, adobe=True)
+        try:
+            texto_pdf += zlib.decompress(crudo).decode("latin-1", errors="ignore")
+        except zlib.error:
+            pass
+    texto_pdf = texto_pdf.replace("\\(", "(").replace("\\)", ")")
+    assert "J-501234567" in texto_pdf
+    assert "0241-8229900" in texto_pdf
+    assert "Zona Industrial Norte" in texto_pdf

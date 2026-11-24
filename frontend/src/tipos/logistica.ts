@@ -22,8 +22,12 @@ export interface Tercero {
   id: number;
   nombre: string;
   tipo: "PROVEEDOR" | "CLIENTE" | "AMBOS";
+  tipo_persona?: "NATURAL" | "JURIDICO";
+  tipo_documento?: "V" | "E" | "J" | "G" | "P" | "";
+  documento?: string;
   rif_cedula: string;
   telefono: string;
+  direccion?: string;
   activo: boolean;
 }
 

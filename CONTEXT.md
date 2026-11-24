@@ -152,4 +152,4 @@
 
 ## 8. Última Actualización
 - **Fecha:** 2026-11-24
-- **Último cambio:** Se actualizaron las Políticas y Condiciones de Garantía (180 días, exclusiones, obsequios/ST y líneas de firma) en el PDF Nota de Entrega (`pdf_nota.py`), se centralizaron los mensajes completos para WhatsApp (`src/lib/whatsapp.ts` para Ventas/ST, Banco/Pagos y Traslados, sin costos internos) y se integró el buscador instantáneo (`BuscadorTabla.tsx`) + autocompletados en Ventas, POS (Cliente/Equipos/SKU), Finanzas, Logística, Taller y Usuarios. Validado con `pytest` (18/18) y `next build` (24/24).
+- **Último cambio:** Se implementó la creación rápida de clientes (Persona Natural `V/E/P` y Jurídica `J/G`) desde el POS (`/dashboard/ventas/nueva`) mediante `POST /api/clientes` (y `/api/terceros`) accesible para `ASESORA` y roles operativos con validación `409` por documento duplicado, migración segura de `tipo_persona`, `tipo_documento`, `documento` y `direccion` en `terceros` (preservando los 146 terceros existentes), impresión en PDF y WhatsApp. Validado con `pytest` (19/19) y `next build` (24/24).

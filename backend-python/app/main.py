@@ -30,6 +30,20 @@ def asegurar_columnas_compatibles() -> None:
                         "ADD COLUMN descripcion_servicio TEXT NOT NULL DEFAULT ''"
                     )
                 )
+    if inspector.has_table("terceros"):
+        columnas_ter = {col["name"] for col in inspector.get_columns("terceros")}
+        nuevas_terceros = [
+            ("tipo_persona", "VARCHAR(20) NOT NULL DEFAULT 'NATURAL'"),
+            ("tipo_documento", "VARCHAR(5) NOT NULL DEFAULT ''"),
+            ("documento", "VARCHAR(40) NOT NULL DEFAULT ''"),
+            ("direccion", "VARCHAR(255) NOT NULL DEFAULT ''"),
+        ]
+        for nombre_col, ddl_col in nuevas_terceros:
+            if nombre_col not in columnas_ter:
+                with motor.begin() as conexion:
+                    conexion.execute(
+                        text(f"ALTER TABLE terceros ADD COLUMN {nombre_col} {ddl_col}")
+                    )
 
 
 @asynccontextmanager

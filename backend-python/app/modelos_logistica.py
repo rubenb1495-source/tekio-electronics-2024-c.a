@@ -97,14 +97,31 @@ guias_compras = Table(
 )
 
 
+class TipoPersona(str, Enum):
+    NATURAL = "NATURAL"
+    JURIDICO = "JURIDICO"
+
+
+class TipoDocumento(str, Enum):
+    V = "V"
+    E = "E"
+    J = "J"
+    G = "G"
+    P = "P"
+
+
 class Tercero(Base):
     __tablename__ = "terceros"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     nombre: Mapped[str] = mapped_column(String(160), nullable=False, index=True)
     tipo: Mapped[str] = mapped_column(String(20), default=TipoTercero.PROVEEDOR.value, nullable=False)
+    tipo_persona: Mapped[str] = mapped_column(String(20), default=TipoPersona.NATURAL.value, nullable=False)
+    tipo_documento: Mapped[str] = mapped_column(String(5), default="", nullable=False)
+    documento: Mapped[str] = mapped_column(String(40), default="", nullable=False, index=True)
     rif_cedula: Mapped[str] = mapped_column(String(40), default="", nullable=False)
     telefono: Mapped[str] = mapped_column(String(40), default="", nullable=False)
+    direccion: Mapped[str] = mapped_column(String(255), default="", nullable=False)
     activo: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
 
 

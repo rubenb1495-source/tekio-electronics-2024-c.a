@@ -54,6 +54,9 @@ export function formatearWhatsAppVenta(venta: VentaResumen): string {
     `📅 Fecha: ${formatearFechaHora(venta.fecha, venta.creado_en)}`,
     `🏪 Sucursal: ${venta.sucursal || "Tekio central"} · Entrega: ${venta.tipo_entrega} · Canal: ${venta.canal_visita}`,
     `👤 Cliente: ${venta.cliente}${venta.cliente_rif ? ` (${venta.cliente_rif})` : ""}${venta.cliente_telefono ? ` · Tel: ${venta.cliente_telefono}` : ""}`,
+    ...(venta.cliente_direccion && venta.cliente_direccion.trim()
+      ? [`📍 Dirección: ${venta.cliente_direccion.trim()}`]
+      : []),
     `🤝 Asesor: ${venta.asesor || "Tienda"}${venta.tecnico ? ` · 🔧 Técnico: ${venta.tecnico}` : ""}`,
     `📌 Estado: *${venta.estado}*`,
     "",

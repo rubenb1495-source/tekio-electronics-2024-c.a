@@ -16,6 +16,8 @@ from app.modelos_logistica import (
     ModalidadGuia,
     OrigenCompra,
     TipoAjusteInventario,
+    TipoDocumento,
+    TipoPersona,
     TipoTercero,
 )
 
@@ -28,13 +30,41 @@ def normalizar_serial(valor: str) -> str:
     return limpio
 
 
+def normalizar_documento(valor: str) -> str:
+    """Normaliza cédula o RIF sin espacios y en mayúsculas."""
+    limpio = re.sub(r"\s+", "", valor.strip()).upper()
+    limpio = re.sub(r"^[VEJGP]-?", "", limpio)
+    return limpio
+
+
 # ---------------- Terceros ----------------
 
 class TerceroCrearEntrada(BaseModel):
     nombre: str = Field(min_length=2, max_length=160)
     tipo: TipoTercero = TipoTercero.PROVEEDOR
+    tipo_persona: TipoPersona = TipoPersona.NATURAL
+    tipo_documento: TipoDocumento | None = None
+    documento: str = Field(default="", max_length=40)
     rif_cedula: str = Field(default="", max_length=40)
     telefono: str = Field(default="", max_length=40)
+    direccion: str = Field(default="", max_length=255)
+
+
+class ClienteRapidoCrearEntrada(BaseModel):
+    tipo_persona: TipoPersona = TipoPersona.NATURAL
+    tipo_documento: TipoDocumento
+    documento: str = Field(min_length=4, max_length=40)
+    nombre: str = Field(min_length=2, max_length=160)
+    telefono: str = Field(default="", max_length=40)
+    direccion: str = Field(default="", max_length=255)
+
+    @field_validator("documento")
+    @classmethod
+    def limpiar_documento(cls, valor: str) -> str:
+        limpio = normalizar_documento(valor)
+        if len(limpio) < 4:
+            raise ValueError("El número de cédula o RIF debe tener al menos 4 caracteres.")
+        return limpio
 
 
 class TerceroSalida(BaseModel):
@@ -43,8 +73,12 @@ class TerceroSalida(BaseModel):
     id: int
     nombre: str
     tipo: TipoTercero
+    tipo_persona: str = "NATURAL"
+    tipo_documento: str = ""
+    documento: str = ""
     rif_cedula: str
     telefono: str
+    direccion: str = ""
     activo: bool
 
 

@@ -12,6 +12,7 @@ import {
   Search,
   ShoppingCart,
   Trash2,
+  UserPlus,
   Wrench,
   X,
 } from "lucide-react";
@@ -91,6 +92,23 @@ export default function PaginaNuevaVentaPOS() {
   const [busquedaCliente, setBusquedaCliente] = useState("");
   const [menuClientesAbierto, setMenuClientesAbierto] = useState(false);
   const contenedorClientesRef = useRef<HTMLDivElement | null>(null);
+
+  // Modal + Nuevo Cliente (Natural / Jurídico)
+  const [modalCliente, setModalCliente] = useState(false);
+  const [cliTipoPersona, setCliTipoPersona] = useState<"NATURAL" | "JURIDICO">(
+    "NATURAL"
+  );
+  const [cliTipoDoc, setCliTipoDoc] = useState<"V" | "E" | "P" | "J" | "G">(
+    "V"
+  );
+  const [cliDocumento, setCliDocumento] = useState("");
+  const [cliNombre, setCliNombre] = useState("");
+  const [cliTelefono, setCliTelefono] = useState("");
+  const [cliDireccion, setCliDireccion] = useState("");
+  const [guardandoCliente, setGuardandoCliente] = useState(false);
+  const [errorModalCliente, setErrorModalCliente] = useState<string | null>(
+    null
+  );
   const [tasaHoy, setTasaHoy] = useState<TasaHoy | null>(null);
   const [cargando, setCargando] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -173,9 +191,11 @@ export default function PaginaNuevaVentaPOS() {
           solicitarApi<UsuarioOperativo[]>("/api/usuarios/operativos").catch(
             () => []
           ),
-          solicitarApi<Tercero[]>(
-            "/api/logistica/terceros?tipo=CLIENTE"
-          ).catch(() => []),
+          solicitarApi<Tercero[]>("/api/clientes").catch(() =>
+            solicitarApi<Tercero[]>("/api/logistica/terceros?tipo=CLIENTE").catch(
+              () => []
+            )
+          ),
           solicitarApi<TasaHoy>("/api/tasas/hoy").catch(() => null),
         ]);
       const activas = respSuc.filter((s) => s.estado === "ACTIVA");
@@ -284,7 +304,13 @@ export default function PaginaNuevaVentaPOS() {
     if (!q) return clientes.slice(0, 30);
     return clientes
       .filter((c) =>
-        [c.nombre, c.rif_cedula || "", c.telefono || ""]
+        [
+          c.nombre,
+          c.rif_cedula || "",
+          c.documento || "",
+          c.telefono || "",
+          c.direccion || "",
+        ]
           .join(" ")
           .toLowerCase()
           .includes(q)
@@ -612,6 +638,51 @@ export default function PaginaNuevaVentaPOS() {
     setTimeout(() => setCopiado(false), 2500);
   };
 
+  const abrirModalNuevoCliente = () => {
+    setErrorModalCliente(null);
+    setCliTipoPersona("NATURAL");
+    setCliTipoDoc("V");
+    setCliDocumento("");
+    setCliNombre("");
+    setCliTelefono("");
+    setCliDireccion("");
+    setModalCliente(true);
+  };
+
+  const manejarCrearCliente = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    setErrorModalCliente(null);
+    setGuardandoCliente(true);
+    try {
+      const creado = await solicitarApi<Tercero>("/api/clientes", {
+        method: "POST",
+        body: JSON.stringify({
+          tipo_persona: cliTipoPersona,
+          tipo_documento: cliTipoDoc,
+          documento: cliDocumento.trim(),
+          nombre: cliNombre.trim(),
+          telefono: cliTelefono.trim(),
+          direccion: cliDireccion.trim(),
+        }),
+      });
+      setClientes((prev) => [creado, ...prev]);
+      setClienteId(String(creado.id));
+      setBusquedaCliente(
+        `${creado.nombre}${creado.rif_cedula ? ` (${creado.rif_cedula})` : ""}`
+      );
+      setMenuClientesAbierto(false);
+      setModalCliente(false);
+    } catch (err) {
+      setErrorModalCliente(
+        err instanceof ErrorApi
+          ? err.message
+          : "No se pudo registrar el cliente."
+      );
+    } finally {
+      setGuardandoCliente(false);
+    }
+  };
+
   if (cargando) {
     return (
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
@@ -713,45 +784,55 @@ export default function PaginaNuevaVentaPOS() {
                 (Opcional — por defecto Cliente general)
               </span>
             </label>
-            <div className="relative min-w-0">
-              <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
-              <input
-                type="text"
-                value={
-                  clienteSeleccionadoObj && !menuClientesAbierto
-                    ? `${clienteSeleccionadoObj.nombre}${clienteSeleccionadoObj.rif_cedula ? ` (${clienteSeleccionadoObj.rif_cedula})` : ""}`
-                    : busquedaCliente
-                }
-                onFocus={() => setMenuClientesAbierto(true)}
-                onChange={(e) => {
-                  setClienteId("");
-                  setBusquedaCliente(e.target.value);
-                  setMenuClientesAbierto(true);
-                }}
-                placeholder={`Buscar cliente por nombre, cédula/RIF o teléfono (${clientes.length})...`}
-                className="w-full min-w-0 pl-9 pr-14 py-2 rounded-xl border border-slate-300 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#E85A28]/30 focus:border-[#E85A28]"
-              />
-              {(clienteId || busquedaCliente) && (
+            <div className="flex gap-2 min-w-0">
+              <div className="relative flex-1 min-w-0">
+                <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                <input
+                  type="text"
+                  value={
+                    clienteSeleccionadoObj && !menuClientesAbierto
+                      ? `${clienteSeleccionadoObj.nombre}${clienteSeleccionadoObj.rif_cedula ? ` (${clienteSeleccionadoObj.rif_cedula})` : ""}`
+                      : busquedaCliente
+                  }
+                  onFocus={() => setMenuClientesAbierto(true)}
+                  onChange={(e) => {
+                    setClienteId("");
+                    setBusquedaCliente(e.target.value);
+                    setMenuClientesAbierto(true);
+                  }}
+                  placeholder={`Buscar cliente por nombre, cédula/RIF o teléfono (${clientes.length})...`}
+                  className="w-full min-w-0 pl-9 pr-14 py-2 rounded-xl border border-slate-300 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#E85A28]/30 focus:border-[#E85A28]"
+                />
+                {(clienteId || busquedaCliente) && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setClienteId("");
+                      setBusquedaCliente("");
+                      setMenuClientesAbierto(false);
+                    }}
+                    aria-label="Limpiar cliente"
+                    className="absolute right-8 top-1/2 -translate-y-1/2 p-1 text-slate-400 hover:text-slate-600 cursor-pointer"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                )}
                 <button
                   type="button"
-                  onClick={() => {
-                    setClienteId("");
-                    setBusquedaCliente("");
-                    setMenuClientesAbierto(false);
-                  }}
-                  aria-label="Limpiar cliente"
-                  className="absolute right-8 top-1/2 -translate-y-1/2 p-1 text-slate-400 hover:text-slate-600 cursor-pointer"
+                  onClick={() => setMenuClientesAbierto((prev) => !prev)}
+                  aria-label="Desplegar clientes"
+                  className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-slate-500 hover:text-slate-700 cursor-pointer"
                 >
-                  <X className="w-3.5 h-3.5" />
+                  <ChevronDown className="w-4 h-4" />
                 </button>
-              )}
+              </div>
               <button
                 type="button"
-                onClick={() => setMenuClientesAbierto((prev) => !prev)}
-                aria-label="Desplegar clientes"
-                className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-slate-500 hover:text-slate-700 cursor-pointer"
+                onClick={abrirModalNuevoCliente}
+                className="shrink-0 inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold cursor-pointer"
               >
-                <ChevronDown className="w-4 h-4" />
+                <UserPlus className="w-3.5 h-3.5" />
+                + Nuevo Cliente
               </button>
             </div>
             {menuClientesAbierto && (
@@ -1669,6 +1750,180 @@ export default function PaginaNuevaVentaPOS() {
           </button>
         </div>
       </form>
+
+      {/* Modal + Nuevo Cliente (Natural / Jurídico) */}
+      {modalCliente && (
+        <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-xl space-y-4">
+            <div className="flex items-center justify-between">
+              <h3 className="text-lg font-black text-slate-900 flex items-center gap-2">
+                <UserPlus className="w-5 h-5 text-emerald-600" />
+                Nuevo Cliente
+              </h3>
+              <button
+                type="button"
+                onClick={() => setModalCliente(false)}
+                className="text-slate-400 hover:text-slate-600 cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {errorModalCliente && (
+              <div className="p-3 rounded-xl bg-red-50 border border-red-200 text-xs text-red-700">
+                {errorModalCliente}
+              </div>
+            )}
+
+            <form onSubmit={manejarCrearCliente} className="space-y-3">
+              {/* Tipo de persona */}
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setCliTipoPersona("NATURAL");
+                    setCliTipoDoc("V");
+                  }}
+                  className={`py-2 rounded-xl text-xs font-bold border cursor-pointer ${
+                    cliTipoPersona === "NATURAL"
+                      ? "bg-[#E85A28] border-[#E85A28] text-white"
+                      : "bg-white border-slate-300 text-slate-700"
+                  }`}
+                >
+                  Persona Natural
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setCliTipoPersona("JURIDICO");
+                    setCliTipoDoc("J");
+                  }}
+                  className={`py-2 rounded-xl text-xs font-bold border cursor-pointer ${
+                    cliTipoPersona === "JURIDICO"
+                      ? "bg-[#E85A28] border-[#E85A28] text-white"
+                      : "bg-white border-slate-300 text-slate-700"
+                  }`}
+                >
+                  Persona Jurídica
+                </button>
+              </div>
+
+              {/* Documento */}
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">
+                  {cliTipoPersona === "NATURAL" ? "Cédula / Pasaporte *" : "RIF *"}
+                </label>
+                <div className="flex gap-2">
+                  <select
+                    value={cliTipoDoc}
+                    onChange={(e) =>
+                      setCliTipoDoc(
+                        e.target.value as "V" | "E" | "P" | "J" | "G"
+                      )
+                    }
+                    className="w-20 px-2.5 py-2 rounded-xl border border-slate-300 text-sm font-bold bg-white"
+                  >
+                    {cliTipoPersona === "NATURAL" ? (
+                      <>
+                        <option value="V">V-</option>
+                        <option value="E">E-</option>
+                        <option value="P">P-</option>
+                      </>
+                    ) : (
+                      <>
+                        <option value="J">J-</option>
+                        <option value="G">G-</option>
+                      </>
+                    )}
+                  </select>
+                  <input
+                    type="text"
+                    required
+                    minLength={4}
+                    value={cliDocumento}
+                    onChange={(e) => setCliDocumento(e.target.value)}
+                    placeholder={
+                      cliTipoPersona === "NATURAL"
+                        ? "Ej: 24567890"
+                        : "Ej: 506375184"
+                    }
+                    className="flex-1 px-3 py-2 rounded-xl border border-slate-300 text-sm font-mono"
+                  />
+                </div>
+              </div>
+
+              {/* Nombre o Razón Social */}
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">
+                  {cliTipoPersona === "NATURAL"
+                    ? "Nombre y Apellido *"
+                    : "Razón Social *"}
+                </label>
+                <input
+                  type="text"
+                  required
+                  minLength={2}
+                  value={cliNombre}
+                  onChange={(e) => setCliNombre(e.target.value)}
+                  placeholder={
+                    cliTipoPersona === "NATURAL"
+                      ? "Ej: María Alejandra Pérez"
+                      : "Ej: Inversiones Globales, C.A."
+                  }
+                  className="w-full px-3 py-2 rounded-xl border border-slate-300 text-sm"
+                />
+              </div>
+
+              {/* Teléfono */}
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">
+                  Teléfono / WhatsApp
+                </label>
+                <input
+                  type="text"
+                  value={cliTelefono}
+                  onChange={(e) => setCliTelefono(e.target.value)}
+                  placeholder="Ej: 0414-1234567"
+                  className="w-full px-3 py-2 rounded-xl border border-slate-300 text-sm"
+                />
+              </div>
+
+              {/* Dirección */}
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">
+                  {cliTipoPersona === "NATURAL"
+                    ? "Dirección"
+                    : "Dirección fiscal"}
+                </label>
+                <input
+                  type="text"
+                  value={cliDireccion}
+                  onChange={(e) => setCliDireccion(e.target.value)}
+                  placeholder="Ej: Av. Bolívar Norte, Valencia, Edo. Carabobo"
+                  className="w-full px-3 py-2 rounded-xl border border-slate-300 text-sm"
+                />
+              </div>
+
+              <div className="flex justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setModalCliente(false)}
+                  className="px-4 py-2 rounded-xl border border-slate-300 text-sm font-semibold cursor-pointer"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={guardandoCliente}
+                  className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-sm font-bold cursor-pointer"
+                >
+                  {guardandoCliente ? "Guardando..." : "Guardar y seleccionar"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {/* Modal de éxito: PDF + WhatsApp */}
       {ventaCreada && (

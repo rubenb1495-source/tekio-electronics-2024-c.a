@@ -56,8 +56,12 @@ def generar_pdf_nota_entrega(venta: Venta) -> bytes:
     pdf.setFillColor(colors.black)
     pdf.setFont("Helvetica-Bold", 9.5)
     cliente_nombre = venta.cliente.nombre if venta.cliente else "Cliente general"
-    cliente_rif = venta.cliente.rif_cedula if venta.cliente and venta.cliente.rif_cedula else "N/A"
+    if venta.cliente and venta.cliente.tipo_documento and venta.cliente.documento:
+        cliente_rif = f"{venta.cliente.tipo_documento}-{venta.cliente.documento}"
+    else:
+        cliente_rif = venta.cliente.rif_cedula if venta.cliente and venta.cliente.rif_cedula else "N/A"
     cliente_tel = venta.cliente.telefono if venta.cliente and venta.cliente.telefono else ""
+    cliente_dir = venta.cliente.direccion if venta.cliente and venta.cliente.direccion else ""
     sucursal_nombre = venta.sucursal.nombre if venta.sucursal else "Tekio central"
     asesor_nombre = venta.asesor.nombre if venta.asesor else "Tienda"
     tecnico_nombre = venta.tecnico.nombre if venta.tecnico else None
@@ -66,8 +70,12 @@ def generar_pdf_nota_entrega(venta: Venta) -> bytes:
     pdf.drawRightString(
         ancho - 0.55 * inch,
         y,
-        f"RIF / C.I.: {cliente_rif}" + (f" · Tel: {cliente_tel}" if cliente_tel else ""),
+        f"Documento: {cliente_rif}" + (f" · Tel: {cliente_tel}" if cliente_tel else ""),
     )
+    if cliente_dir:
+        y -= 13
+        pdf.setFont("Helvetica", 8.5)
+        pdf.drawString(0.55 * inch, y, f"Dirección: {cliente_dir[:95]}")
     y -= 15
     pdf.setFont("Helvetica", 9)
     pdf.drawString(0.55 * inch, y, f"Sucursal: {sucursal_nombre} · Entrega: {venta.tipo_entrega}")
