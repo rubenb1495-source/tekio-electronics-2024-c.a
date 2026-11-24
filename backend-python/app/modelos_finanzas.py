@@ -101,6 +101,7 @@ class Venta(Base):
     tecnico_id: Mapped[int | None] = mapped_column(ForeignKey("usuarios.id"), nullable=True)
     canal_visita: Mapped[str] = mapped_column(String(60), default="Tienda", nullable=False)
     tipo_entrega: Mapped[str] = mapped_column(String(60), default="Tienda", nullable=False)
+    datos_entrega_json: Mapped[str] = mapped_column(Text, default="", nullable=False)
     origen_equipo: Mapped[str] = mapped_column(String(60), default="Propio", nullable=False)
     tasa_bcv_snapshot: Mapped[Decimal] = mapped_column(Numeric(14, 4), default=Decimal("0"), nullable=False)
     tasa_usdt_snapshot: Mapped[Decimal] = mapped_column(Numeric(14, 4), default=Decimal("0"), nullable=False)

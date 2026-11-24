@@ -775,7 +775,7 @@ def test_obsequio_imputa_costo_al_equipo_descuenta_stock_y_rbac(cliente: TestCli
     assert "180" in texto_pdf
     assert "OBSEQUIO" in texto_pdf
     assert "Entregado por (Tekio Electronics)" in texto_pdf
-    assert "Recibido conforme (Cliente / C.I.)" in texto_pdf
+    assert "Firma del Cliente" in texto_pdf
 
 
 def test_lider_multitienda_comision_en_multiples_sucursales(cliente: TestClient) -> None:
@@ -989,3 +989,149 @@ def test_creacion_rapida_clientes_natural_juridico_duplicado_409_y_pdf(
     assert "J-501234567" in texto_pdf
     assert "0241-8229900" in texto_pdf
     assert "Zona Industrial Norte" in texto_pdf
+
+
+def _extraer_texto_pdf(pdf_bytes: bytes) -> str:
+    import base64
+    import re
+    import zlib
+
+    texto = pdf_bytes.decode("latin-1", errors="ignore")
+    for bloque in re.findall(rb"stream\r?\n(.*?)\s*endstream", pdf_bytes, flags=re.S):
+        crudo = bloque.strip()
+        if crudo.endswith(b"~>"):
+            crudo = base64.a85decode(crudo, adobe=True)
+        try:
+            texto += zlib.decompress(crudo).decode("latin-1", errors="ignore")
+        except zlib.error:
+            pass
+    return texto.replace("\\(", "(").replace("\\)", ")")
+
+
+def test_pdf_sin_etiquetas_internas_monto_total_regular_bs_y_envio_nacional(
+    cliente: TestClient,
+) -> None:
+    cab_dir, _ = login(cliente, "direccion@tekioelectronics.com", "Tekio2026!")
+    cab_asesora, asesora_u = crear_usuario_rol(
+        cliente, cab_dir, "Asesora PDF", "asesora_pdf@tekioelectronics.com", "ASESORA", 2
+    )
+    hoy = obtener_fecha_hoy()
+
+    # Tasa BCV = 60, USDT = 72, Recargo = 30% -> $200 Promo / $260 Regular (15,600 Bs)
+    cliente.post(
+        "/api/tasas",
+        headers=cab_dir,
+        json={
+            "fecha": hoy.isoformat(),
+            "tasa_bcv": 60.0,
+            "tasa_usdt": 72.0,
+            "recargo_porcentaje": 30.0,
+        },
+    )
+
+    sucs = {s["nombre"]: s["id"] for s in cliente.get("/api/sucursales", headers=cab_dir).json()}
+    central_id = sucs["Tekio central"]
+    insts = {
+        i["nombre"]: i["id"]
+        for i in cliente.get("/api/finanzas/instrumentos", headers=cab_dir).json()
+    }
+
+    cliente.post(
+        "/api/logistica/compras",
+        headers=cab_dir,
+        json={
+            "origen": "NACIONAL",
+            "fecha": hoy.isoformat(),
+            "llega_preparada": True,
+            "equipos": [
+                {
+                    "serial": "PDF-PROMO-1",
+                    "modelo": "Dell Latitude 5420",
+                    "ubicacion_id": central_id,
+                    "costo_compra_usd": 120.0,
+                    "precio_promo_usd": 200.0,
+                },
+                {
+                    "serial": "PDF-REG-1",
+                    "modelo": "Lenovo ThinkPad T14",
+                    "ubicacion_id": central_id,
+                    "costo_compra_usd": 120.0,
+                    "precio_promo_usd": 200.0,
+                },
+            ],
+        },
+    )
+    eq_promo = cliente.get("/api/logistica/inventario/equipos?busqueda=PDF-PROMO-1", headers=cab_dir).json()[0]
+    eq_reg = cliente.get("/api/logistica/inventario/equipos?busqueda=PDF-REG-1", headers=cab_dir).json()[0]
+
+    # 1. Venta Promo (divisas) -> PDF sin "Precio Promo", sin "Precio Regular", sin "CUADRADA"
+    vta_promo = cliente.post(
+        "/api/ventas",
+        headers=cab_asesora,
+        json={
+            "sucursal_id": central_id,
+            "asesor_id": asesora_u["id"],
+            "canal_visita": "Instagram",
+            "items": [{"equipo_id": eq_promo["id"]}],
+            "pagos": [{"instrumento_id": insts["Efectivo divisas"], "monto_moneda_origen": 200.0}],
+        },
+    ).json()
+    pdf_promo = _extraer_texto_pdf(
+        cliente.get(f"/api/ventas/{vta_promo['id']}/nota-pdf", headers=cab_asesora).content
+    )
+    assert "Precio Unitario" in pdf_promo
+    assert "Subtotal" in pdf_promo
+    assert "Monto Total: $200.00 USD" in pdf_promo
+    assert "PRUEBA DE FUNCIONALIDAD DEL EQUIPO" in pdf_promo
+    assert "[X] Instagram" in pdf_promo
+    assert "Firma del Cliente" in pdf_promo
+    assert "Precio Promo" not in pdf_promo
+    assert "Precio Regular" not in pdf_promo
+    assert "CUADRADA" not in pdf_promo
+
+    # 2. Venta Regular (Bs) + ENVIO nacional -> guarda empresa_envio y direccion_oficina, PDF muestra USD y Bs
+    resp_envio = cliente.post(
+        "/api/ventas",
+        headers=cab_asesora,
+        json={
+            "sucursal_id": central_id,
+            "asesor_id": asesora_u["id"],
+            "entrega": "ENVIO",
+            "datos_entrega": {
+                "destinatario": "Carlos Mendoza",
+                "cedula": "V-18765432",
+                "telefono": "0412-9998877",
+                "empresa_envio": "MRW",
+                "estado_ciudad": "Caracas / Chacao",
+                "agencia_oficina": "Agencia Chacao 0104",
+                "direccion_oficina": "Av. Francisco de Miranda, Edif. Centro Plaza",
+                "modalidad": "Cobro en destino",
+            },
+            "items": [{"equipo_id": eq_reg["id"]}],
+            "pagos": [
+                {
+                    "instrumento_id": insts["Pago móvil Mercantil (Bs)"],
+                    "monto_moneda_origen": 15600.0,
+                    "referencia": "PM-ENV-01",
+                }
+            ],
+        },
+    )
+    assert resp_envio.status_code == 201, resp_envio.text
+    vta_reg = resp_envio.json()
+    assert vta_reg["datos_entrega"]["empresa_envio"] == "MRW"
+    assert (
+        vta_reg["datos_entrega"]["direccion_oficina"]
+        == "Av. Francisco de Miranda, Edif. Centro Plaza"
+    )
+
+    pdf_reg = _extraer_texto_pdf(
+        cliente.get(f"/api/ventas/{vta_reg['id']}/nota-pdf", headers=cab_asesora).content
+    )
+    assert "Monto Total: $260.00 USD" in pdf_reg
+    assert "Bs. 15,600.00" in pdf_reg
+    assert "MRW" in pdf_reg
+    assert "Av. Francisco de Miranda, Edif. Centro Plaza" in pdf_reg
+    assert "Precio Promo" not in pdf_reg
+    assert "Precio Regular" not in pdf_reg
+    assert "CUADRADA" not in pdf_reg

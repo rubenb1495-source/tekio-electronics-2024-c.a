@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import date
 from decimal import Decimal, ROUND_HALF_UP
+import json
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
@@ -449,12 +450,22 @@ def serializar_venta(venta: Venta, incluir_costos: bool) -> dict[str, Any]:
         ),
         "cliente_telefono": venta.cliente.telefono if venta.cliente and venta.cliente.telefono else "",
         "cliente_direccion": venta.cliente.direccion if venta.cliente and venta.cliente.direccion else "",
+        "cliente_tipo_persona": (
+            venta.cliente.tipo_persona
+            if venta.cliente and getattr(venta.cliente, "tipo_persona", None)
+            else "NATURAL"
+        ),
         "asesor_id": venta.asesor_id,
         "asesor": venta.asesor.nombre if venta.asesor else "Tienda",
         "tecnico_id": venta.tecnico_id,
         "tecnico": venta.tecnico.nombre if venta.tecnico else None,
         "canal_visita": venta.canal_visita,
         "tipo_entrega": venta.tipo_entrega,
+        "datos_entrega": (
+            json.loads(venta.datos_entrega_json)
+            if getattr(venta, "datos_entrega_json", "")
+            else None
+        ),
         "tasa_bcv_snapshot": float(venta.tasa_bcv_snapshot),
         "tasa_usdt_snapshot": float(venta.tasa_usdt_snapshot),
         "recargo_porcentaje_snapshot": float(venta.recargo_porcentaje_snapshot),
@@ -725,6 +736,11 @@ def crear_venta(
         tecnico_id=datos.tecnico_id,
         canal_visita=datos.canal_visita.strip(),
         tipo_entrega=datos.entrega.strip(),
+        datos_entrega_json=(
+            json.dumps(datos.datos_entrega, ensure_ascii=False)
+            if datos.datos_entrega
+            else ""
+        ),
         origen_equipo=datos.origen_equipo.strip(),
         tasa_bcv_snapshot=calc["tasa_bcv"],
         tasa_usdt_snapshot=calc["tasa_usdt"],

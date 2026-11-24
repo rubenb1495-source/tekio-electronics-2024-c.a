@@ -44,6 +44,16 @@ def asegurar_columnas_compatibles() -> None:
                     conexion.execute(
                         text(f"ALTER TABLE terceros ADD COLUMN {nombre_col} {ddl_col}")
                     )
+    if inspector.has_table("ventas"):
+        columnas_vta = {col["name"] for col in inspector.get_columns("ventas")}
+        if "datos_entrega_json" not in columnas_vta:
+            with motor.begin() as conexion:
+                conexion.execute(
+                    text(
+                        "ALTER TABLE ventas "
+                        "ADD COLUMN datos_entrega_json TEXT NOT NULL DEFAULT ''"
+                    )
+                )
 
 
 @asynccontextmanager

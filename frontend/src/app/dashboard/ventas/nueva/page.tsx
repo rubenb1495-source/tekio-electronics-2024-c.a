@@ -121,6 +121,25 @@ export default function PaginaNuevaVentaPOS() {
   const [quedaConSaldo, setQuedaConSaldo] = useState(false);
   const [nota, setNota] = useState("");
 
+  // Planilla Delivery
+  const [delNombre, setDelNombre] = useState("");
+  const [delTelefono, setDelTelefono] = useState("");
+  const [delDireccion, setDelDireccion] = useState("");
+  const [delReferencia, setDelReferencia] = useState("");
+  const [delZona, setDelZona] = useState("");
+  const [delHorario, setDelHorario] = useState("");
+
+  // Planilla Envío Nacional (Encomienda)
+  const [envDestinatario, setEnvDestinatario] = useState("");
+  const [envCedula, setEnvCedula] = useState("");
+  const [envTelefono, setEnvTelefono] = useState("");
+  const [envEmpresa, setEnvEmpresa] = useState("MRW");
+  const [envEmpresaOtra, setEnvEmpresaOtra] = useState("");
+  const [envEstadoCiudad, setEnvEstadoCiudad] = useState("");
+  const [envAgencia, setEnvAgencia] = useState("");
+  const [envDireccionOficina, setEnvDireccionOficina] = useState("");
+  const [envModalidad, setEnvModalidad] = useState("Cobro en destino");
+
   const [carrito, setCarrito] = useState<ItemCarrito[]>([]);
   const [equipoSel, setEquipoSel] = useState("");
   const [busquedaEquipo, setBusquedaEquipo] = useState("");
@@ -595,6 +614,32 @@ export default function PaginaNuevaVentaPOS() {
         parte_pago_modelo: p.parte_pago_modelo.trim() || null,
       }));
 
+    const datosEntregaPayload =
+      entrega === "DELIVERY"
+        ? {
+            nombre_recibe: delNombre.trim(),
+            telefono: delTelefono.trim(),
+            direccion: delDireccion.trim(),
+            punto_referencia: delReferencia.trim(),
+            zona_municipio: delZona.trim(),
+            horario_instrucciones: delHorario.trim(),
+          }
+        : entrega === "ENVIO"
+        ? {
+            destinatario: envDestinatario.trim(),
+            cedula: envCedula.trim(),
+            telefono: envTelefono.trim(),
+            empresa_envio:
+              envEmpresa === "Otra"
+                ? envEmpresaOtra.trim() || "Otra"
+                : envEmpresa,
+            estado_ciudad: envEstadoCiudad.trim(),
+            agencia_oficina: envAgencia.trim(),
+            direccion_oficina: envDireccionOficina.trim(),
+            modalidad: envModalidad,
+          }
+        : null;
+
     setGuardando(true);
     try {
       const creada = await solicitarApi<VentaResumen>("/api/ventas", {
@@ -606,6 +651,7 @@ export default function PaginaNuevaVentaPOS() {
           tecnico_id: tecnicoId ? Number(tecnicoId) : null,
           canal_visita: canalVisita,
           entrega,
+          datos_entrega: datosEntregaPayload,
           items: carrito.map((c) => ({
             equipo_id: c.equipo_id ?? null,
             articulo_id: c.articulo_id ?? null,
@@ -622,6 +668,18 @@ export default function PaginaNuevaVentaPOS() {
       setVentaCreada(creada);
       setCarrito([]);
       setNota("");
+      setDelNombre("");
+      setDelTelefono("");
+      setDelDireccion("");
+      setDelReferencia("");
+      setDelZona("");
+      setDelHorario("");
+      setEnvDestinatario("");
+      setEnvCedula("");
+      setEnvTelefono("");
+      setEnvEstadoCiudad("");
+      setEnvAgencia("");
+      setEnvDireccionOficina("");
     } catch (err) {
       setError(
         err instanceof ErrorApi ? err.message : "No se pudo registrar la venta."
@@ -755,6 +813,9 @@ export default function PaginaNuevaVentaPOS() {
                 <option value="Tienda">Tienda / Pasillo</option>
                 <option value="WhatsApp">WhatsApp / Leads</option>
                 <option value="Instagram">Instagram</option>
+                <option value="TikTok">TikTok</option>
+                <option value="Facebook">Facebook</option>
+                <option value="Otros">Otros</option>
               </select>
             </div>
             <div className="min-w-0">
@@ -767,11 +828,157 @@ export default function PaginaNuevaVentaPOS() {
                 className="w-full min-w-0 px-3 py-2 rounded-xl border border-slate-300 text-sm bg-white"
               >
                 <option value="Tienda">Retiro en tienda</option>
-                <option value="Delivery">Delivery</option>
-                <option value="Envío nacional">Envío nacional</option>
+                <option value="DELIVERY">Delivery</option>
+                <option value="ENVIO">Envío nacional (Encomienda)</option>
               </select>
             </div>
           </div>
+
+          {/* Planilla Delivery */}
+          {entrega === "DELIVERY" && (
+            <div className="p-4 rounded-xl bg-sky-50/70 border border-sky-200 space-y-2.5">
+              <p className="text-xs font-black text-sky-900 uppercase">
+                Planilla de Delivery
+              </p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                <input
+                  type="text"
+                  required
+                  value={delNombre}
+                  onChange={(e) => setDelNombre(e.target.value)}
+                  placeholder="Nombre de quien recibe *"
+                  className="w-full min-w-0 px-3 py-1.5 rounded-lg border border-sky-300 text-xs bg-white"
+                />
+                <input
+                  type="text"
+                  required
+                  value={delTelefono}
+                  onChange={(e) => setDelTelefono(e.target.value)}
+                  placeholder="Teléfono de contacto *"
+                  className="w-full min-w-0 px-3 py-1.5 rounded-lg border border-sky-300 text-xs bg-white"
+                />
+                <input
+                  type="text"
+                  required
+                  value={delDireccion}
+                  onChange={(e) => setDelDireccion(e.target.value)}
+                  placeholder="Dirección exacta de entrega *"
+                  className="sm:col-span-2 w-full min-w-0 px-3 py-1.5 rounded-lg border border-sky-300 text-xs bg-white"
+                />
+                <input
+                  type="text"
+                  value={delReferencia}
+                  onChange={(e) => setDelReferencia(e.target.value)}
+                  placeholder="Punto de referencia"
+                  className="w-full min-w-0 px-3 py-1.5 rounded-lg border border-sky-300 text-xs bg-white"
+                />
+                <input
+                  type="text"
+                  value={delZona}
+                  onChange={(e) => setDelZona(e.target.value)}
+                  placeholder="Zona / Municipio"
+                  className="w-full min-w-0 px-3 py-1.5 rounded-lg border border-sky-300 text-xs bg-white"
+                />
+                <input
+                  type="text"
+                  value={delHorario}
+                  onChange={(e) => setDelHorario(e.target.value)}
+                  placeholder="Horario / Instrucciones de entrega"
+                  className="sm:col-span-2 w-full min-w-0 px-3 py-1.5 rounded-lg border border-sky-300 text-xs bg-white"
+                />
+              </div>
+            </div>
+          )}
+
+          {/* Planilla Envío Nacional (Encomienda) */}
+          {entrega === "ENVIO" && (
+            <div className="p-4 rounded-xl bg-amber-50/70 border border-amber-200 space-y-2.5">
+              <p className="text-xs font-black text-amber-900 uppercase">
+                Planilla de Envío Nacional (Encomienda)
+              </p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                <input
+                  type="text"
+                  required
+                  value={envDestinatario}
+                  onChange={(e) => setEnvDestinatario(e.target.value)}
+                  placeholder="Nombre completo del destinatario *"
+                  className="w-full min-w-0 px-3 py-1.5 rounded-lg border border-amber-300 text-xs bg-white"
+                />
+                <input
+                  type="text"
+                  required
+                  value={envCedula}
+                  onChange={(e) => setEnvCedula(e.target.value)}
+                  placeholder="Cédula de Identidad *"
+                  className="w-full min-w-0 px-3 py-1.5 rounded-lg border border-amber-300 text-xs bg-white font-mono"
+                />
+                <input
+                  type="text"
+                  required
+                  value={envTelefono}
+                  onChange={(e) => setEnvTelefono(e.target.value)}
+                  placeholder="Teléfono de contacto *"
+                  className="w-full min-w-0 px-3 py-1.5 rounded-lg border border-amber-300 text-xs bg-white"
+                />
+                <select
+                  value={envEmpresa}
+                  onChange={(e) => setEnvEmpresa(e.target.value)}
+                  className="w-full min-w-0 px-3 py-1.5 rounded-lg border border-amber-300 text-xs bg-white"
+                >
+                  <option value="MRW">MRW</option>
+                  <option value="Zoom">Zoom</option>
+                  <option value="Tealca">Tealca</option>
+                  <option value="Domesa">Domesa</option>
+                  <option value="Liberty Express">Liberty Express</option>
+                  <option value="Otra">Otra empresa</option>
+                </select>
+                {envEmpresa === "Otra" && (
+                  <input
+                    type="text"
+                    required
+                    value={envEmpresaOtra}
+                    onChange={(e) => setEnvEmpresaOtra(e.target.value)}
+                    placeholder="Indicar nombre de la empresa *"
+                    className="sm:col-span-2 w-full min-w-0 px-3 py-1.5 rounded-lg border border-amber-300 text-xs bg-white"
+                  />
+                )}
+                <input
+                  type="text"
+                  required
+                  value={envEstadoCiudad}
+                  onChange={(e) => setEnvEstadoCiudad(e.target.value)}
+                  placeholder="Estado / Ciudad *"
+                  className="w-full min-w-0 px-3 py-1.5 rounded-lg border border-amber-300 text-xs bg-white"
+                />
+                <input
+                  type="text"
+                  required
+                  value={envAgencia}
+                  onChange={(e) => setEnvAgencia(e.target.value)}
+                  placeholder="Código o nombre de la agencia/oficina *"
+                  className="w-full min-w-0 px-3 py-1.5 rounded-lg border border-amber-300 text-xs bg-white"
+                />
+                <input
+                  type="text"
+                  required
+                  value={envDireccionOficina}
+                  onChange={(e) => setEnvDireccionOficina(e.target.value)}
+                  placeholder="Dirección exacta de la oficina de envío *"
+                  className="sm:col-span-2 w-full min-w-0 px-3 py-1.5 rounded-lg border border-amber-300 text-xs bg-white"
+                />
+                <select
+                  value={envModalidad}
+                  onChange={(e) => setEnvModalidad(e.target.value)}
+                  className="sm:col-span-2 w-full min-w-0 px-3 py-1.5 rounded-lg border border-amber-300 text-xs bg-white"
+                >
+                  <option value="Cobro en destino">Cobro en destino</option>
+                  <option value="Prepagado">Prepagado</option>
+                  <option value="Asegurado">Asegurado</option>
+                </select>
+              </div>
+            </div>
+          )}
 
           {/* Buscador interactivo de Cliente */}
           <div
@@ -870,7 +1077,12 @@ export default function PaginaNuevaVentaPOS() {
                         {cli.nombre}
                       </p>
                       <p className="text-[11px] text-slate-500">
-                        {[cli.rif_cedula, cli.telefono]
+                        {[
+                          cli.rif_cedula
+                            ? `${cli.tipo_persona === "JURIDICO" ? "RIF" : "Cédula de Identidad"}: ${cli.rif_cedula}`
+                            : null,
+                          cli.telefono,
+                        ]
                           .filter(Boolean)
                           .join(" · ") || "Sin datos adicionales"}
                       </p>
@@ -1811,7 +2023,9 @@ export default function PaginaNuevaVentaPOS() {
               {/* Documento */}
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1">
-                  {cliTipoPersona === "NATURAL" ? "Cédula / Pasaporte *" : "RIF *"}
+                  {cliTipoPersona === "NATURAL"
+                    ? "Cédula de Identidad *"
+                    : "RIF *"}
                 </label>
                 <div className="flex gap-2">
                   <select

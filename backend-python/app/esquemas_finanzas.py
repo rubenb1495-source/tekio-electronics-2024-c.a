@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import date
 from decimal import Decimal
+from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -41,6 +42,7 @@ class VentaCrearEntrada(BaseModel):
     tecnico_id: int | None = None
     canal_visita: str = Field(default="Tienda", max_length=60)
     entrega: str = Field(default="Tienda", max_length=60)
+    datos_entrega: dict[str, Any] | None = None
     origen_equipo: str = Field(default="Propio", max_length=60)
     es_factura: bool = False
     numero_control: str = Field(default="", max_length=60)

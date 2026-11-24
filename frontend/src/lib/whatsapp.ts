@@ -49,11 +49,18 @@ function formatearFechaHora(fecha: string, creadoEn?: string | null): string {
  * 1. Mensaje completo de Ventas y Servicios Técnicos (sin costos internos).
  */
 export function formatearWhatsAppVenta(venta: VentaResumen): string {
+  const esJuridico =
+    (venta.cliente_tipo_persona || "NATURAL").toUpperCase() === "JURIDICO";
+  const etiquetaDoc = esJuridico ? "RIF" : "Cédula de Identidad";
+  const docTxt = venta.cliente_rif
+    ? ` · ${etiquetaDoc}: ${venta.cliente_rif}`
+    : "";
+
   const lineas: string[] = [
     `🧾 *TEKIO ELECTRONICS · Nota ${venta.numero_venta}*`,
     `📅 Fecha: ${formatearFechaHora(venta.fecha, venta.creado_en)}`,
     `🏪 Sucursal: ${venta.sucursal || "Tekio central"} · Entrega: ${venta.tipo_entrega} · Canal: ${venta.canal_visita}`,
-    `👤 Cliente: ${venta.cliente}${venta.cliente_rif ? ` (${venta.cliente_rif})` : ""}${venta.cliente_telefono ? ` · Tel: ${venta.cliente_telefono}` : ""}`,
+    `👤 Cliente: ${venta.cliente}${docTxt}${venta.cliente_telefono ? ` · Tel: ${venta.cliente_telefono}` : ""}`,
     ...(venta.cliente_direccion && venta.cliente_direccion.trim()
       ? [`📍 Dirección: ${venta.cliente_direccion.trim()}`]
       : []),
@@ -125,6 +132,34 @@ export function formatearWhatsAppVenta(venta: VentaResumen): string {
     const saldo = Math.max(0, Number(venta.total_promo_usd) - cubierto);
     if (saldo > 0) {
       lineas.push(`⚠️ *Saldo pendiente estimado:* ${formatearUsd(saldo)}`);
+    }
+  }
+
+  if (venta.datos_entrega && Object.keys(venta.datos_entrega).length > 0) {
+    const de = venta.datos_entrega;
+    const esEnvio = venta.tipo_entrega.toLowerCase().includes("env");
+    lineas.push(
+      "",
+      esEnvio
+        ? "📦 *Datos de Envío Nacional:*"
+        : "🚚 *Datos de Delivery:*"
+    );
+    if (esEnvio) {
+      if (de.destinatario) lineas.push(`• Destinatario: ${de.destinatario}`);
+      if (de.cedula) lineas.push(`• Cédula de Identidad: ${de.cedula}`);
+      if (de.telefono) lineas.push(`• Teléfono: ${de.telefono}`);
+      if (de.empresa_envio) lineas.push(`• Empresa: ${de.empresa_envio}`);
+      if (de.estado_ciudad) lineas.push(`• Estado / Ciudad: ${de.estado_ciudad}`);
+      if (de.agencia_oficina) lineas.push(`• Agencia / Oficina: ${de.agencia_oficina}`);
+      if (de.direccion_oficina) lineas.push(`• Dirección oficina: ${de.direccion_oficina}`);
+      if (de.modalidad) lineas.push(`• Modalidad: ${de.modalidad}`);
+    } else {
+      if (de.nombre_recibe) lineas.push(`• Recibe: ${de.nombre_recibe}`);
+      if (de.telefono) lineas.push(`• Teléfono: ${de.telefono}`);
+      if (de.zona_municipio) lineas.push(`• Zona / Municipio: ${de.zona_municipio}`);
+      if (de.direccion) lineas.push(`• Dirección: ${de.direccion}`);
+      if (de.punto_referencia) lineas.push(`• Referencia: ${de.punto_referencia}`);
+      if (de.horario_instrucciones) lineas.push(`• Horario / Instrucciones: ${de.horario_instrucciones}`);
     }
   }
 

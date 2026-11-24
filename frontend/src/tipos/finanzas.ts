@@ -43,12 +43,14 @@ export interface VentaResumen {
   cliente_rif?: string;
   cliente_telefono?: string;
   cliente_direccion?: string;
+  cliente_tipo_persona?: "NATURAL" | "JURIDICO" | string;
   asesor_id: number | null;
   asesor: string;
   tecnico_id?: number | null;
   tecnico?: string | null;
   canal_visita: string;
   tipo_entrega: string;
+  datos_entrega?: Record<string, string> | null;
   tasa_bcv_snapshot: number;
   tasa_usdt_snapshot: number;
   recargo_porcentaje_snapshot: number;
