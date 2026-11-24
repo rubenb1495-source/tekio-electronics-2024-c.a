@@ -66,26 +66,85 @@ def _obtener_datos_cliente(venta: Venta) -> tuple[str, str, str, str, str]:
     )
 
 
+def _dibujar_isotipo_tekio(pdf: canvas.Canvas, x: float, y_base: float, escala: float = 0.48) -> None:
+    """Dibuja el isotipo vectorial oficial de 3 flechas convergentes en Naranja Tekio (#E85A28)."""
+    pdf.saveState()
+    pdf.setFillColorRGB(0.91, 0.35, 0.16)  # #E85A28
+    pdf.translate(x, y_base)
+    pdf.scale(escala, escala)
+
+    # Flecha izquierda apuntando al centro
+    p1 = pdf.beginPath()
+    p1.moveTo(8, 46.5)
+    p1.lineTo(28.5, 32)
+    p1.lineTo(8, 17.5)
+    p1.lineTo(8, 26.2)
+    p1.lineTo(16.2, 32)
+    p1.lineTo(8, 37.8)
+    p1.close()
+    pdf.drawPath(p1, stroke=0, fill=1)
+
+    # Flecha superior apuntando al centro
+    p2 = pdf.beginPath()
+    p2.moveTo(32, 56.5)
+    p2.lineTo(46.5, 36)
+    p2.lineTo(37.8, 36)
+    p2.lineTo(32, 44.2)
+    p2.lineTo(26.2, 36)
+    p2.lineTo(17.5, 36)
+    p2.close()
+    pdf.drawPath(p2, stroke=0, fill=1)
+
+    # Flecha derecha apuntando al centro
+    p3 = pdf.beginPath()
+    p3.moveTo(56, 46.5)
+    p3.lineTo(56, 37.8)
+    p3.lineTo(47.8, 32)
+    p3.lineTo(56, 26.2)
+    p3.lineTo(56, 17.5)
+    p3.lineTo(35.5, 32)
+    p3.close()
+    pdf.drawPath(p3, stroke=0, fill=1)
+
+    pdf.restoreState()
+
+
 def _dibujar_encabezado(pdf: canvas.Canvas, ancho: float, alto: float, venta: Venta, pagina: int = 1) -> float:
-    pdf.setFillColorRGB(0.91, 0.35, 0.16)  # Naranja Tekio (#E85A28)
-    pdf.rect(0, alto - 0.98 * inch, ancho, 0.98 * inch, fill=1, stroke=0)
+    # Franja superior en Naranja Tekio (#E85A28)
+    pdf.setFillColorRGB(0.91, 0.35, 0.16)
+    pdf.rect(0, alto - 0.10 * inch, ancho, 0.10 * inch, fill=1, stroke=0)
 
-    pdf.setFillColor(colors.white)
-    pdf.setFont("Helvetica-Bold", 16)
-    pdf.drawString(0.50 * inch, alto - 0.42 * inch, "TEKIO ELECTRONICS 2024, C.A.")
-    pdf.setFont("Helvetica", 9)
-    pdf.drawString(0.50 * inch, alto - 0.64 * inch, "RIF: J-50637518-4 · Valencia, Edo. Carabobo, Venezuela")
-    pdf.drawString(0.50 * inch, alto - 0.82 * inch, "Tecnología con criterio · WhatsApp: +58 424-4152658")
+    # Isotipo vectorial limpio a la izquierda
+    _dibujar_isotipo_tekio(pdf, 0.48 * inch, alto - 0.84 * inch, escala=0.52)
 
+    # Nombre de la empresa y RIF en Carbón Tekio (#191818)
+    pdf.setFillColorRGB(0.098, 0.094, 0.094)  # #191818
+    pdf.setFont("Helvetica-Bold", 14.5)
+    pdf.drawString(1.02 * inch, alto - 0.42 * inch, "TEKIO ELECTRONICS 2024, C.A.")
+    pdf.setFont("Helvetica-Bold", 8.5)
+    pdf.drawString(1.02 * inch, alto - 0.60 * inch, "RIF: J-50637518-4 · Valencia, Edo. Carabobo, Venezuela")
+    pdf.setFillColorRGB(0.38, 0.38, 0.38)
+    pdf.setFont("Helvetica", 8)
+    pdf.drawString(1.02 * inch, alto - 0.76 * inch, "Somos tu solución · WhatsApp: +58 424-4152658")
+
+    # Bloque derecho: Nota de Entrega
     sufijo_pag = f" (Pág. {pagina})" if pagina > 1 else ""
-    pdf.setFont("Helvetica-Bold", 12.5)
+    pdf.setFillColorRGB(0.91, 0.35, 0.16)  # #E85A28
+    pdf.setFont("Helvetica-Bold", 12)
     pdf.drawRightString(ancho - 0.50 * inch, alto - 0.42 * inch, f"NOTA DE ENTREGA{sufijo_pag}")
-    pdf.setFont("Helvetica-Bold", 11)
-    pdf.drawRightString(ancho - 0.50 * inch, alto - 0.64 * inch, f"Nro: {venta.numero_venta}")
-    pdf.setFont("Helvetica", 8.8)
-    pdf.drawRightString(ancho - 0.50 * inch, alto - 0.82 * inch, f"Fecha: {venta.fecha.isoformat()}")
-    pdf.setFillColor(colors.black)
-    return alto - 1.24 * inch
+    pdf.setFillColorRGB(0.098, 0.094, 0.094)  # #191818
+    pdf.setFont("Helvetica-Bold", 10.5)
+    pdf.drawRightString(ancho - 0.50 * inch, alto - 0.60 * inch, f"Nro: {venta.numero_venta}")
+    pdf.setFont("Helvetica", 8.5)
+    pdf.drawRightString(ancho - 0.50 * inch, alto - 0.76 * inch, f"Fecha: {venta.fecha.isoformat()}")
+
+    # Línea divisoria sutil
+    pdf.setStrokeColorRGB(0.898, 0.906, 0.922)  # #E5E7EB
+    pdf.setLineWidth(0.8)
+    pdf.line(0.50 * inch, alto - 0.94 * inch, ancho - 0.50 * inch, alto - 0.94 * inch)
+
+    pdf.setFillColorRGB(0.098, 0.094, 0.094)
+    return alto - 1.18 * inch
 
 
 def _parsear_datos_entrega(venta: Venta) -> dict[str, Any] | None:
@@ -193,11 +252,11 @@ def generar_pdf_nota_entrega(venta: Venta) -> bytes:
         f"Asesor: {asesor_nombre}" + (f" · Técnico: {tecnico_nombre}" if tecnico_nombre else ""),
     )
 
-    # Tabla de artículos (solo Precio Unitario y Subtotal, sin etiquetas comerciales internas)
+    # Tabla de artículos (encabezado Carbón #191818 con texto blanco y filas alternadas #F6F6F6)
     y -= 20
-    pdf.setFillColorRGB(0.95, 0.96, 0.97)
+    pdf.setFillColorRGB(0.098, 0.094, 0.094)  # #191818
     pdf.rect(0.50 * inch, y - 4, ancho - 1.00 * inch, 18, fill=1, stroke=0)
-    pdf.setFillColor(colors.black)
+    pdf.setFillColor(colors.white)
     pdf.setFont("Helvetica-Bold", 8.3)
     pdf.drawString(0.60 * inch, y + 2, "Cant.")
     pdf.drawString(1.02 * inch, y + 2, "Descripción / Serial")
@@ -206,12 +265,17 @@ def generar_pdf_nota_entrega(venta: Venta) -> bytes:
 
     y -= 17
     pdf.setFont("Helvetica", 8.2)
-    for det in venta.detalles:
+    for idx_det, det in enumerate(venta.detalles):
         if y < 1.2 * inch:
             pdf.showPage()
             y = _dibujar_encabezado(pdf, ancho, alto, venta, pagina=2)
             pdf.setFont("Helvetica", 8.2)
 
+        if idx_det % 2 == 1:
+            pdf.setFillColorRGB(0.965, 0.965, 0.965)  # #F6F6F6
+            pdf.rect(0.50 * inch, y - 3.5, ancho - 1.00 * inch, 13.5, fill=1, stroke=0)
+
+        pdf.setFillColorRGB(0.098, 0.094, 0.094)
         serial_txt = f" [Serial: {det.equipo.serial}]" if det.equipo else ""
         precio_unit = float(det.precio_regular_usd if es_regular else det.precio_promo_usd)
         subtotal = precio_unit * int(det.cantidad)
@@ -227,7 +291,7 @@ def generar_pdf_nota_entrega(venta: Venta) -> bytes:
         else:
             pdf.drawRightString(ancho - 1.60 * inch, y, f"${precio_unit:,.2f}")
             pdf.drawRightString(ancho - 0.60 * inch, y, f"${subtotal:,.2f}")
-        y -= 13
+        y -= 13.5
 
         desc_srv = (getattr(det, "descripcion_servicio", "") or "").strip()
         if desc_srv:
@@ -321,11 +385,21 @@ def generar_pdf_nota_entrega(venta: Venta) -> bytes:
         y -= 1.0
 
     # ---------------- PRUEBA DE FUNCIONALIDAD DEL EQUIPO ----------------
-    y -= 5
-    pdf.setFillColorRGB(0.91, 0.35, 0.16)
-    pdf.setFont("Helvetica-Bold", 8)
-    pdf.drawString(0.50 * inch, y, "PRUEBA DE FUNCIONALIDAD DEL EQUIPO")
     y -= 6
+    ancho_tabla = ancho - 1.00 * inch
+    mitad = ancho_tabla / 2
+    alto_fila = 12
+    x_izq = 0.50 * inch
+    x_der = x_izq + mitad
+
+    # Encabezado Carbón (#191818) con texto blanco
+    pdf.setFillColorRGB(0.098, 0.094, 0.094)
+    pdf.rect(x_izq, y - 12, ancho_tabla, 14, fill=1, stroke=0)
+    pdf.setFillColor(colors.white)
+    pdf.setFont("Helvetica-Bold", 7.8)
+    pdf.drawString(x_izq + 6, y - 8, "PRUEBA DE FUNCIONALIDAD DEL EQUIPO")
+    pdf.drawRightString(x_izq + ancho_tabla - 6, y - 8, "Verificación frente al cliente")
+    y -= 12
 
     items_funcionalidad = [
         ("PANTALLA", "MICRÓFONO / AUDIO"),
@@ -334,19 +408,17 @@ def generar_pdf_nota_entrega(venta: Venta) -> bytes:
         ("PIN DE CARGA", "CARGADOR"),
         ("WIFI / BLUETOOTH", "VINIL"),
     ]
-    ancho_tabla = ancho - 1.00 * inch
-    mitad = ancho_tabla / 2
-    alto_fila = 12
-    x_izq = 0.50 * inch
-    x_der = x_izq + mitad
 
-    pdf.setStrokeColorRGB(0.75, 0.78, 0.82)
+    pdf.setStrokeColorRGB(0.85, 0.87, 0.89)
     pdf.setLineWidth(0.5)
-    pdf.setFillColor(colors.black)
     pdf.setFont("Helvetica", 7.2)
 
-    for izq_lbl, der_lbl in items_funcionalidad:
+    for idx_f, (izq_lbl, der_lbl) in enumerate(items_funcionalidad):
         y -= alto_fila
+        if idx_f % 2 == 1:
+            pdf.setFillColorRGB(0.965, 0.965, 0.965)  # #F6F6F6
+            pdf.rect(x_izq, y, ancho_tabla, alto_fila, fill=1, stroke=0)
+        pdf.setFillColorRGB(0.098, 0.094, 0.094)
         pdf.rect(x_izq, y, mitad, alto_fila, fill=0, stroke=1)
         pdf.rect(x_der, y, mitad, alto_fila, fill=0, stroke=1)
         pdf.drawString(x_izq + 5, y + 3.5, izq_lbl)

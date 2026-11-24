@@ -2,13 +2,52 @@
 
 :root {
   --tekio-naranja: #e85a28;
-  --tekio-naranja-oscuro: #c9461a;
-  --fondo: #f8fafc;
-  --texto: #0f172a;
+  --tekio-naranja-hover: #d14d1f;
+  --tekio-naranja-suave: #fdf0eb;
+  --tekio-carbon: #191818;
+  --tekio-carbon-superficie: #242323;
+  --tekio-carbon-borde: #2e2d2d;
+  --tekio-fondo: #f6f6f6;
+  --tekio-borde: #e5e7eb;
+}
+
+@theme inline {
+  --color-tekio-naranja: #e85a28;
+  --color-tekio-naranja-hover: #d14d1f;
+  --color-tekio-naranja-suave: #fdf0eb;
+  --color-tekio-carbon: #191818;
+  --color-tekio-carbon-superficie: #242323;
+  --color-tekio-carbon-borde: #2e2d2d;
+  --color-tekio-fondo: #f6f6f6;
+  --font-sans: "Neue Montreal", var(--font-plus-jakarta), system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 }
 
 body {
-  background-color: var(--fondo);
-  color: var(--texto);
-  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  background-color: var(--tekio-fondo);
+  color: var(--tekio-carbon);
+  font-family: "Neue Montreal", var(--font-plus-jakarta), system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+/* Foco consistente con Naranja Tekio (#E85A28) en inputs y selectores */
+input:not([type="checkbox"]):not([type="radio"]):focus,
+select:focus,
+textarea:focus {
+  outline: none;
+  border-color: var(--tekio-naranja);
+  box-shadow: 0 0 0 2px rgba(232, 90, 40, 0.25);
+}
+
+/* Alineación tabular-nums en cifras, precios, tasas y columnas numéricas */
+table td.text-right,
+table th.text-right,
+.cifra-tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Hover sutil y consistente en filas de tabla */
+tbody tr {
+  transition: background-color 120ms ease;
+}
+tbody tr:hover {
+  background-color: #fafafa;
 }

@@ -138,43 +138,43 @@ export default function PaginaComisionesYCierre() {
       {/* KPIs del Tablero Financiero */}
       {tablero && (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
-          <div className="bg-white p-4 rounded-2xl border border-slate-200">
-            <p className="text-[11px] font-bold uppercase text-slate-500">
+          <div className="bg-white p-4 rounded-2xl border border-[#E5E7EB] border-t-2 border-t-[#191818]">
+            <p className="text-[11px] font-bold uppercase tracking-wider text-neutral-500">
               Venta Promo
             </p>
-            <p className="text-xl font-black text-slate-900 mt-1">
+            <p className="text-xl font-black text-[#191818] mt-1 cifra-tabular">
               {formatearUsd(tablero.venta_promo_usd)}
             </p>
           </div>
-          <div className="bg-white p-4 rounded-2xl border border-slate-200">
-            <p className="text-[11px] font-bold uppercase text-slate-500">
+          <div className="bg-white p-4 rounded-2xl border border-[#E5E7EB] border-t-2 border-t-emerald-600">
+            <p className="text-[11px] font-bold uppercase tracking-wider text-neutral-500">
               USD Real
             </p>
-            <p className="text-xl font-black text-emerald-700 mt-1">
+            <p className="text-xl font-black text-emerald-700 mt-1 cifra-tabular">
               {formatearUsd(tablero.usd_real)}
             </p>
           </div>
-          <div className="bg-white p-4 rounded-2xl border border-slate-200">
-            <p className="text-[11px] font-bold uppercase text-slate-500">
+          <div className="bg-white p-4 rounded-2xl border border-[#E5E7EB] border-t-2 border-t-[#E85A28]">
+            <p className="text-[11px] font-bold uppercase tracking-wider text-neutral-500">
               Diferencial
             </p>
-            <p className="text-xl font-black text-amber-700 mt-1">
+            <p className="text-xl font-black text-[#E85A28] mt-1 cifra-tabular">
               {formatearUsd(tablero.diferencial_cambiario_usd)}
             </p>
           </div>
-          <div className="bg-white p-4 rounded-2xl border border-slate-200">
-            <p className="text-[11px] font-bold uppercase text-slate-500">
+          <div className="bg-white p-4 rounded-2xl border border-[#E5E7EB] border-t-2 border-t-[#191818]">
+            <p className="text-[11px] font-bold uppercase tracking-wider text-neutral-500">
               Cashea x Cobrar
             </p>
-            <p className="text-xl font-black text-sky-700 mt-1">
+            <p className="text-xl font-black text-[#191818] mt-1 cifra-tabular">
               {formatearUsd(tablero.cashea_por_cobrar_usd)}
             </p>
           </div>
-          <div className="bg-gradient-to-br from-[#E85A28] to-[#C9461A] p-4 rounded-2xl text-white">
-            <p className="text-[11px] font-bold uppercase text-orange-100">
+          <div className="bg-[#191818] p-4 rounded-2xl border border-[#2E2D2D] border-t-2 border-t-[#E85A28] text-white">
+            <p className="text-[11px] font-bold uppercase tracking-wider text-[#E85A28]">
               Utilidad Real Neta
             </p>
-            <p className="text-xl font-black mt-1">
+            <p className="text-xl font-black mt-1 cifra-tabular">
               {formatearUsd(tablero.utilidad_real_neta_usd)}
             </p>
           </div>
