@@ -64,7 +64,7 @@ export default function PaginaLogin() {
         </div>
 
         <div className="my-12 lg:my-0 flex flex-col items-center lg:items-start text-center lg:text-left space-y-6">
-          <LogoTekio variante="vertical" tema="oscuro" tamano="lg" />
+          <LogoTekio variante="horizontal" tema="oscuro" tamano="lg" />
 
           <div className="space-y-2 max-w-md">
             <div className="h-1 w-12 bg-[#E85A28] mx-auto lg:mx-0 rounded-full" />

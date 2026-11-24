@@ -152,4 +152,4 @@
 
 ## 8. Última Actualización
 - **Fecha:** 2026-11-24
-- **Último cambio:** Se aplicó la identidad visual oficial de Tekio Electronics 2024 en todo `/frontend` (tokens `#E85A28` / `#191818` / `#F6F6F6`, tipografía `Plus Jakarta Sans` + `'Neue Montreal'` con `tabular-nums`, `LogoTekio.tsx`, `app/icon.svg`, `/login` split-screen, Sidebar colapsable `#191818` agrupado por módulos, Topbar blanca con píldoras de tasas/sucursal/perfil y tarjetas KPI) y en la Nota de Entrega PDF (`pdf_nota.py`: isotipo vectorial `#E85A28`, encabezados `#191818` con texto blanco y filas alternadas `#F6F6F6`). Validado con `pytest` (20/20) y `next build` (25/25).
+- **Último cambio:** Se integró el imagotipo oficial PNG de Tekio Electronics (`tekio-logo-horizontal.png`, variante `tekio-logo-horizontal-blanco.png` para fondos `#191818`, `tekio-isotipo.png` para sidebar colapsado y `app/icon.png` como favicon) en `LogoTekio.tsx` y en el encabezado de la Nota de Entrega PDF (`/backend-python/assets/tekio-logo-horizontal.png` con `preserveAspectRatio=True`). Validado con `pytest` (20/20) y `next build` (25/25).

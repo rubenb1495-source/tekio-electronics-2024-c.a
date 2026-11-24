@@ -3,6 +3,7 @@ from __future__ import annotations
 import io
 import json
 from decimal import Decimal
+from pathlib import Path
 from typing import Any
 
 from reportlab.lib import colors
@@ -11,6 +12,9 @@ from reportlab.lib.units import inch
 from reportlab.pdfgen import canvas
 
 from app.modelos_finanzas import MonedaInstrumento, TipoPrecioInstrumento, Venta
+
+
+RUTA_LOGO_PDF = Path(__file__).resolve().parent.parent.parent / "assets" / "tekio-logo-horizontal.png"
 
 
 def _envolver_texto(texto: str, max_chars: int) -> list[str]:
@@ -114,34 +118,50 @@ def _dibujar_encabezado(pdf: canvas.Canvas, ancho: float, alto: float, venta: Ve
     pdf.setFillColorRGB(0.91, 0.35, 0.16)
     pdf.rect(0, alto - 0.10 * inch, ancho, 0.10 * inch, fill=1, stroke=0)
 
-    # Isotipo vectorial limpio a la izquierda
-    _dibujar_isotipo_tekio(pdf, 0.48 * inch, alto - 0.84 * inch, escala=0.52)
-
-    # Nombre de la empresa y RIF en Carbón Tekio (#191818)
-    pdf.setFillColorRGB(0.098, 0.094, 0.094)  # #191818
-    pdf.setFont("Helvetica-Bold", 14.5)
-    pdf.drawString(1.02 * inch, alto - 0.42 * inch, "TEKIO ELECTRONICS 2024, C.A.")
-    pdf.setFont("Helvetica-Bold", 8.5)
-    pdf.drawString(1.02 * inch, alto - 0.60 * inch, "RIF: J-50637518-4 · Valencia, Edo. Carabobo, Venezuela")
-    pdf.setFillColorRGB(0.38, 0.38, 0.38)
-    pdf.setFont("Helvetica", 8)
-    pdf.drawString(1.02 * inch, alto - 0.76 * inch, "Somos tu solución · WhatsApp: +58 424-4152658")
+    # Imagotipo oficial PNG a la izquierda respetando proporción y zona de respeto
+    if RUTA_LOGO_PDF.exists():
+        pdf.drawImage(
+            str(RUTA_LOGO_PDF),
+            0.50 * inch,
+            alto - 0.56 * inch,
+            width=1.65 * inch,
+            height=0.39 * inch,
+            preserveAspectRatio=True,
+            anchor="sw",
+            mask="auto",
+        )
+        pdf.setFillColorRGB(0.098, 0.094, 0.094)  # #191818
+        pdf.setFont("Helvetica-Bold", 8.5)
+        pdf.drawString(0.50 * inch, alto - 0.72 * inch, "TEKIO ELECTRONICS 2024, C.A. · RIF: J-50637518-4")
+        pdf.setFillColorRGB(0.38, 0.38, 0.38)
+        pdf.setFont("Helvetica", 7.8)
+        pdf.drawString(0.50 * inch, alto - 0.85 * inch, "Somos tu solución · Valencia, Edo. Carabobo · WhatsApp: +58 424-4152658")
+    else:
+        _dibujar_isotipo_tekio(pdf, 0.48 * inch, alto - 0.84 * inch, escala=0.52)
+        pdf.setFillColorRGB(0.098, 0.094, 0.094)  # #191818
+        pdf.setFont("Helvetica-Bold", 14.5)
+        pdf.drawString(1.02 * inch, alto - 0.42 * inch, "TEKIO ELECTRONICS 2024, C.A.")
+        pdf.setFont("Helvetica-Bold", 8.5)
+        pdf.drawString(1.02 * inch, alto - 0.60 * inch, "RIF: J-50637518-4 · Valencia, Edo. Carabobo, Venezuela")
+        pdf.setFillColorRGB(0.38, 0.38, 0.38)
+        pdf.setFont("Helvetica", 8)
+        pdf.drawString(1.02 * inch, alto - 0.76 * inch, "Somos tu solución · WhatsApp: +58 424-4152658")
 
     # Bloque derecho: Nota de Entrega
     sufijo_pag = f" (Pág. {pagina})" if pagina > 1 else ""
     pdf.setFillColorRGB(0.91, 0.35, 0.16)  # #E85A28
     pdf.setFont("Helvetica-Bold", 12)
-    pdf.drawRightString(ancho - 0.50 * inch, alto - 0.42 * inch, f"NOTA DE ENTREGA{sufijo_pag}")
+    pdf.drawRightString(ancho - 0.50 * inch, alto - 0.40 * inch, f"NOTA DE ENTREGA{sufijo_pag}")
     pdf.setFillColorRGB(0.098, 0.094, 0.094)  # #191818
     pdf.setFont("Helvetica-Bold", 10.5)
-    pdf.drawRightString(ancho - 0.50 * inch, alto - 0.60 * inch, f"Nro: {venta.numero_venta}")
+    pdf.drawRightString(ancho - 0.50 * inch, alto - 0.58 * inch, f"Nro: {venta.numero_venta}")
     pdf.setFont("Helvetica", 8.5)
-    pdf.drawRightString(ancho - 0.50 * inch, alto - 0.76 * inch, f"Fecha: {venta.fecha.isoformat()}")
+    pdf.drawRightString(ancho - 0.50 * inch, alto - 0.74 * inch, f"Fecha: {venta.fecha.isoformat()}")
 
     # Línea divisoria sutil
     pdf.setStrokeColorRGB(0.898, 0.906, 0.922)  # #E5E7EB
     pdf.setLineWidth(0.8)
-    pdf.line(0.50 * inch, alto - 0.94 * inch, ancho - 0.50 * inch, alto - 0.94 * inch)
+    pdf.line(0.50 * inch, alto - 0.95 * inch, ancho - 0.50 * inch, alto - 0.95 * inch)
 
     pdf.setFillColorRGB(0.098, 0.094, 0.094)
     return alto - 1.18 * inch
