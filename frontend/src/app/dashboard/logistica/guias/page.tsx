@@ -1,7 +1,8 @@
 "use client";
 
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { AlertCircle, CheckCircle2, Plane, Plus } from "lucide-react";
+import BuscadorTabla from "@/componentes/BuscadorTabla";
 import { ErrorApi, formatearUsd, solicitarApi } from "@/servicios/api";
 import type {
   CompraResumen,
@@ -12,6 +13,7 @@ import type {
 
 export default function PaginaGuias() {
   const [guias, setGuias] = useState<GuiaResumen[]>([]);
+  const [busqueda, setBusqueda] = useState("");
   const [comprasPendientes, setComprasPendientes] = useState<CompraResumen[]>(
     []
   );
@@ -102,6 +104,24 @@ export default function PaginaGuias() {
     }
   };
 
+  const guiasFiltradas = useMemo(() => {
+    const q = busqueda.trim().toLowerCase();
+    if (!q) return guias;
+    return guias.filter((g) =>
+      [
+        g.numero_guia,
+        g.casillero || "",
+        g.modalidad,
+        g.estado,
+        g.compras.map((c) => c.numero_compra).join(" "),
+        (g.seriales_esperados || []).join(" "),
+      ]
+        .join(" ")
+        .toLowerCase()
+        .includes(q)
+    );
+  }, [guias, busqueda]);
+
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-4">
@@ -138,6 +158,16 @@ export default function PaginaGuias() {
         </div>
       )}
 
+      <div className="bg-white rounded-2xl border border-slate-200 p-4">
+        <BuscadorTabla
+          valor={busqueda}
+          alCambiar={setBusqueda}
+          placeholder="Buscar por nro. de guía, casillero, modalidad, compra, serial o estado..."
+          totalRegistros={guias.length}
+          totalFiltrados={guiasFiltradas.length}
+        />
+      </div>
+
       <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden">
         {cargando ? (
           <div className="p-6 space-y-3">
@@ -148,11 +178,11 @@ export default function PaginaGuias() {
               />
             ))}
           </div>
-        ) : guias.length === 0 ? (
+        ) : guiasFiltradas.length === 0 ? (
           <div className="p-10 text-center space-y-2">
             <Plane className="w-10 h-10 text-slate-300 mx-auto" />
             <p className="text-sm font-semibold text-slate-600">
-              No hay guías de importación registradas.
+              No hay guías que coincidan.
             </p>
           </div>
         ) : (
@@ -168,7 +198,7 @@ export default function PaginaGuias() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {guias.map((g) => (
+                {guiasFiltradas.map((g) => (
                   <tr key={g.id} className="hover:bg-slate-50">
                     <td className="px-4 py-3 font-mono font-bold text-slate-900">
                       {g.numero_guia}

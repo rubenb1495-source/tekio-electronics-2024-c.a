@@ -1,7 +1,8 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { AlertCircle, CheckCircle2, FileSpreadsheet, Upload } from "lucide-react";
+import BuscadorTabla from "@/componentes/BuscadorTabla";
 import { ErrorApi, solicitarApi, subirArchivoApi } from "@/servicios/api";
 import type {
   InstrumentoFinanciero,
@@ -12,6 +13,7 @@ export default function PaginaConciliacion() {
   const [instrumentos, setInstrumentos] = useState<InstrumentoFinanciero[]>([]);
   const [instrumentoId, setInstrumentoId] = useState("");
   const [resultado, setResultado] = useState<ResultadoConciliacion | null>(null);
+  const [busqueda, setBusqueda] = useState("");
   const [pestana, setPestana] = useState<
     "cuadrados" | "sin_banco" | "sin_sistema"
   >("cuadrados");
@@ -57,6 +59,29 @@ export default function PaginaConciliacion() {
       e.target.value = "";
     }
   };
+
+  const listaActiva = useMemo(() => {
+    if (!resultado) return [];
+    const base =
+      pestana === "cuadrados"
+        ? resultado.cuadrados
+        : pestana === "sin_banco"
+        ? resultado.registrados_sin_banco
+        : resultado.en_banco_sin_registrar;
+    const q = busqueda.trim().toLowerCase();
+    if (!q) return base;
+    return base.filter((item) =>
+      JSON.stringify(item).toLowerCase().includes(q)
+    );
+  }, [resultado, pestana, busqueda]);
+
+  const totalActiva = resultado
+    ? pestana === "cuadrados"
+      ? resultado.cuadrados.length
+      : pestana === "sin_banco"
+      ? resultado.registrados_sin_banco.length
+      : resultado.en_banco_sin_registrar.length
+    : 0;
 
   return (
     <div className="space-y-6">
@@ -148,22 +173,17 @@ export default function PaginaConciliacion() {
             </button>
           </div>
 
-          <div className="bg-white rounded-2xl border border-slate-200 p-4 text-xs">
-            {pestana === "cuadrados" && (
-              <pre className="overflow-x-auto text-slate-700">
-                {JSON.stringify(resultado.cuadrados, null, 2)}
-              </pre>
-            )}
-            {pestana === "sin_banco" && (
-              <pre className="overflow-x-auto text-slate-700">
-                {JSON.stringify(resultado.registrados_sin_banco, null, 2)}
-              </pre>
-            )}
-            {pestana === "sin_sistema" && (
-              <pre className="overflow-x-auto text-slate-700">
-                {JSON.stringify(resultado.en_banco_sin_registrar, null, 2)}
-              </pre>
-            )}
+          <div className="bg-white rounded-2xl border border-slate-200 p-4 space-y-3 text-xs">
+            <BuscadorTabla
+              valor={busqueda}
+              alCambiar={setBusqueda}
+              placeholder="Buscar por referencia, monto, fecha o descripción..."
+              totalRegistros={totalActiva}
+              totalFiltrados={listaActiva.length}
+            />
+            <pre className="overflow-x-auto text-slate-700">
+              {JSON.stringify(listaActiva, null, 2)}
+            </pre>
           </div>
         </div>
       ) : (

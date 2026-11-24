@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import {
   AlertCircle,
@@ -11,6 +11,11 @@ import {
   Plus,
   Receipt,
 } from "lucide-react";
+import BuscadorTabla from "@/componentes/BuscadorTabla";
+import {
+  copiarTextoPortapapeles,
+  formatearWhatsAppVenta,
+} from "@/lib/whatsapp";
 import {
   ErrorApi,
   descargarPdfApi,
@@ -21,6 +26,8 @@ import type { VentaResumen } from "@/tipos/finanzas";
 
 export default function PaginaHistorialVentas() {
   const [ventas, setVentas] = useState<VentaResumen[]>([]);
+  const [busqueda, setBusqueda] = useState("");
+  const [copiadoId, setCopiadoId] = useState<number | null>(null);
   const [cargando, setCargando] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [exito, setExito] = useState<string | null>(null);
@@ -74,10 +81,39 @@ export default function PaginaHistorialVentas() {
     }
   };
 
-  const copiarWhatsApp = (v: VentaResumen) => {
-    const txt = `*TEKIO · ${v.numero_venta}* (${v.fecha})\nSucursal: ${v.sucursal}\nTotal Promo: ${formatearUsd(v.total_promo_usd)} | Estado: ${v.estado}`;
-    void navigator.clipboard?.writeText(txt);
-    setExito(`Reporte de ${v.numero_venta} copiado para WhatsApp.`);
+  const ventasFiltradas = useMemo(() => {
+    const q = busqueda.trim().toLowerCase();
+    if (!q) return ventas;
+    return ventas.filter((v) => {
+      const seriales = (v.detalles || [])
+        .map((d) => `${d.serial || ""} ${d.descripcion} ${d.descripcion_servicio || ""}`)
+        .join(" ");
+      const refs = (v.pagos || [])
+        .map((p) => `${p.referencia || ""} ${p.instrumento || ""}`)
+        .join(" ");
+      const texto = [
+        v.numero_venta,
+        v.cliente,
+        v.asesor,
+        v.tecnico || "",
+        v.sucursal || "",
+        v.estado,
+        v.fecha,
+        seriales,
+        refs,
+      ]
+        .join(" ")
+        .toLowerCase();
+      return texto.includes(q);
+    });
+  }, [ventas, busqueda]);
+
+  const copiarWhatsApp = async (v: VentaResumen) => {
+    const txt = formatearWhatsAppVenta(v);
+    await copiarTextoPortapapeles(txt);
+    setCopiadoId(v.id);
+    setExito(`Reporte completo de ${v.numero_venta} copiado para WhatsApp.`);
+    setTimeout(() => setCopiadoId((prev) => (prev === v.id ? null : prev)), 2500);
   };
 
   return (
@@ -115,6 +151,16 @@ export default function PaginaHistorialVentas() {
         </div>
       )}
 
+      <div className="bg-white rounded-2xl border border-slate-200 p-4">
+        <BuscadorTabla
+          valor={busqueda}
+          alCambiar={setBusqueda}
+          placeholder="Buscar por nro. de venta, cliente, serial, asesor, sucursal, estado o referencia..."
+          totalRegistros={ventas.length}
+          totalFiltrados={ventasFiltradas.length}
+        />
+      </div>
+
       <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden">
         {cargando ? (
           <div className="p-6 space-y-3">
@@ -122,11 +168,13 @@ export default function PaginaHistorialVentas() {
               <div key={i} className="h-12 rounded-xl bg-slate-100 animate-pulse" />
             ))}
           </div>
-        ) : ventas.length === 0 ? (
+        ) : ventasFiltradas.length === 0 ? (
           <div className="p-10 text-center space-y-2">
             <Receipt className="w-10 h-10 text-slate-300 mx-auto" />
             <p className="text-sm font-semibold text-slate-600">
-              No hay ventas registradas todavía.
+              {busqueda
+                ? "No hay ventas que coincidan con la búsqueda."
+                : "No hay ventas registradas todavía."}
             </p>
           </div>
         ) : (
@@ -136,14 +184,14 @@ export default function PaginaHistorialVentas() {
                 <tr>
                   <th className="px-4 py-3">Nota</th>
                   <th className="px-4 py-3">Fecha / Sucursal</th>
-                  <th className="px-4 py-3">Asesor</th>
+                  <th className="px-4 py-3">Cliente / Asesor</th>
                   <th className="px-4 py-3 text-right">Promo USD</th>
                   <th className="px-4 py-3">Estado</th>
                   <th className="px-4 py-3 text-right">Acciones</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {ventas.map((v) => (
+                {ventasFiltradas.map((v) => (
                   <tr key={v.id} className="hover:bg-slate-50">
                     <td className="px-4 py-3 font-mono font-bold text-slate-900">
                       {v.numero_venta}
@@ -152,7 +200,13 @@ export default function PaginaHistorialVentas() {
                       <p className="font-semibold">{v.fecha}</p>
                       <p className="text-slate-500">{v.sucursal}</p>
                     </td>
-                    <td className="px-4 py-3 text-xs">{v.asesor}</td>
+                    <td className="px-4 py-3 text-xs">
+                      <p className="font-semibold text-slate-800">{v.cliente}</p>
+                      <p className="text-slate-500">
+                        {v.asesor}
+                        {v.tecnico ? ` · Téc: ${v.tecnico}` : ""}
+                      </p>
+                    </td>
                     <td className="px-4 py-3 text-right font-bold text-emerald-700">
                       {formatearUsd(v.total_promo_usd)}
                     </td>
@@ -169,7 +223,7 @@ export default function PaginaHistorialVentas() {
                         {v.estado}
                       </span>
                     </td>
-                    <td className="px-4 py-3 text-right space-x-1.5">
+                    <td className="px-4 py-3 text-right space-x-1.5 whitespace-nowrap">
                       <button
                         type="button"
                         onClick={() =>
@@ -185,11 +239,11 @@ export default function PaginaHistorialVentas() {
                       </button>
                       <button
                         type="button"
-                        onClick={() => copiarWhatsApp(v)}
-                        className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border border-slate-300 text-xs font-bold cursor-pointer"
+                        onClick={() => void copiarWhatsApp(v)}
+                        className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border border-emerald-300 bg-emerald-50 text-emerald-800 text-xs font-bold cursor-pointer"
                       >
                         <Copy className="w-3.5 h-3.5" />
-                        WA
+                        {copiadoId === v.id ? "¡Copiado!" : "WhatsApp"}
                       </button>
                       {v.estado !== "ANULADA" && (
                         <button

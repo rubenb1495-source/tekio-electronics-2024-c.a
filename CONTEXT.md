@@ -152,4 +152,4 @@
 
 ## 8. Última Actualización
 - **Fecha:** 2026-11-24
-- **Último cambio:** Se implementaron precios Promo editables y botón Obsequio (`\$0.00`) en todas las líneas del POS (con `OBSEQUIO (\$0.00)` en PDF/WhatsApp e imputación automática del costo de obsequios al equipo sin duplicar costos en utilidad y manteniendo ocultos los costos por RBAC), `es_lider` multi-tienda en `GET /api/usuarios/operativos` y en `/api/finanzas/comisiones` (`1%` propio + `0.5%` de otros asesores en todas las sucursales). Validado con `pytest` (18/18) y `next build` (24/24).
+- **Último cambio:** Se actualizaron las Políticas y Condiciones de Garantía (180 días, exclusiones, obsequios/ST y líneas de firma) en el PDF Nota de Entrega (`pdf_nota.py`), se centralizaron los mensajes completos para WhatsApp (`src/lib/whatsapp.ts` para Ventas/ST, Banco/Pagos y Traslados, sin costos internos) y se integró el buscador instantáneo (`BuscadorTabla.tsx`) + autocompletados en Ventas, POS (Cliente/Equipos/SKU), Finanzas, Logística, Taller y Usuarios. Validado con `pytest` (18/18) y `next build` (24/24).

@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   AlertCircle,
   AlertTriangle,
@@ -11,6 +11,7 @@ import {
   Plus,
   Wrench,
 } from "lucide-react";
+import BuscadorTabla from "@/componentes/BuscadorTabla";
 import { ErrorApi, formatearUsd, solicitarApi } from "@/servicios/api";
 import type { Sucursal } from "@/tipos/dominio";
 import type { CasoPostventa, EstadoCaso, TipoCaso } from "@/tipos/taller";
@@ -37,6 +38,7 @@ export default function PaginaCasosTaller() {
 
   const [filtroTipo, setFiltroTipo] = useState("");
   const [filtroEstado, setFiltroEstado] = useState("");
+  const [busqueda, setBusqueda] = useState("");
 
   // Modal nuevo caso
   const [modalCrear, setModalCrear] = useState(false);
@@ -251,6 +253,26 @@ export default function PaginaCasosTaller() {
     setExito("Texto del presupuesto copiado para WhatsApp.");
   };
 
+  const casosFiltrados = useMemo(() => {
+    const q = busqueda.trim().toLowerCase();
+    if (!q) return casos;
+    return casos.filter((c) =>
+      [
+        c.numero_caso,
+        c.tipo,
+        c.serial_o_codigo || "",
+        c.descripcion_equipo || "",
+        c.cliente || "",
+        c.falla_reportada || "",
+        c.estado,
+        c.tecnico || "",
+      ]
+        .join(" ")
+        .toLowerCase()
+        .includes(q)
+    );
+  }, [casos, busqueda]);
+
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-4">
@@ -275,7 +297,14 @@ export default function PaginaCasosTaller() {
       </div>
 
       {/* Filtros */}
-      <div className="bg-white p-4 rounded-2xl border border-slate-200 flex flex-wrap gap-3">
+      <div className="bg-white p-4 rounded-2xl border border-slate-200 flex flex-wrap gap-3 items-center">
+        <BuscadorTabla
+          valor={busqueda}
+          alCambiar={setBusqueda}
+          placeholder="Buscar por nro. de caso (GT/ST), serial, equipo, cliente, falla o técnico..."
+          totalRegistros={casos.length}
+          totalFiltrados={casosFiltrados.length}
+        />
         <select
           value={filtroTipo}
           onChange={(e) => setFiltroTipo(e.target.value)}
@@ -320,16 +349,16 @@ export default function PaginaCasosTaller() {
             <div key={i} className="h-24 rounded-2xl bg-slate-200 animate-pulse" />
           ))}
         </div>
-      ) : casos.length === 0 ? (
+      ) : casosFiltrados.length === 0 ? (
         <div className="bg-white rounded-2xl border border-slate-200 p-10 text-center space-y-2">
           <ClipboardList className="w-10 h-10 text-slate-300 mx-auto" />
           <p className="text-sm font-semibold text-slate-600">
-            No hay casos registrados con los filtros seleccionados.
+            No hay casos registrados que coincidan con la búsqueda.
           </p>
         </div>
       ) : (
         <div className="space-y-3">
-          {casos.map((c) => (
+          {casosFiltrados.map((c) => (
             <div
               key={c.id}
               className="bg-white rounded-2xl border border-slate-200 p-5 space-y-3"

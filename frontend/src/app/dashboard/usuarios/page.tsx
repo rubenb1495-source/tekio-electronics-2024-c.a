@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   AlertCircle,
   Plus,
@@ -9,6 +9,7 @@ import {
   UserX,
   Users,
 } from "lucide-react";
+import BuscadorTabla from "@/componentes/BuscadorTabla";
 import { usarSesion } from "@/contexto/SesionContexto";
 import { ErrorApi, esRolAdministrativo, solicitarApi } from "@/servicios/api";
 import type { RolUsuario, Sucursal, Usuario } from "@/tipos/dominio";
@@ -31,6 +32,7 @@ export default function PaginaUsuarios() {
 
   const [filtroRol, setFiltroRol] = useState<string>("");
   const [filtroActivo, setFiltroActivo] = useState<string>("");
+  const [busqueda, setBusqueda] = useState<string>("");
 
   // Modal crear usuario
   const [modalCrear, setModalCrear] = useState(false);
@@ -81,6 +83,17 @@ export default function PaginaUsuarios() {
   useEffect(() => {
     void cargarDatos();
   }, [cargarDatos]);
+
+  const usuariosFiltrados = useMemo(() => {
+    const q = busqueda.trim().toLowerCase();
+    if (!q) return usuarios;
+    return usuarios.filter((u) =>
+      [u.nombre, u.correo, u.rol, u.sucursal?.nombre || ""]
+        .join(" ")
+        .toLowerCase()
+        .includes(q)
+    );
+  }, [usuarios, busqueda]);
 
   if (!permitido) {
     return (
@@ -188,6 +201,13 @@ export default function PaginaUsuarios() {
 
       {/* Filtros */}
       <div className="bg-white p-4 rounded-2xl border border-slate-200 flex flex-wrap gap-3 items-center">
+        <BuscadorTabla
+          valor={busqueda}
+          alCambiar={setBusqueda}
+          placeholder="Buscar por nombre, correo, rol o sucursal..."
+          totalRegistros={usuarios.length}
+          totalFiltrados={usuariosFiltrados.length}
+        />
         <select
           value={filtroRol}
           onChange={(e) => setFiltroRol(e.target.value)}
@@ -230,7 +250,7 @@ export default function PaginaUsuarios() {
               />
             ))}
           </div>
-        ) : usuarios.length === 0 ? (
+        ) : usuariosFiltrados.length === 0 ? (
           <div className="p-10 text-center">
             <Users className="w-10 h-10 text-slate-300 mx-auto mb-2" />
             <p className="text-sm font-semibold text-slate-600">
@@ -251,7 +271,7 @@ export default function PaginaUsuarios() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {usuarios.map((u) => (
+                {usuariosFiltrados.map((u) => (
                   <tr key={u.id} className="hover:bg-slate-50">
                     <td className="px-4 py-3 font-semibold text-slate-900">
                       {u.nombre}

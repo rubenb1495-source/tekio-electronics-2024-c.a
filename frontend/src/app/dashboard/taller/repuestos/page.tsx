@@ -1,7 +1,8 @@
 "use client";
 
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { AlertCircle, CheckCircle2, Cpu } from "lucide-react";
+import BuscadorTabla from "@/componentes/BuscadorTabla";
 import { usarSesion } from "@/contexto/SesionContexto";
 import { ErrorApi, solicitarApi } from "@/servicios/api";
 import type { EstadoRepuesto, RepuestoSolicitado } from "@/tipos/taller";
@@ -14,6 +15,7 @@ export default function PaginaRepuestosTaller() {
     usuario?.rol === "LOGISTICA";
 
   const [repuestos, setRepuestos] = useState<RepuestoSolicitado[]>([]);
+  const [busqueda, setBusqueda] = useState("");
   const [cargando, setCargando] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [exito, setExito] = useState<string | null>(null);
@@ -65,6 +67,24 @@ export default function PaginaRepuestosTaller() {
     }
   };
 
+  const repuestosFiltrados = useMemo(() => {
+    const q = busqueda.trim().toLowerCase();
+    if (!q) return repuestos;
+    return repuestos.filter((r) =>
+      [
+        r.origen,
+        r.serial || "",
+        r.numero_caso || "",
+        r.descripcion_repuesto,
+        r.solicitado_por || "",
+        r.estado,
+      ]
+        .join(" ")
+        .toLowerCase()
+        .includes(q)
+    );
+  }, [repuestos, busqueda]);
+
   return (
     <div className="space-y-6">
       <div>
@@ -90,6 +110,16 @@ export default function PaginaRepuestosTaller() {
         </div>
       )}
 
+      <div className="bg-white rounded-2xl border border-slate-200 p-4">
+        <BuscadorTabla
+          valor={busqueda}
+          alCambiar={setBusqueda}
+          placeholder="Buscar por repuesto, serial, nro. de caso, técnico o estado..."
+          totalRegistros={repuestos.length}
+          totalFiltrados={repuestosFiltrados.length}
+        />
+      </div>
+
       <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden">
         {cargando ? (
           <div className="p-6 space-y-3">
@@ -97,11 +127,11 @@ export default function PaginaRepuestosTaller() {
               <div key={i} className="h-12 rounded-xl bg-slate-100 animate-pulse" />
             ))}
           </div>
-        ) : repuestos.length === 0 ? (
+        ) : repuestosFiltrados.length === 0 ? (
           <div className="p-10 text-center space-y-2">
             <Cpu className="w-10 h-10 text-slate-300 mx-auto" />
             <p className="text-sm font-semibold text-slate-600">
-              No hay repuestos solicitados actualmente.
+              No hay repuestos que coincidan.
             </p>
           </div>
         ) : (
@@ -120,7 +150,7 @@ export default function PaginaRepuestosTaller() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {repuestos.map((r) => (
+                {repuestosFiltrados.map((r) => (
                   <tr key={r.id}>
                     <td className="px-4 py-3 text-xs">
                       <span className="font-bold">{r.origen}</span>

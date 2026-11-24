@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   AlertCircle,
   CheckCircle2,
@@ -10,6 +10,7 @@ import {
   Trash2,
   Upload,
 } from "lucide-react";
+import BuscadorTabla from "@/componentes/BuscadorTabla";
 import {
   ErrorApi,
   fechaHoyCaracas,
@@ -46,6 +47,7 @@ interface EquipoFormulario {
 
 export default function PaginaCompras() {
   const [compras, setCompras] = useState<CompraResumen[]>([]);
+  const [busqueda, setBusqueda] = useState("");
   const [proveedores, setProveedores] = useState<Tercero[]>([]);
   const [sucursales, setSucursales] = useState<Sucursal[]>([]);
   const [cargando, setCargando] = useState(true);
@@ -272,6 +274,24 @@ export default function PaginaCompras() {
     }
   };
 
+  const comprasFiltradas = useMemo(() => {
+    const q = busqueda.trim().toLowerCase();
+    if (!q) return compras;
+    return compras.filter((c) =>
+      [
+        c.numero_compra,
+        c.origen,
+        c.proveedor || "",
+        c.factura_orden || "",
+        c.estado,
+        c.fecha,
+      ]
+        .join(" ")
+        .toLowerCase()
+        .includes(q)
+    );
+  }, [compras, busqueda]);
+
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-4">
@@ -404,6 +424,17 @@ export default function PaginaCompras() {
         </div>
       )}
 
+      {/* Buscador de compras */}
+      <div className="bg-white rounded-2xl border border-slate-200 p-4">
+        <BuscadorTabla
+          valor={busqueda}
+          alCambiar={setBusqueda}
+          placeholder="Buscar por nro. de compra, proveedor, factura/orden, origen, fecha o estado..."
+          totalRegistros={compras.length}
+          totalFiltrados={comprasFiltradas.length}
+        />
+      </div>
+
       {/* Tabla de compras */}
       <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden">
         {cargando ? (
@@ -415,11 +446,11 @@ export default function PaginaCompras() {
               />
             ))}
           </div>
-        ) : compras.length === 0 ? (
+        ) : comprasFiltradas.length === 0 ? (
           <div className="p-10 text-center space-y-2">
             <ShoppingBag className="w-10 h-10 text-slate-300 mx-auto" />
             <p className="text-sm font-semibold text-slate-600">
-              Aún no hay compras registradas.
+              No hay compras que coincidan.
             </p>
           </div>
         ) : (
@@ -437,7 +468,7 @@ export default function PaginaCompras() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {compras.map((c) => (
+                {comprasFiltradas.map((c) => (
                   <tr key={c.id} className="hover:bg-slate-50">
                     <td className="px-4 py-3 font-mono font-bold text-slate-900">
                       {c.numero_compra}

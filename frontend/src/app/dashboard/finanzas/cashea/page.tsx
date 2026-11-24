@@ -1,7 +1,13 @@
 "use client";
 
-import React, { useCallback, useEffect, useState } from "react";
-import { AlertCircle, CheckCircle2, CreditCard } from "lucide-react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
+import { AlertCircle, CheckCircle2, Copy, CreditCard } from "lucide-react";
+import BuscadorTabla from "@/componentes/BuscadorTabla";
+import { usarSesion } from "@/contexto/SesionContexto";
+import {
+  copiarTextoPortapapeles,
+  formatearWhatsAppPago,
+} from "@/lib/whatsapp";
 import { ErrorApi, fechaHoyCaracas, formatearUsd, solicitarApi } from "@/servicios/api";
 import type {
   CuentaPorCobrarResumen,
@@ -9,7 +15,10 @@ import type {
 } from "@/tipos/finanzas";
 
 export default function PaginaFinanzasCashea() {
+  const { usuario } = usarSesion();
   const [cuentas, setCuentas] = useState<CuentaPorCobrarResumen[]>([]);
+  const [busqueda, setBusqueda] = useState("");
+  const [ultimaLiqWa, setUltimaLiqWa] = useState<string | null>(null);
   const [instrumentos, setInstrumentos] = useState<InstrumentoFinanciero[]>([]);
   const [seleccionadas, setSeleccionadas] = useState<number[]>([]);
   const [destinoId, setDestinoId] = useState("");
@@ -74,6 +83,22 @@ export default function PaginaFinanzasCashea() {
           referencia: referencia.trim(),
         }),
       });
+      const instObj = instrumentos.find((i) => String(i.id) === destinoId);
+      setUltimaLiqWa(
+        formatearWhatsAppPago({
+          tipo_movimiento: "INGRESO",
+          tipo_documento: "CASHEA",
+          fecha: fechaPago,
+          instrumento: instObj?.nombre || "Banco destino",
+          monto_moneda_origen: resp.neto_depositado_usd,
+          moneda: "USD",
+          usd_nominal: resp.neto_depositado_usd,
+          referencia: referencia.trim() || `Lote ${resp.cuentas_liquidadas} notas`,
+          cliente_o_venta: `Liquidación Cashea (${resp.cuentas_liquidadas} notas)`,
+          estado_verificacion: "CONFIRMADO",
+          usuario: usuario?.nombre || "Administración",
+        })
+      );
       setSeleccionadas([]);
       setReferencia("");
       setExito(
@@ -88,6 +113,23 @@ export default function PaginaFinanzasCashea() {
       );
     }
   };
+
+  const cuentasFiltradas = useMemo(() => {
+    const q = busqueda.trim().toLowerCase();
+    if (!q) return cuentas;
+    return cuentas.filter((c) =>
+      [
+        c.numero_venta || "",
+        c.fecha_venta || "",
+        c.sucursal || "",
+        c.cliente || "",
+        String(c.saldo_pendiente_usd),
+      ]
+        .join(" ")
+        .toLowerCase()
+        .includes(q)
+    );
+  }, [cuentas, busqueda]);
 
   return (
     <div className="space-y-6">
@@ -109,9 +151,24 @@ export default function PaginaFinanzasCashea() {
         </div>
       )}
       {exito && (
-        <div className="flex items-center gap-2.5 p-4 rounded-xl bg-emerald-50 border border-emerald-200 text-sm text-emerald-700">
-          <CheckCircle2 className="w-4 h-4 shrink-0" />
-          <span>{exito}</span>
+        <div className="flex flex-wrap items-center justify-between gap-2.5 p-4 rounded-xl bg-emerald-50 border border-emerald-200 text-sm text-emerald-700">
+          <div className="flex items-center gap-2">
+            <CheckCircle2 className="w-4 h-4 shrink-0" />
+            <span>{exito}</span>
+          </div>
+          {ultimaLiqWa && (
+            <button
+              type="button"
+              onClick={() => {
+                void copiarTextoPortapapeles(ultimaLiqWa);
+                setExito("Reporte de liquidación Cashea copiado para WhatsApp.");
+              }}
+              className="inline-flex items-center gap-1 px-3 py-1 rounded-lg bg-emerald-600 text-white text-xs font-bold cursor-pointer"
+            >
+              <Copy className="w-3.5 h-3.5" />
+              Copiar para WhatsApp
+            </button>
+          )}
         </div>
       )}
 
@@ -181,12 +238,22 @@ export default function PaginaFinanzasCashea() {
         </button>
       </form>
 
+      <div className="bg-white rounded-2xl border border-slate-200 p-4">
+        <BuscadorTabla
+          valor={busqueda}
+          alCambiar={setBusqueda}
+          placeholder="Buscar por nro. de nota, fecha, sucursal, cliente o monto..."
+          totalRegistros={cuentas.length}
+          totalFiltrados={cuentasFiltradas.length}
+        />
+      </div>
+
       <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden">
         {cargando ? (
           <div className="p-6 h-24 bg-slate-100 animate-pulse" />
-        ) : cuentas.length === 0 ? (
+        ) : cuentasFiltradas.length === 0 ? (
           <p className="p-10 text-center text-sm text-slate-500">
-            No hay cuotas Cashea pendientes de liquidar.
+            No hay cuotas Cashea que coincidan.
           </p>
         ) : (
           <table className="w-full text-sm text-left">
@@ -200,7 +267,7 @@ export default function PaginaFinanzasCashea() {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {cuentas.map((c) => (
+              {cuentasFiltradas.map((c) => (
                 <tr key={c.id}>
                   <td className="px-4 py-3">
                     <input

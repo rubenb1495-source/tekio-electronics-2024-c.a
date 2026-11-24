@@ -17,6 +17,10 @@ import {
 } from "lucide-react";
 import { usarSesion } from "@/contexto/SesionContexto";
 import {
+  copiarTextoPortapapeles,
+  formatearWhatsAppVenta,
+} from "@/lib/whatsapp";
+import {
   ErrorApi,
   descargarPdfApi,
   formatearBs,
@@ -35,7 +39,7 @@ import type {
   UsuarioOperativo,
   VentaResumen,
 } from "@/tipos/finanzas";
-import type { EquipoInventario } from "@/tipos/logistica";
+import type { EquipoInventario, Tercero } from "@/tipos/logistica";
 
 interface ItemCarrito {
   tipo: "EQUIPO" | "ARTICULO" | "SERVICIO";
@@ -82,6 +86,11 @@ export default function PaginaNuevaVentaPOS() {
   const [usuariosOperativos, setUsuariosOperativos] = useState<
     UsuarioOperativo[]
   >([]);
+  const [clientes, setClientes] = useState<Tercero[]>([]);
+  const [clienteId, setClienteId] = useState("");
+  const [busquedaCliente, setBusquedaCliente] = useState("");
+  const [menuClientesAbierto, setMenuClientesAbierto] = useState(false);
+  const contenedorClientesRef = useRef<HTMLDivElement | null>(null);
   const [tasaHoy, setTasaHoy] = useState<TasaHoy | null>(null);
   const [cargando, setCargando] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -100,6 +109,9 @@ export default function PaginaNuevaVentaPOS() {
   const [menuEquiposAbierto, setMenuEquiposAbierto] = useState(false);
   const contenedorSelectorEquiposRef = useRef<HTMLDivElement | null>(null);
   const [articuloSel, setArticuloSel] = useState("");
+  const [busquedaSku, setBusquedaSku] = useState("");
+  const [menuSkuAbierto, setMenuSkuAbierto] = useState(false);
+  const contenedorSkuRef = useRef<HTMLDivElement | null>(null);
 
   // Panel rápido de Servicio Técnico / Mano de Obra
   const [panelServicioAbierto, setPanelServicioAbierto] = useState(false);
@@ -122,14 +134,27 @@ export default function PaginaNuevaVentaPOS() {
   const [ventaCreada, setVentaCreada] = useState<VentaResumen | null>(null);
   const [copiado, setCopiado] = useState(false);
 
-  // Cerrar el desplegable de equipos al hacer clic fuera
+  // Cerrar los desplegables al hacer clic fuera
   useEffect(() => {
     const manejarClickFuera = (ev: MouseEvent) => {
+      const target = ev.target as Node;
       if (
         contenedorSelectorEquiposRef.current &&
-        !contenedorSelectorEquiposRef.current.contains(ev.target as Node)
+        !contenedorSelectorEquiposRef.current.contains(target)
       ) {
         setMenuEquiposAbierto(false);
+      }
+      if (
+        contenedorClientesRef.current &&
+        !contenedorClientesRef.current.contains(target)
+      ) {
+        setMenuClientesAbierto(false);
+      }
+      if (
+        contenedorSkuRef.current &&
+        !contenedorSkuRef.current.contains(target)
+      ) {
+        setMenuSkuAbierto(false);
       }
     };
     document.addEventListener("mousedown", manejarClickFuera);
@@ -140,20 +165,25 @@ export default function PaginaNuevaVentaPOS() {
     setCargando(true);
     setError(null);
     try {
-      const [respSuc, respInst, respCat, respOps, respTasa] = await Promise.all([
-        solicitarApi<Sucursal[]>("/api/sucursales"),
-        solicitarApi<InstrumentoFinanciero[]>("/api/finanzas/instrumentos"),
-        solicitarApi<CatalogoPaginado>("/api/catalogo?por_pagina=100"),
-        solicitarApi<UsuarioOperativo[]>("/api/usuarios/operativos").catch(
-          () => []
-        ),
-        solicitarApi<TasaHoy>("/api/tasas/hoy").catch(() => null),
-      ]);
+      const [respSuc, respInst, respCat, respOps, respCli, respTasa] =
+        await Promise.all([
+          solicitarApi<Sucursal[]>("/api/sucursales"),
+          solicitarApi<InstrumentoFinanciero[]>("/api/finanzas/instrumentos"),
+          solicitarApi<CatalogoPaginado>("/api/catalogo?por_pagina=100"),
+          solicitarApi<UsuarioOperativo[]>("/api/usuarios/operativos").catch(
+            () => []
+          ),
+          solicitarApi<Tercero[]>(
+            "/api/logistica/terceros?tipo=CLIENTE"
+          ).catch(() => []),
+          solicitarApi<TasaHoy>("/api/tasas/hoy").catch(() => null),
+        ]);
       const activas = respSuc.filter((s) => s.estado === "ACTIVA");
       setSucursales(activas);
       setInstrumentos(respInst);
       setCatalogo(respCat.elementos);
       setUsuariosOperativos(respOps);
+      setClientes(respCli);
       setTasaHoy(respTasa);
 
       if (usuario?.sucursal && usuario.sucursal.estado === "ACTIVA") {
@@ -248,6 +278,32 @@ export default function PaginaNuevaVentaPOS() {
     () => catalogo.filter((a) => a.tipo !== "SERVICIO"),
     [catalogo]
   );
+
+  const clientesFiltrados = useMemo(() => {
+    const q = busquedaCliente.trim().toLowerCase();
+    if (!q) return clientes.slice(0, 30);
+    return clientes
+      .filter((c) =>
+        [c.nombre, c.rif_cedula || "", c.telefono || ""]
+          .join(" ")
+          .toLowerCase()
+          .includes(q)
+      )
+      .slice(0, 30);
+  }, [clientes, busquedaCliente]);
+
+  const clienteSeleccionadoObj = useMemo(
+    () => clientes.find((c) => String(c.id) === clienteId) ?? null,
+    [clientes, clienteId]
+  );
+
+  const productosFiltrados = useMemo(() => {
+    const q = busquedaSku.trim().toLowerCase();
+    if (!q) return productosCatalogo;
+    return productosCatalogo.filter((a) =>
+      `${a.sku} ${a.descripcion} ${a.categoria}`.toLowerCase().includes(q)
+    );
+  }, [productosCatalogo, busquedaSku]);
 
   const tieneServicioTecnico = useMemo(
     () => carrito.some((item) => item.tipo === "SERVICIO"),
@@ -519,6 +575,7 @@ export default function PaginaNuevaVentaPOS() {
         method: "POST",
         body: JSON.stringify({
           sucursal_id: Number(sucursalId),
+          cliente_id: clienteId ? Number(clienteId) : null,
           asesor_id: asesorId ? Number(asesorId) : null,
           tecnico_id: tecnicoId ? Number(tecnicoId) : null,
           canal_visita: canalVisita,
@@ -548,26 +605,9 @@ export default function PaginaNuevaVentaPOS() {
     }
   };
 
-  const copiarWhatsApp = (venta: VentaResumen) => {
-    const lineas = [
-      `*TEKIO ELECTRONICS · Nota ${venta.numero_venta}*`,
-      `Fecha: ${venta.fecha} · Sucursal: ${venta.sucursal}`,
-      `Asesor: ${venta.asesor}${venta.tecnico ? ` · Técnico: ${venta.tecnico}` : ""} · Estado: ${venta.estado}`,
-      ...venta.detalles.flatMap((d) => {
-        const esObsequio =
-          Number(d.precio_promo_usd) === 0 &&
-          Number(d.precio_regular_usd) === 0;
-        const precioTxt = esObsequio
-          ? "OBSEQUIO ($0.00)"
-          : formatearUsd(d.precio_promo_usd);
-        const base = `• ${d.cantidad}x ${d.descripcion}${d.serial ? ` [${d.serial}]` : ""} — ${precioTxt}`;
-        return d.descripcion_servicio
-          ? [base, `  ↳ Trabajo: ${d.descripcion_servicio}`]
-          : [base];
-      }),
-      `*Total Promo:* ${formatearUsd(venta.total_promo_usd)} | *Regular:* ${formatearUsd(venta.total_regular_usd)}`,
-    ].join("\n");
-    void navigator.clipboard?.writeText(lineas);
+  const copiarWhatsApp = async (venta: VentaResumen) => {
+    const texto = formatearWhatsAppVenta(venta);
+    await copiarTextoPortapapeles(texto);
     setCopiado(true);
     setTimeout(() => setCopiado(false), 2500);
   };
@@ -660,6 +700,104 @@ export default function PaginaNuevaVentaPOS() {
                 <option value="Envío nacional">Envío nacional</option>
               </select>
             </div>
+          </div>
+
+          {/* Buscador interactivo de Cliente */}
+          <div
+            ref={contenedorClientesRef}
+            className="relative z-45 space-y-1 min-w-0"
+          >
+            <label className="block text-xs font-bold text-slate-700">
+              Cliente{" "}
+              <span className="text-slate-400 font-normal">
+                (Opcional — por defecto Cliente general)
+              </span>
+            </label>
+            <div className="relative min-w-0">
+              <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+              <input
+                type="text"
+                value={
+                  clienteSeleccionadoObj && !menuClientesAbierto
+                    ? `${clienteSeleccionadoObj.nombre}${clienteSeleccionadoObj.rif_cedula ? ` (${clienteSeleccionadoObj.rif_cedula})` : ""}`
+                    : busquedaCliente
+                }
+                onFocus={() => setMenuClientesAbierto(true)}
+                onChange={(e) => {
+                  setClienteId("");
+                  setBusquedaCliente(e.target.value);
+                  setMenuClientesAbierto(true);
+                }}
+                placeholder={`Buscar cliente por nombre, cédula/RIF o teléfono (${clientes.length})...`}
+                className="w-full min-w-0 pl-9 pr-14 py-2 rounded-xl border border-slate-300 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#E85A28]/30 focus:border-[#E85A28]"
+              />
+              {(clienteId || busquedaCliente) && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setClienteId("");
+                    setBusquedaCliente("");
+                    setMenuClientesAbierto(false);
+                  }}
+                  aria-label="Limpiar cliente"
+                  className="absolute right-8 top-1/2 -translate-y-1/2 p-1 text-slate-400 hover:text-slate-600 cursor-pointer"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => setMenuClientesAbierto((prev) => !prev)}
+                aria-label="Desplegar clientes"
+                className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-slate-500 hover:text-slate-700 cursor-pointer"
+              >
+                <ChevronDown className="w-4 h-4" />
+              </button>
+            </div>
+            {menuClientesAbierto && (
+              <div className="absolute left-0 right-0 top-full mt-1 z-50 bg-white border border-slate-200 rounded-xl shadow-xl max-h-60 overflow-y-auto divide-y divide-slate-100">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setClienteId("");
+                    setBusquedaCliente("");
+                    setMenuClientesAbierto(false);
+                  }}
+                  className="w-full text-left px-3 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-50 cursor-pointer"
+                >
+                  Cliente general (sin ficha)
+                </button>
+                {clientesFiltrados.length === 0 ? (
+                  <div className="p-3 text-center text-xs text-slate-500">
+                    No se encontraron clientes que coincidan.
+                  </div>
+                ) : (
+                  clientesFiltrados.map((cli) => (
+                    <button
+                      key={cli.id}
+                      type="button"
+                      onClick={() => {
+                        setClienteId(String(cli.id));
+                        setBusquedaCliente(
+                          `${cli.nombre}${cli.rif_cedula ? ` (${cli.rif_cedula})` : ""}`
+                        );
+                        setMenuClientesAbierto(false);
+                      }}
+                      className="w-full text-left px-3 py-2 hover:bg-orange-50/70 cursor-pointer"
+                    >
+                      <p className="text-xs font-bold text-slate-900">
+                        {cli.nombre}
+                      </p>
+                      <p className="text-[11px] text-slate-500">
+                        {[cli.rif_cedula, cli.telefono]
+                          .filter(Boolean)
+                          .join(" · ") || "Sin datos adicionales"}
+                      </p>
+                    </button>
+                  ))
+                )}
+              </div>
+            )}
           </div>
 
           {/* Selectores de Asesor y Técnico */}
@@ -831,29 +969,119 @@ export default function PaginaNuevaVentaPOS() {
             )}
           </div>
 
-          {/* Agregar componente / accesorio / repuesto del catálogo */}
-          <div className="flex gap-2 min-w-0">
-            <select
-              value={articuloSel}
-              onChange={(e) => setArticuloSel(e.target.value)}
-              className="flex-1 min-w-0 w-full px-3 py-2 rounded-xl border border-slate-300 text-sm bg-white truncate"
-            >
-              <option value="">
-                Agregar componente / repuesto / accesorio...
-              </option>
-              {productosCatalogo.map((a) => (
-                <option key={a.id} value={a.id}>
-                  {a.sku} — {a.descripcion} ({formatearUsd(a.precio_promo_usd)})
-                </option>
-              ))}
-            </select>
-            <button
-              type="button"
-              onClick={agregarArticulo}
-              className="shrink-0 px-4 py-2 rounded-xl border border-slate-300 text-xs font-bold hover:bg-slate-50 cursor-pointer"
-            >
-              + Repuesto / SKU
-            </button>
+          {/* Agregar componente / accesorio / repuesto del catálogo (buscador interactivo z-50) */}
+          <div ref={contenedorSkuRef} className="relative z-30 space-y-1.5 min-w-0">
+            <label className="block text-xs font-bold text-slate-700">
+              Repuestos / accesorios / componentes ({productosFiltrados.length})
+            </label>
+            <div className="flex gap-2 min-w-0">
+              <div className="relative flex-1 min-w-0">
+                <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                <input
+                  type="text"
+                  value={busquedaSku}
+                  onFocus={() => setMenuSkuAbierto(true)}
+                  onChange={(e) => {
+                    setArticuloSel("");
+                    setBusquedaSku(e.target.value);
+                    setMenuSkuAbierto(true);
+                  }}
+                  placeholder="Buscar repuesto o accesorio por SKU, descripción o categoría..."
+                  className="w-full min-w-0 pl-9 pr-14 py-2 rounded-xl border border-slate-300 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#E85A28]/30 focus:border-[#E85A28]"
+                />
+                {(busquedaSku || articuloSel) && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setArticuloSel("");
+                      setBusquedaSku("");
+                      setMenuSkuAbierto(true);
+                    }}
+                    aria-label="Limpiar SKU"
+                    className="absolute right-8 top-1/2 -translate-y-1/2 p-1 text-slate-400 hover:text-slate-600 cursor-pointer"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setMenuSkuAbierto((prev) => !prev)}
+                  aria-label="Desplegar catálogo"
+                  className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-slate-500 hover:text-slate-700 cursor-pointer"
+                >
+                  <ChevronDown className="w-4 h-4" />
+                </button>
+              </div>
+              <button
+                type="button"
+                onClick={agregarArticulo}
+                disabled={!articuloSel}
+                className="shrink-0 px-4 py-2 rounded-xl border border-slate-300 disabled:opacity-40 text-xs font-bold hover:bg-slate-50 cursor-pointer"
+              >
+                + Repuesto / SKU
+              </button>
+            </div>
+            {menuSkuAbierto && (
+              <div className="absolute left-0 right-0 top-full mt-1 z-50 bg-white border border-slate-200 rounded-xl shadow-xl max-h-64 overflow-y-auto divide-y divide-slate-100">
+                {productosFiltrados.length === 0 ? (
+                  <div className="p-3 text-center text-xs text-slate-500">
+                    No se encontraron repuestos o accesorios.
+                  </div>
+                ) : (
+                  productosFiltrados.map((a) => (
+                    <div
+                      key={a.id}
+                      className="flex items-start justify-between gap-2 p-2.5 hover:bg-orange-50/70"
+                    >
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setArticuloSel(String(a.id));
+                          setBusquedaSku(`${a.sku} — ${a.descripcion}`);
+                          setMenuSkuAbierto(false);
+                        }}
+                        className="flex-1 min-w-0 text-left cursor-pointer"
+                      >
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <span className="font-mono text-xs font-bold text-slate-900 bg-slate-100 px-1.5 py-0.5 rounded">
+                            {a.sku}
+                          </span>
+                          <span className="text-xs font-bold text-emerald-700">
+                            {formatearUsd(a.precio_promo_usd)} Promo
+                          </span>
+                        </div>
+                        <p className="text-xs text-slate-700 mt-0.5 whitespace-normal break-words">
+                          {a.descripcion}
+                        </p>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setCarrito((prev) => [
+                            ...prev,
+                            {
+                              tipo: "ARTICULO",
+                              articulo_id: a.id,
+                              etiqueta: `${a.sku} — ${a.descripcion}`,
+                              descripcion_servicio: "",
+                              cantidad: 1,
+                              precio_promo_usd: a.precio_promo_usd,
+                              precio_regular_fijo_usd: a.precio_regular_fijo_usd,
+                            },
+                          ]);
+                          setArticuloSel("");
+                          setBusquedaSku("");
+                          setMenuSkuAbierto(false);
+                        }}
+                        className="shrink-0 px-2.5 py-1 rounded-lg bg-[#E85A28] text-white text-[11px] font-bold cursor-pointer"
+                      >
+                        + Añadir
+                      </button>
+                    </div>
+                  ))
+                )}
+              </div>
+            )}
           </div>
 
           {/* Acceso rápido: + Servicio Técnico / Mano de Obra */}

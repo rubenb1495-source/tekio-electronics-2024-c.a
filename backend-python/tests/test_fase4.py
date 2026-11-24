@@ -754,10 +754,28 @@ def test_obsequio_imputa_costo_al_equipo_descuenta_stock_y_rbac(cliente: TestCli
     assert com_asesora["ventas_promo_usd"] == 320.0
     assert com_asesora["comision_ventas_1_usd"] == 3.2
 
-    # Nota PDF válida
+    # Nota PDF válida con políticas de garantía (180 días), obsequio y líneas de firma
     resp_pdf = cliente.get(f"/api/ventas/{vta_asesora['id']}/nota-pdf", headers=cab_asesora)
     assert resp_pdf.status_code == 200
+    assert resp_pdf.headers["content-type"] == "application/pdf"
     assert resp_pdf.content.startswith(b"%PDF-")
+    import base64, re, zlib
+
+    texto_pdf = resp_pdf.content.decode("latin-1", errors="ignore")
+    for bloque in re.findall(rb"stream\r?\n(.*?)\s*endstream", resp_pdf.content, flags=re.S):
+        crudo = bloque.strip()
+        if crudo.endswith(b"~>"):
+            crudo = base64.a85decode(crudo, adobe=True)
+        try:
+            texto_pdf += zlib.decompress(crudo).decode("latin-1", errors="ignore")
+        except zlib.error:
+            pass
+    texto_pdf = texto_pdf.replace("\\(", "(").replace("\\)", ")")
+    assert "J-50637518-4" in texto_pdf
+    assert "180" in texto_pdf
+    assert "OBSEQUIO" in texto_pdf
+    assert "Entregado por (Tekio Electronics)" in texto_pdf
+    assert "Recibido conforme (Cliente / C.I.)" in texto_pdf
 
 
 def test_lider_multitienda_comision_en_multiples_sucursales(cliente: TestClient) -> None:

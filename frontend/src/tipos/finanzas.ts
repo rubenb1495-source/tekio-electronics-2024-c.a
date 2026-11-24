@@ -40,6 +40,8 @@ export interface VentaResumen {
   fecha: string;
   cliente_id: number | null;
   cliente: string;
+  cliente_rif?: string;
+  cliente_telefono?: string;
   asesor_id: number | null;
   asesor: string;
   tecnico_id?: number | null;
@@ -51,6 +53,8 @@ export interface VentaResumen {
   recargo_porcentaje_snapshot: number;
   total_promo_usd: number;
   total_regular_usd: number;
+  vuelto_caja_chica_usd?: number;
+  creado_en?: string | null;
   estado: "CUADRADA" | "CON_SALDO" | "ANULADA";
   motivo_anulacion: string;
   nota: string;

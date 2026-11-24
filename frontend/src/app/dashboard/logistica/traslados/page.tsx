@@ -1,14 +1,20 @@
 "use client";
 
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   AlertCircle,
   Ban,
   CheckCircle2,
+  Copy,
   Plus,
   Truck,
 } from "lucide-react";
+import BuscadorTabla from "@/componentes/BuscadorTabla";
 import { usarSesion } from "@/contexto/SesionContexto";
+import {
+  copiarTextoPortapapeles,
+  formatearWhatsAppTraslado,
+} from "@/lib/whatsapp";
 import {
   ErrorApi,
   puedeGestionarCatalogo,
@@ -23,6 +29,9 @@ export default function PaginaTraslados() {
 
   const [pestana, setPestana] = useState<"enviados" | "por_recibir">("enviados");
   const [traslados, setTraslados] = useState<TrasladoResumen[]>([]);
+  const [busqueda, setBusqueda] = useState("");
+  const [copiadoId, setCopiadoId] = useState<number | null>(null);
+  const [ultimoTrasladoWa, setUltimoTrasladoWa] = useState<string | null>(null);
   const [sucursales, setSucursales] = useState<Sucursal[]>([]);
   const [equiposDisponibles, setEquiposDisponibles] = useState<
     EquipoInventario[]
@@ -108,19 +117,25 @@ export default function PaginaTraslados() {
 
     setProcesando(true);
     try {
-      await solicitarApi("/api/logistica/traslados", {
-        method: "POST",
-        body: JSON.stringify({
-          origen_id: Number(origenId),
-          destino_id: Number(destinoId),
-          equipos_ids: equiposSeleccionados,
-          nota: nota.trim(),
-        }),
-      });
+      const creado = await solicitarApi<TrasladoResumen>(
+        "/api/logistica/traslados",
+        {
+          method: "POST",
+          body: JSON.stringify({
+            origen_id: Number(origenId),
+            destino_id: Number(destinoId),
+            equipos_ids: equiposSeleccionados,
+            nota: nota.trim(),
+          }),
+        }
+      );
+      setUltimoTrasladoWa(formatearWhatsAppTraslado(creado));
       setModalCrear(false);
       setEquiposSeleccionados([]);
       setNota("");
-      setExito("Traslado enviado en estado EN_TRANSITO.");
+      setExito(
+        `Traslado ${creado.numero_traslado} enviado en estado EN_TRANSITO.`
+      );
       await cargarDatos();
     } catch (err) {
       setError(
@@ -176,14 +191,50 @@ export default function PaginaTraslados() {
   };
 
   const miSucursalId = usuario?.sucursal?.id ?? null;
-  const trasladosVisibles =
-    pestana === "por_recibir"
-      ? traslados.filter(
-          (t) =>
-            t.estado === "EN_TRANSITO" &&
-            (miSucursalId === null || t.destino_id === miSucursalId)
-        )
-      : traslados;
+  const trasladosBase = useMemo(
+    () =>
+      pestana === "por_recibir"
+        ? traslados.filter(
+            (t) =>
+              t.estado === "EN_TRANSITO" &&
+              (miSucursalId === null || t.destino_id === miSucursalId)
+          )
+        : traslados,
+    [traslados, pestana, miSucursalId]
+  );
+
+  const trasladosVisibles = useMemo(() => {
+    const q = busqueda.trim().toLowerCase();
+    if (!q) return trasladosBase;
+    return trasladosBase.filter((t) => {
+      const items = t.detalles
+        .map((d) => `${d.serial || ""} ${d.modelo || ""} ${d.sku || ""}`)
+        .join(" ");
+      return [
+        t.numero_traslado,
+        t.origen || "",
+        t.destino || "",
+        t.estado,
+        t.enviado_por || "",
+        t.recibido_por || "",
+        t.nota || "",
+        items,
+      ]
+        .join(" ")
+        .toLowerCase()
+        .includes(q);
+    });
+  }, [trasladosBase, busqueda]);
+
+  const copiarTrasladoWa = async (t: TrasladoResumen) => {
+    await copiarTextoPortapapeles(formatearWhatsAppTraslado(t));
+    setCopiadoId(t.id);
+    setExito(`Traslado ${t.numero_traslado} copiado para WhatsApp.`);
+    setTimeout(
+      () => setCopiadoId((prev) => (prev === t.id ? null : prev)),
+      2500
+    );
+  };
 
   return (
     <div className="space-y-6">
@@ -243,11 +294,36 @@ export default function PaginaTraslados() {
         </div>
       )}
       {exito && (
-        <div className="flex items-center gap-2.5 p-4 rounded-xl bg-emerald-50 border border-emerald-200 text-sm text-emerald-700">
-          <CheckCircle2 className="w-4 h-4 shrink-0" />
-          <span>{exito}</span>
+        <div className="flex flex-wrap items-center justify-between gap-2.5 p-4 rounded-xl bg-emerald-50 border border-emerald-200 text-sm text-emerald-700">
+          <div className="flex items-center gap-2">
+            <CheckCircle2 className="w-4 h-4 shrink-0" />
+            <span>{exito}</span>
+          </div>
+          {ultimoTrasladoWa && (
+            <button
+              type="button"
+              onClick={() => {
+                void copiarTextoPortapapeles(ultimoTrasladoWa);
+                setExito("Reporte del traslado copiado para WhatsApp.");
+              }}
+              className="inline-flex items-center gap-1 px-3 py-1 rounded-lg bg-emerald-600 text-white text-xs font-bold cursor-pointer"
+            >
+              <Copy className="w-3.5 h-3.5" />
+              Copiar traslado para WhatsApp
+            </button>
+          )}
         </div>
       )}
+
+      <div className="bg-white rounded-2xl border border-slate-200 p-4">
+        <BuscadorTabla
+          valor={busqueda}
+          alCambiar={setBusqueda}
+          placeholder="Buscar por nro. de traslado, serial, origen, destino, estado o usuario..."
+          totalRegistros={trasladosBase.length}
+          totalFiltrados={trasladosVisibles.length}
+        />
+      </div>
 
       <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden">
         {cargando ? (
@@ -310,7 +386,15 @@ export default function PaginaTraslados() {
                         {t.estado}
                       </span>
                     </td>
-                    <td className="px-4 py-3 text-right space-x-2">
+                    <td className="px-4 py-3 text-right space-x-2 whitespace-nowrap">
+                      <button
+                        type="button"
+                        onClick={() => void copiarTrasladoWa(t)}
+                        className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-emerald-300 bg-emerald-50 text-emerald-800 text-xs font-bold cursor-pointer"
+                      >
+                        <Copy className="w-3.5 h-3.5" />
+                        {copiadoId === t.id ? "¡Copiado!" : "WhatsApp"}
+                      </button>
                       {t.estado === "EN_TRANSITO" && (
                         <>
                           <button

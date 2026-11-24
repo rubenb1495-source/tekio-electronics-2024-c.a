@@ -1,7 +1,8 @@
 "use client";
 
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { AlertCircle, BarChart3, CheckCircle2, Lock } from "lucide-react";
+import BuscadorTabla from "@/componentes/BuscadorTabla";
 import { usarSesion } from "@/contexto/SesionContexto";
 import { ErrorApi, formatearUsd, solicitarApi } from "@/servicios/api";
 import type { ReporteComisiones, TableroFinanciero } from "@/tipos/finanzas";
@@ -13,6 +14,7 @@ export default function PaginaComisionesYCierre() {
   const hoy = new Date();
   const [mes, setMes] = useState(hoy.getMonth() + 1);
   const [anio, setAnio] = useState(hoy.getFullYear());
+  const [busqueda, setBusqueda] = useState("");
   const [reporte, setReporte] = useState<ReporteComisiones | null>(null);
   const [tablero, setTablero] = useState<TableroFinanciero | null>(null);
   const [cargando, setCargando] = useState(true);
@@ -66,6 +68,15 @@ export default function PaginaComisionesYCierre() {
       );
     }
   };
+
+  const comisionesFiltradas = useMemo(() => {
+    const lista = reporte?.comisiones ?? [];
+    const q = busqueda.trim().toLowerCase();
+    if (!q) return lista;
+    return lista.filter((c) =>
+      `${c.nombre} ${c.rol}`.toLowerCase().includes(q)
+    );
+  }, [reporte, busqueda]);
 
   return (
     <div className="space-y-6">
@@ -172,10 +183,19 @@ export default function PaginaComisionesYCierre() {
 
       {/* Tabla de comisiones */}
       <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden">
-        <div className="px-5 py-3 border-b border-slate-200 flex items-center justify-between">
+        <div className="px-5 py-3 border-b border-slate-200 flex flex-wrap items-center justify-between gap-3">
           <span className="font-bold text-sm">
             Comisiones del período {String(mes).padStart(2, "0")}/{anio}
           </span>
+          <div className="flex items-center gap-3 flex-1 max-w-md">
+            <BuscadorTabla
+              valor={busqueda}
+              alCambiar={setBusqueda}
+              placeholder="Buscar por persona o rol..."
+              totalRegistros={reporte?.comisiones.length ?? 0}
+              totalFiltrados={comisionesFiltradas.length}
+            />
+          </div>
           {reporte?.mes_cerrado && (
             <span className="px-2.5 py-1 rounded-full bg-slate-900 text-white text-xs font-bold">
               MES CERRADO Y BLOQUEADO
@@ -185,9 +205,9 @@ export default function PaginaComisionesYCierre() {
 
         {cargando ? (
           <div className="p-6 h-24 bg-slate-100 animate-pulse" />
-        ) : !reporte || reporte.comisiones.length === 0 ? (
+        ) : comisionesFiltradas.length === 0 ? (
           <p className="p-8 text-center text-sm text-slate-500">
-            No hay comisiones calculadas para este período.
+            No hay comisiones que coincidan.
           </p>
         ) : (
           <div className="overflow-x-auto">
@@ -205,7 +225,7 @@ export default function PaginaComisionesYCierre() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {reporte.comisiones.map((c) => (
+                {comisionesFiltradas.map((c) => (
                   <tr key={c.usuario_id}>
                     <td className="px-4 py-3 font-bold">{c.nombre}</td>
                     <td className="px-4 py-3 text-xs">{c.rol}</td>
