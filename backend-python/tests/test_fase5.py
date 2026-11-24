@@ -13,7 +13,7 @@ from sqlalchemy.pool import StaticPool
 
 from app.base_datos import Base, obtener_bd
 from app.main import app
-from app.modelos import CatalogoArticulo, CatalogoPrecio, Sucursal, TipoArticulo
+from app.modelos import CatalogoArticulo, CatalogoPrecio, Sucursal, TasaDiaria, TipoArticulo
 from app.modelos_logistica import Equipo, EstadoEquipo, MovimientoInventario, Tercero, TipoMovimientoInventario
 from app.rutas.tasas import obtener_fecha_hoy
 from app.semilla import ejecutar_semilla
@@ -145,6 +145,15 @@ def _preparar_escenario_base(cliente: TestClient) -> dict:
         bd.flush()
 
         hoy_d = obtener_fecha_hoy()
+        if not bd.query(TasaDiaria).filter(TasaDiaria.fecha == hoy_d).first():
+            bd.add(
+                TasaDiaria(
+                    fecha=hoy_d,
+                    tasa_bcv=Decimal("50.00"),
+                    tasa_usdt=Decimal("60.00"),
+                    recargo_porcentaje=Decimal("20.00"),
+                )
+            )
         bd.add_all(
             [
                 CatalogoPrecio(
@@ -447,26 +456,86 @@ def test_lista_precios_solo_listo_sin_costos_y_pdf(cliente: TestClient) -> None:
     ctx = _preparar_escenario_base(cliente)
     h_as = ctx["headers_as"]
 
-    resp_json = cliente.get("/api/catalogo/lista-precios?sucursal_id=1", headers=h_as)
-    assert resp_json.status_code == 200, resp_json.text
-    data = resp_json.json()
-    assert data["total_modelos"] == 2
-    assert data["total_unidades"] == 5  # 3 HP + 2 Dell LISTO (excluye 1 HOSPITAL)
-    for item in data["items"]:
+    # Configurar 2 HP con 8GB/256GB ($400) y 1 HP con 16GB/512GB ($460) para validar agrupación por características
+    bd = cliente.sesion_factory()  # type: ignore[attr-defined]
+    try:
+        hp1 = bd.query(Equipo).filter(Equipo.id == ctx["eq_hp_1"]).first()
+        hp2 = bd.query(Equipo).filter(Equipo.id == ctx["eq_hp_2"]).first()
+        hp3 = bd.query(Equipo).filter(Equipo.id == ctx["eq_hp_3"]).first()
+        assert hp1 and hp2 and hp3
+        hp1.modelo = "HP EliteBook 840 G7"
+        hp1.configuracion = "Core i5 · 8GB RAM · 256GB SSD"
+        hp2.modelo = "HP EliteBook 840 G7"
+        hp2.configuracion = "Core i5 · 8GB RAM · 256GB SSD"
+        hp3.modelo = "HP EliteBook 840 G7"
+        hp3.configuracion = "Core i5 · 16GB RAM · 512GB SSD"
+        hp3.precio_promo_usd = Decimal("460.00")
+        bd.commit()
+    finally:
+        bd.close()
+
+    # 1. Modo PROMO (solo USD Divisas, sin Regular ni Bs, sin seriales ni costos)
+    resp_promo = cliente.get(
+        "/api/catalogo/lista-precios?sucursal_id=1&tipo_precio=PROMO", headers=h_as
+    )
+    assert resp_promo.status_code == 200, resp_promo.text
+    data_promo = resp_promo.json()
+    assert data_promo["tipo_precio"] == "PROMO"
+    assert "tasa_bcv" not in data_promo
+    assert data_promo["total_modelos"] == 3  # 2 configs de HP + 1 Dell
+    assert data_promo["total_unidades"] == 5  # excluye 1 HOSPITAL
+    hp_8gb = next(i for i in data_promo["items"] if "8GB RAM" in i["caracteristicas"])
+    hp_16gb = next(i for i in data_promo["items"] if "16GB RAM" in i["caracteristicas"])
+    assert hp_8gb["disponibles"] == 2 and hp_8gb["precio_usd"] == 400.0
+    assert hp_16gb["disponibles"] == 1 and hp_16gb["precio_usd"] == 460.0
+    for item in data_promo["items"]:
+        assert "precio_bs" not in item
+        assert "serial" not in str(item).lower()
         assert "costo" not in str(item).lower()
         assert "margen" not in str(item).lower()
         assert "proveedor" not in str(item).lower()
         assert "Hospital" not in item["modelo"]
 
-    resp_pdf = cliente.get("/api/catalogo/lista-precios-pdf?sucursal_id=1", headers=h_as)
-    assert resp_pdf.status_code == 200
-    assert resp_pdf.headers["content-type"] == "application/pdf"
-    texto_pdf = _extraer_texto_pdf(resp_pdf.content)
-    assert "LISTA DE PRECIOS DISPONIBLES" in texto_pdf
-    assert "HP EliteBook 840 G7" in texto_pdf
-    assert "Dell Latitude 7420" in texto_pdf
-    assert "Equipo En Hospital" not in texto_pdf
-    assert "260.00" not in texto_pdf  # costo interno nunca expuesto
+    pdf_promo = cliente.get(
+        "/api/catalogo/lista-precios-pdf?sucursal_id=1&tipo_precio=PROMO", headers=h_as
+    )
+    assert pdf_promo.status_code == 200
+    assert pdf_promo.headers["content-type"] == "application/pdf"
+    txt_promo = _extraer_texto_pdf(pdf_promo.content)
+    assert "LISTA DE PRECIOS DISPONIBLES" in txt_promo
+    assert "8GB RAM" in txt_promo
+    assert "16GB RAM" in txt_promo
+    assert "$400.00" in txt_promo
+    assert "$460.00" in txt_promo
+    assert "Bs." not in txt_promo
+    assert "Precio Regular" not in txt_promo
+    assert "SN-HP-001" not in txt_promo
+    assert "SN-DELL-001" not in txt_promo
+    assert "Equipo En Hospital" not in txt_promo
+    assert "260.00" not in txt_promo
+
+    # 2. Modo REGULAR (solo Regular en USD y Bs a tasa BCV, sin seriales ni costos)
+    resp_reg = cliente.get(
+        "/api/catalogo/lista-precios?sucursal_id=1&tipo_precio=REGULAR", headers=h_as
+    )
+    assert resp_reg.status_code == 200, resp_reg.text
+    data_reg = resp_reg.json()
+    assert data_reg["tipo_precio"] == "REGULAR"
+    assert data_reg["tasa_bcv"] == 50.0
+    hp_8gb_reg = next(i for i in data_reg["items"] if "8GB RAM" in i["caracteristicas"])
+    assert hp_8gb_reg["precio_usd"] == 480.0  # 400 * 1.20
+    assert hp_8gb_reg["precio_bs"] == 24000.0  # 480 * 50
+
+    pdf_reg = cliente.get(
+        "/api/catalogo/lista-precios-pdf?sucursal_id=1&tipo_precio=REGULAR", headers=h_as
+    )
+    assert pdf_reg.status_code == 200
+    txt_reg = _extraer_texto_pdf(pdf_reg.content)
+    assert "Tasa BCV ref." in txt_reg
+    assert "$480.00" in txt_reg
+    assert "Bs. 24,000.00" in txt_reg
+    assert "SN-HP-001" not in txt_reg
+    assert "260.00" not in txt_reg
 
 
 def test_cotizacion_asesora_pdf_sin_descontar_stock_y_conversion_a_venta(cliente: TestClient) -> None:

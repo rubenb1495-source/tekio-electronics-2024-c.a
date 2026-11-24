@@ -11,7 +11,10 @@ import {
   solicitarApi,
 } from "@/servicios/api";
 import type { Sucursal } from "@/tipos/dominio";
-import type { ListaPreciosRespuesta } from "@/tipos/operaciones";
+import type {
+  ListaPreciosRespuesta,
+  TipoPrecioLista,
+} from "@/tipos/operaciones";
 
 interface BarraListaPreciosProps {
   sucursalInicialId?: string;
@@ -24,6 +27,7 @@ export default function BarraListaPrecios({
 }: BarraListaPreciosProps) {
   const [sucursales, setSucursales] = useState<Sucursal[]>([]);
   const [sucursalId, setSucursalId] = useState(sucursalInicialId);
+  const [tipoPrecio, setTipoPrecio] = useState<TipoPrecioLista>("PROMO");
   const [descargandoPdf, setDescargandoPdf] = useState(false);
   const [copiandoWa, setCopiandoWa] = useState(false);
   const [copiadoOk, setCopiadoOk] = useState(false);
@@ -41,18 +45,20 @@ export default function BarraListaPrecios({
 
   const construirQuery = () => {
     const params = new URLSearchParams();
+    params.set("tipo_precio", tipoPrecio);
     if (sucursalId) params.set("sucursal_id", sucursalId);
     if (categoria.trim()) params.set("categoria", categoria.trim());
-    return params.toString() ? `?${params.toString()}` : "";
+    return `?${params.toString()}`;
   };
 
   const descargarPdf = async () => {
     setDescargandoPdf(true);
     setErrorMsg(null);
     try {
+      const sufijo = tipoPrecio === "REGULAR" ? "Regular" : "Promo";
       await descargarPdfApi(
         `/api/catalogo/lista-precios-pdf${construirQuery()}`,
-        "Lista_Precios_Tekio.pdf"
+        `Lista_Precios_Tekio_${sufijo}.pdf`
       );
     } catch (err) {
       setErrorMsg(
@@ -90,7 +96,7 @@ export default function BarraListaPrecios({
           Lista de Precios · Equipos Disponibles (LISTO)
         </p>
         <p className="text-xs text-neutral-500">
-          Exporta solo modelos disponibles con precio Divisas y Bs/Regular (sin costos internos).
+          Agrupada por Modelo y Características (sin seriales ni costos internos). Elige el tipo de precio:
         </p>
         {errorMsg && (
           <p className="text-xs text-red-600 mt-1 font-medium">{errorMsg}</p>
@@ -98,6 +104,36 @@ export default function BarraListaPrecios({
       </div>
 
       <div className="flex flex-wrap items-center gap-2">
+        {/* Selector de Tipo de Precio (Promo o Regular) */}
+        <div
+          className="inline-flex rounded-xl border border-neutral-200 bg-neutral-100/80 p-0.5"
+          role="group"
+          aria-label="Tipo de precio de la lista"
+        >
+          <button
+            type="button"
+            onClick={() => setTipoPrecio("PROMO")}
+            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-colors cursor-pointer ${
+              tipoPrecio === "PROMO"
+                ? "bg-tekio-naranja text-white shadow-xs"
+                : "text-neutral-600 hover:text-tekio-carbon"
+            }`}
+          >
+            Precio Promo (USD)
+          </button>
+          <button
+            type="button"
+            onClick={() => setTipoPrecio("REGULAR")}
+            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-colors cursor-pointer ${
+              tipoPrecio === "REGULAR"
+                ? "bg-tekio-carbon text-white shadow-xs"
+                : "text-neutral-600 hover:text-tekio-carbon"
+            }`}
+          >
+            Precio Regular (USD / Bs)
+          </button>
+        </div>
+
         <select
           value={sucursalId}
           onChange={(e) => setSucursalId(e.target.value)}

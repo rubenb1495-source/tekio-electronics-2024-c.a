@@ -46,22 +46,23 @@ export interface DevolucionGarantiaResumen {
   creado_en: string | null;
 }
 
+export type TipoPrecioLista = "PROMO" | "REGULAR";
+
 export interface ItemListaPrecio {
-  articulo_id: number | null;
-  sku: string;
   modelo: string;
+  caracteristicas: string;
+  descripcion: string;
   categoria: string;
   disponibles: number;
-  precio_divisas_usd: number;
-  precio_regular_usd: number;
-  precio_bs: number | null;
+  precio_usd: number;
+  precio_bs?: number | null;
 }
 
 export interface ListaPreciosRespuesta {
   fecha_emision: string;
   sucursal: string;
-  tasa_bcv: number;
-  recargo_porcentaje: number;
+  tipo_precio: TipoPrecioLista;
+  tasa_bcv?: number;
   total_modelos: number;
   total_unidades: number;
   items: ItemListaPrecio[];

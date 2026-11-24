@@ -722,9 +722,11 @@ def _construir_lista_precios(
     bd: Session,
     sucursal_id: int | None = None,
     categoria: str | None = None,
+    tipo_precio: str = "PROMO",
 ) -> dict[str, Any]:
     hoy = obtener_fecha_hoy()
     tasa_bcv, _, recargo_pct = _obtener_tasa_actual(bd, hoy)
+    modo = "REGULAR" if (tipo_precio or "").strip().upper() == "REGULAR" else "PROMO"
 
     sucursal_nombre = "Todas las sucursales"
     if sucursal_id is not None:
@@ -742,81 +744,112 @@ def _construir_lista_precios(
 
     equipos_listos = consulta.all()
 
-    agrupado: dict[str, dict[str, Any]] = {}
+    agrupado: dict[tuple[str, str, str], dict[str, Any]] = {}
     for eq in equipos_listos:
         art = eq.articulo
-        cat_item = (art.categoria if art and art.categoria else "Equipos").strip()
+        cat_item = (
+            (art.categoria if art and art.categoria else None)
+            or (eq.categoria if getattr(eq, "categoria", None) else None)
+            or "Equipos"
+        ).strip()
         if categoria and categoria.strip().lower() not in cat_item.lower():
             continue
 
-        clave = f"art-{art.id}" if art else f"mod-{eq.modelo.strip().lower()}"
+        modelo_base = (eq.modelo or (art.descripcion if art else "") or "Equipo").strip()
+        caract = (getattr(eq, "configuracion", "") or "").strip()
+        if caract and caract.lower() in modelo_base.lower():
+            caract = ""
+        descripcion_completa = f"{modelo_base} · {caract}" if caract else modelo_base
+
+        p_promo = Decimal(str(eq.precio_promo_usd or 0))
+        p_reg_fijo: Decimal | None = None
+        if art:
+            cat_promo, cat_reg_fijo, _ = obtener_precio_y_costo_articulo(bd, art.id, hoy)
+            if p_promo <= 0:
+                p_promo = cat_promo
+            p_reg_fijo = cat_reg_fijo
+        p_reg = _calcular_regular(p_promo, p_reg_fijo, recargo_pct)
+        p_bs = (
+            (p_reg * tasa_bcv).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+            if tasa_bcv > 0 and p_reg > 0
+            else None
+        )
+
+        clave = (modelo_base.lower(), caract.lower(), f"{p_promo:.2f}")
         if clave not in agrupado:
-            p_promo = Decimal(str(eq.precio_promo_usd or 0))
-            p_reg_fijo: Decimal | None = None
-            if art:
-                cat_promo, cat_reg_fijo, _ = obtener_precio_y_costo_articulo(bd, art.id, hoy)
-                if p_promo <= 0:
-                    p_promo = cat_promo
-                p_reg_fijo = cat_reg_fijo
-            p_reg = _calcular_regular(p_promo, p_reg_fijo, recargo_pct)
-            p_bs = (
-                (p_reg * tasa_bcv).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
-                if tasa_bcv > 0 and p_reg > 0
-                else None
-            )
-            agrupado[clave] = {
-                "articulo_id": art.id if art else None,
-                "sku": art.sku if art else "",
-                "modelo": art.descripcion if art else eq.modelo,
+            item_base: dict[str, Any] = {
+                "modelo": modelo_base,
+                "caracteristicas": caract,
+                "descripcion": descripcion_completa,
                 "categoria": cat_item,
                 "disponibles": 0,
-                "precio_divisas_usd": redondear_usd(p_promo),
-                "precio_regular_usd": redondear_usd(p_reg),
-                "precio_bs": float(p_bs) if p_bs is not None else None,
             }
+            if modo == "REGULAR":
+                item_base["precio_usd"] = redondear_usd(p_reg)
+                item_base["precio_bs"] = float(p_bs) if p_bs is not None else None
+            else:
+                item_base["precio_usd"] = redondear_usd(p_promo)
+            agrupado[clave] = item_base
         agrupado[clave]["disponibles"] += 1
 
-    items = sorted(agrupado.values(), key=lambda x: (x["categoria"], x["modelo"]))
-    return {
+    items = sorted(agrupado.values(), key=lambda x: (x["categoria"], x["modelo"], x["caracteristicas"]))
+    respuesta: dict[str, Any] = {
         "fecha_emision": hoy.isoformat(),
         "sucursal": sucursal_nombre,
-        "tasa_bcv": float(tasa_bcv),
-        "recargo_porcentaje": float(recargo_pct),
+        "tipo_precio": modo,
         "total_modelos": len(items),
         "total_unidades": sum(i["disponibles"] for i in items),
         "items": items,
     }
+    if modo == "REGULAR":
+        respuesta["tasa_bcv"] = float(tasa_bcv)
+    return respuesta
 
 
 @enrutador.get("/catalogo/lista-precios")
 def obtener_lista_precios(
     sucursal_id: int | None = Query(default=None),
     categoria: str | None = Query(default=None),
+    tipo_precio: str = Query(default="PROMO"),
     _usuario: Usuario = Depends(obtener_usuario_actual),
     bd: Session = Depends(obtener_bd),
 ) -> dict[str, Any]:
-    return _construir_lista_precios(bd, sucursal_id=sucursal_id, categoria=categoria)
+    return _construir_lista_precios(
+        bd,
+        sucursal_id=sucursal_id,
+        categoria=categoria,
+        tipo_precio=tipo_precio,
+    )
 
 
 @enrutador.get("/catalogo/lista-precios-pdf")
 def descargar_lista_precios_pdf(
     sucursal_id: int | None = Query(default=None),
     categoria: str | None = Query(default=None),
+    tipo_precio: str = Query(default="PROMO"),
     _usuario: Usuario = Depends(obtener_usuario_actual),
     bd: Session = Depends(obtener_bd),
 ) -> Response:
-    datos = _construir_lista_precios(bd, sucursal_id=sucursal_id, categoria=categoria)
+    datos = _construir_lista_precios(
+        bd,
+        sucursal_id=sucursal_id,
+        categoria=categoria,
+        tipo_precio=tipo_precio,
+    )
     pdf_bytes = generar_pdf_lista_precios(
         items=datos["items"],
         sucursal_nombre=datos["sucursal"],
         fecha_emision=date.fromisoformat(datos["fecha_emision"]),
-        tasa_bcv=Decimal(str(datos["tasa_bcv"])),
-        recargo_pct=Decimal(str(datos["recargo_porcentaje"])),
+        tasa_bcv=Decimal(str(datos.get("tasa_bcv", 0))),
+        tipo_precio=datos["tipo_precio"],
     )
+    sufijo = datos["tipo_precio"].lower()
     return Response(
         content=pdf_bytes,
         media_type="application/pdf",
-        headers={"Content-Disposition": f'inline; filename="lista-precios-tekio-{datos["fecha_emision"]}.pdf"'},
+        headers={
+            "Content-Disposition": f'inline; filename="lista-precios-tekio-{sufijo}-{datos["fecha_emision"]}.pdf"'
+        },
     )
 
 

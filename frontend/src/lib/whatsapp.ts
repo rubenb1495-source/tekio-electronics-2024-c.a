@@ -353,15 +353,17 @@ export function formatearWhatsAppDevolucion(
 }
 
 /**
- * 5. Lista de Precios para WhatsApp (solo equipos LISTO, sin costos internos).
+ * 5. Lista de Precios para WhatsApp (agrupada por Modelo y Características, solo LISTO,
+ *    mostrando exclusivamente Precio Promo USD o Precio Regular USD/Bs según selección).
  */
 export function formatearWhatsAppListaPrecios(
   lista: ListaPreciosRespuesta
 ): string {
+  const esRegular = lista.tipo_precio === "REGULAR";
   const lineas: string[] = [
-    `💻 *TEKIO ELECTRONICS · LISTA DE EQUIPOS DISPONIBLES*`,
+    `💻 *TEKIO ELECTRONICS · EQUIPOS DISPONIBLES*`,
     `📅 Fecha: ${lista.fecha_emision} · 🏪 ${lista.sucursal}`,
-    ...(lista.tasa_bcv > 0
+    ...(esRegular && lista.tasa_bcv && lista.tasa_bcv > 0
       ? [`💱 Tasa BCV ref.: ${formatearBs(lista.tasa_bcv)}`]
       : []),
     "",
@@ -371,13 +373,26 @@ export function formatearWhatsAppListaPrecios(
     lineas.push("_Actualmente no hay equipos disponibles para esta sucursal._");
   } else {
     for (const item of lista.items) {
-      const bsTxt =
-        item.precio_bs && item.precio_bs > 0
-          ? ` (${formatearBs(item.precio_bs)})`
-          : "";
-      lineas.push(
-        `• *${item.modelo}* (${item.disponibles} disp.)\n  💵 Divisas: *${formatearUsd(item.precio_divisas_usd)}* | Bs/Regular: ${formatearUsd(item.precio_regular_usd)}${bsTxt}`
-      );
+      const titulo = item.caracteristicas
+        ? `*${item.modelo}* — ${item.caracteristicas}`
+        : `*${item.modelo}*`;
+      const dispTxt =
+        item.disponibles === 1
+          ? "1 disponible"
+          : `${item.disponibles} disponibles`;
+      if (esRegular) {
+        const bsTxt =
+          item.precio_bs && item.precio_bs > 0
+            ? ` / *${formatearBs(item.precio_bs)}*`
+            : "";
+        lineas.push(
+          `• ${titulo} (${dispTxt})\n  💵 *${formatearUsd(item.precio_usd)} USD*${bsTxt}`
+        );
+      } else {
+        lineas.push(
+          `• ${titulo} (${dispTxt})\n  💵 *${formatearUsd(item.precio_usd)} USD*`
+        );
+      }
     }
   }
 

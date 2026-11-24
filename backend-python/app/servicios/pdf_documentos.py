@@ -300,15 +300,21 @@ def generar_pdf_lista_precios(
     items: list[dict[str, Any]],
     sucursal_nombre: str,
     fecha_emision: date,
-    tasa_bcv: Decimal,
-    recargo_pct: Decimal,
+    tasa_bcv: Decimal = Decimal("0"),
+    tipo_precio: str = "PROMO",
 ) -> bytes:
     buffer = io.BytesIO()
     pdf = canvas.Canvas(buffer, pagesize=letter)
     ancho, alto = letter
     pagina = 1
+    es_regular = (tipo_precio or "PROMO").upper() == "REGULAR"
 
     def iniciar_pagina(num_pag: int) -> float:
+        sub_der = (
+            (f"Tasa BCV ref.: Bs. {tasa_bcv:,.2f}" if tasa_bcv > 0 else "Precios sujetos a tasa BCV vigente")
+            if es_regular
+            else "Precios en USD Divisas"
+        )
         y_inicio = _dibujar_encabezado_corporativo(
             pdf,
             ancho,
@@ -316,7 +322,7 @@ def generar_pdf_lista_precios(
             titulo_doc="LISTA DE PRECIOS DISPONIBLES",
             numero_doc=f"Sucursal: {sucursal_nombre}",
             fecha_texto=f"Emisión: {fecha_emision.isoformat()}",
-            subtitulo_der=f"Tasa BCV ref.: Bs. {tasa_bcv:.2f}" if tasa_bcv > 0 else "Precios sujetos a tasa BCV vigente",
+            subtitulo_der=sub_der,
             pagina=num_pag,
         )
         # Encabezado de tabla claro (#F3F4F6)
@@ -327,11 +333,14 @@ def generar_pdf_lista_precios(
         pdf.line(0.50 * inch, y_inicio - 0.24 * inch, ancho - 0.50 * inch, y_inicio - 0.24 * inch)
 
         pdf.setFillColorRGB(0.098, 0.094, 0.094)
-        pdf.setFont("Helvetica-Bold", 8.2)
-        pdf.drawString(0.58 * inch, y_inicio - 0.14 * inch, "Modelo / Descripción")
-        pdf.drawCentredString(4.78 * inch, y_inicio - 0.14 * inch, "Disp.")
-        pdf.drawRightString(5.85 * inch, y_inicio - 0.14 * inch, "Precio Divisas")
-        pdf.drawRightString(ancho - 0.56 * inch, y_inicio - 0.14 * inch, "Precio Regular / Bs")
+        pdf.setFont("Helvetica-Bold", 8.4)
+        pdf.drawString(0.58 * inch, y_inicio - 0.14 * inch, "Modelo y Características")
+        pdf.drawCentredString(5.55 * inch, y_inicio - 0.14 * inch, "Disponibles")
+        pdf.drawRightString(
+            ancho - 0.56 * inch,
+            y_inicio - 0.14 * inch,
+            "Precio (USD / Bs)" if es_regular else "Precio (USD)",
+        )
         return y_inicio - 0.44 * inch
 
     y = iniciar_pagina(pagina)
@@ -343,18 +352,20 @@ def generar_pdf_lista_precios(
     else:
         for idx, item in enumerate(items):
             modelo = str(item.get("modelo") or item.get("descripcion") or "Equipo")
+            caracteristicas = str(item.get("caracteristicas") or "").strip()
             categoria = str(item.get("categoria") or "").strip()
-            lineas_desc = _envolver_texto(modelo, 54)
-            alto_fila = max(0.32 * inch, len(lineas_desc) * 0.15 * inch + (0.14 * inch if categoria else 0.08 * inch))
+            lineas_modelo = _envolver_texto(modelo, 62)
+            lineas_caract = _envolver_texto(caracteristicas, 70) if caracteristicas else []
+            extra_h = (len(lineas_caract) * 0.13 * inch) + (0.13 * inch if categoria else 0.0)
+            alto_fila = max(0.36 * inch, len(lineas_modelo) * 0.15 * inch + extra_h + 0.12 * inch)
 
             if y - alto_fila < 0.95 * inch:
-                # Pie de página antes de saltar
                 pdf.setFillColorRGB(0.45, 0.45, 0.45)
                 pdf.setFont("Helvetica-Oblique", 7.5)
                 pdf.drawString(
                     0.50 * inch,
                     0.48 * inch,
-                    "Precios y disponibilidad sujetos a cambio sin previo aviso · Garantía de 180 días en equipos Tekio Electronics.",
+                    "Disponibilidad sujeta a inventario al momento de la compra · Garantía de 180 días Tekio Electronics.",
                 )
                 pdf.showPage()
                 pagina += 1
@@ -365,34 +376,38 @@ def generar_pdf_lista_precios(
                 pdf.rect(0.50 * inch, y - alto_fila + 0.16 * inch, ancho - 1.0 * inch, alto_fila, fill=1, stroke=0)
 
             pdf.setFillColorRGB(0.098, 0.094, 0.094)
-            pdf.setFont("Helvetica-Bold", 8.4)
-            for l_idx, linea in enumerate(lineas_desc):
-                pdf.drawString(0.58 * inch, y - (l_idx * 0.15 * inch), linea)
+            pdf.setFont("Helvetica-Bold", 8.6)
+            cursor_y = y
+            for linea in lineas_modelo:
+                pdf.drawString(0.58 * inch, cursor_y, linea)
+                cursor_y -= 0.15 * inch
+            if lineas_caract:
+                pdf.setFillColorRGB(0.28, 0.28, 0.28)
+                pdf.setFont("Helvetica", 7.7)
+                for linea in lineas_caract:
+                    pdf.drawString(0.58 * inch, cursor_y, linea)
+                    cursor_y -= 0.13 * inch
             if categoria:
-                pdf.setFillColorRGB(0.45, 0.45, 0.45)
-                pdf.setFont("Helvetica", 7.2)
-                pdf.drawString(0.58 * inch, y - (len(lineas_desc) * 0.15 * inch), categoria)
+                pdf.setFillColorRGB(0.48, 0.48, 0.48)
+                pdf.setFont("Helvetica", 7.0)
+                pdf.drawString(0.58 * inch, cursor_y, categoria)
 
             disponibles = int(item.get("disponibles") or 0)
-            precio_divisas = Decimal(str(item.get("precio_divisas_usd") or 0))
-            precio_reg_usd = Decimal(str(item.get("precio_regular_usd") or 0))
+            precio_usd = Decimal(str(item.get("precio_usd") or 0))
             precio_bs = item.get("precio_bs")
 
             pdf.setFillColorRGB(0.098, 0.094, 0.094)
-            pdf.setFont("Helvetica-Bold", 8.5)
-            pdf.drawCentredString(4.78 * inch, y, str(disponibles))
+            pdf.setFont("Helvetica-Bold", 9.0)
+            pdf.drawCentredString(5.55 * inch, y, str(disponibles))
 
             pdf.setFillColorRGB(0.91, 0.35, 0.16)
-            pdf.setFont("Helvetica-Bold", 8.8)
-            pdf.drawRightString(5.85 * inch, y, f"${precio_divisas:,.2f}")
+            pdf.setFont("Helvetica-Bold", 9.2)
+            pdf.drawRightString(ancho - 0.56 * inch, y, f"${precio_usd:,.2f}")
 
-            pdf.setFillColorRGB(0.098, 0.094, 0.094)
-            pdf.setFont("Helvetica-Bold", 8.3)
-            pdf.drawRightString(ancho - 0.56 * inch, y, f"${precio_reg_usd:,.2f}")
-            if precio_bs is not None and Decimal(str(precio_bs)) > 0:
-                pdf.setFillColorRGB(0.4, 0.4, 0.4)
-                pdf.setFont("Helvetica", 7.4)
-                pdf.drawRightString(ancho - 0.56 * inch, y - 0.13 * inch, f"Bs. {Decimal(str(precio_bs)):,.2f}")
+            if es_regular and precio_bs is not None and Decimal(str(precio_bs)) > 0:
+                pdf.setFillColorRGB(0.32, 0.32, 0.32)
+                pdf.setFont("Helvetica-Bold", 7.8)
+                pdf.drawRightString(ancho - 0.56 * inch, y - 0.15 * inch, f"Bs. {Decimal(str(precio_bs)):,.2f}")
 
             pdf.setStrokeColorRGB(0.91, 0.92, 0.93)
             pdf.setLineWidth(0.4)
@@ -402,11 +417,12 @@ def generar_pdf_lista_precios(
     # Pie corporativo final
     pdf.setFillColorRGB(0.45, 0.45, 0.45)
     pdf.setFont("Helvetica-Oblique", 7.6)
-    pdf.drawString(
-        0.50 * inch,
-        0.55 * inch,
-        "Precios expresados en USD y Bolívares referenciales a tasa BCV del día. Disponibilidad sujeta a inventario al momento de la compra.",
+    texto_pie = (
+        "Precios expresados en USD y Bolívares referenciales a tasa BCV del día. Disponibilidad sujeta a inventario al momento de la compra."
+        if es_regular
+        else "Precios expresados en USD Divisas. Disponibilidad sujeta a inventario al momento de la compra."
     )
+    pdf.drawString(0.50 * inch, 0.55 * inch, texto_pie)
     pdf.drawString(
         0.50 * inch,
         0.41 * inch,
