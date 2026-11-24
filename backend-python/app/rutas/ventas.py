@@ -265,15 +265,31 @@ def evaluar_venta(
     # Evaluar pagos mixtos
     pagos_calc: list[dict[str, Any]] = []
     cubierto_promo = Decimal("0")
+    cubierto_regular = Decimal("0")
+    iniciales_regular_usd = Decimal("0")
     total_cashea_usd = Decimal("0")
 
     for p in pagos:
         inst = instrumentos_map[p.instrumento_id]
         monto = p.monto_moneda_origen
+        es_cashea_fila = "cashea" in inst.nombre.lower()
 
-        if inst.moneda == MonedaInstrumento.BS.value:
+        if es_cashea_fila:
+            # Cashea se registra en USD Regular (monto financiado) y se liquida en Bs a tasa BCV
+            usd_nominal = monto.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+            usd_real = (
+                ((usd_nominal * tasa_bcv) / tasa_usdt).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+                if (tasa_bcv > 0 and tasa_usdt > 0)
+                else usd_nominal
+            )
+            cubre_promo = (usd_nominal / factor_regular).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        elif inst.moneda == MonedaInstrumento.BS.value:
             usd_nominal = (monto / tasa_bcv).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
-            usd_real = (monto / tasa_usdt).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP) if tasa_usdt > 0 else usd_nominal
+            usd_real = (
+                (monto / tasa_usdt).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+                if tasa_usdt > 0
+                else usd_nominal
+            )
             cubre_promo = (usd_nominal / factor_regular).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
         else:
             usd_nominal = monto.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
@@ -283,10 +299,13 @@ def evaluar_venta(
             else:
                 cubre_promo = usd_nominal
 
-        if "cashea" in inst.nombre.lower():
+        if es_cashea_fila:
             total_cashea_usd += usd_nominal
+        else:
+            iniciales_regular_usd += usd_nominal
 
         cubierto_promo += cubre_promo
+        cubierto_regular += usd_nominal
         pagos_calc.append(
             {
                 "entrada": p,
@@ -297,22 +316,57 @@ def evaluar_venta(
             }
         )
 
-    cubierto_neto = cubierto_promo - vuelto_usd
-    diferencia = total_promo - cubierto_neto
-    falta_promo = max(Decimal("0"), diferencia).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
-    sobra_promo = max(Decimal("0"), -diferencia).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
-    falta_regular = (falta_promo * factor_regular).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
-    falta_bs = (
-        (falta_regular * tasa_bcv).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
-        if tasa_bcv > 0
-        else None
-    )
-
-    estado = (
-        EstadoVenta.CUADRADA.value
-        if falta_promo <= Decimal("0.50")
-        else EstadoVenta.CON_SALDO.value
-    )
+    if usa_cashea:
+        # Regla estricta Cashea: toda la venta se calcula exclusivamente a Precio Regular,
+        # sin importar el método de la inicial (divisas/USDT descuentan 1:1 y Bs a tasa BCV sobre Total Regular).
+        cubierto_regular_neto = cubierto_regular - vuelto_usd
+        diferencia_regular = total_regular - cubierto_regular_neto
+        falta_regular = max(Decimal("0"), diferencia_regular).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        sobra_regular = max(Decimal("0"), -diferencia_regular).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        falta_promo = falta_regular
+        sobra_promo = sobra_regular
+        cubierto_neto = (
+            (cubierto_regular_neto / factor_regular).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+            if factor_regular > 0
+            else cubierto_regular_neto
+        )
+        falta_bs = (
+            (falta_regular * tasa_bcv).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+            if tasa_bcv > 0
+            else None
+        )
+        cashea_sugerido_usd = max(
+            Decimal("0"), total_regular - (iniciales_regular_usd - vuelto_usd)
+        ).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        cashea_sugerido_bs = (
+            (cashea_sugerido_usd * tasa_bcv).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+            if tasa_bcv > 0
+            else None
+        )
+        estado = (
+            EstadoVenta.CUADRADA.value
+            if falta_regular <= Decimal("0.50")
+            else EstadoVenta.CON_SALDO.value
+        )
+    else:
+        cubierto_neto = cubierto_promo - vuelto_usd
+        cubierto_regular_neto = cubierto_regular - vuelto_usd
+        diferencia = total_promo - cubierto_neto
+        falta_promo = max(Decimal("0"), diferencia).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        sobra_promo = max(Decimal("0"), -diferencia).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        falta_regular = (falta_promo * factor_regular).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        falta_bs = (
+            (falta_regular * tasa_bcv).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+            if tasa_bcv > 0
+            else None
+        )
+        cashea_sugerido_usd = Decimal("0")
+        cashea_sugerido_bs = None
+        estado = (
+            EstadoVenta.CUADRADA.value
+            if falta_promo <= Decimal("0.50")
+            else EstadoVenta.CON_SALDO.value
+        )
 
     return {
         "sucursal": sucursal,
@@ -323,11 +377,14 @@ def evaluar_venta(
         "total_promo_usd": total_promo,
         "total_regular_usd": total_regular,
         "cubierto_promo_usd": cubierto_neto,
+        "cubierto_regular_usd": cubierto_regular_neto,
         "falta_usd_promo": falta_promo,
         "sobra_usd_promo": sobra_promo,
         "falta_usd_regular": falta_regular,
         "falta_bs": falta_bs,
         "total_cashea_usd": total_cashea_usd,
+        "cashea_financiado_sugerido_usd": cashea_sugerido_usd,
+        "cashea_financiado_sugerido_bs": cashea_sugerido_bs,
         "estado": estado,
         "detalles": detalles_calc,
         "pagos": pagos_calc,
@@ -419,10 +476,17 @@ def simular_venta(
         "total_promo_usd": redondear_usd(calc["total_promo_usd"]),
         "total_regular_usd": redondear_usd(calc["total_regular_usd"]),
         "cubierto_promo_usd": redondear_usd(calc["cubierto_promo_usd"]),
+        "cubierto_regular_usd": redondear_usd(calc["cubierto_regular_usd"]),
         "falta_usd_promo": redondear_usd(calc["falta_usd_promo"]),
         "sobra_usd_promo": redondear_usd(calc["sobra_usd_promo"]),
         "falta_usd_regular": redondear_usd(calc["falta_usd_regular"]),
         "falta_bs": redondear_usd(calc["falta_bs"]) if calc["falta_bs"] is not None else None,
+        "cashea_financiado_sugerido_usd": redondear_usd(calc["cashea_financiado_sugerido_usd"]),
+        "cashea_financiado_sugerido_bs": (
+            redondear_usd(calc["cashea_financiado_sugerido_bs"])
+            if calc["cashea_financiado_sugerido_bs"] is not None
+            else None
+        ),
         "usa_cashea": calc["usa_cashea"],
         "tasa_bcv": float(calc["tasa_bcv"]),
         "recargo_porcentaje": float(calc["recargo_pct"]),
@@ -475,12 +539,19 @@ def crear_venta(
     )
 
     if calc["estado"] == EstadoVenta.CON_SALDO.value and not datos.queda_con_saldo:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=(
+        if calc["usa_cashea"]:
+            mensaje_faltante = (
+                f"Faltan ${redondear_usd(calc['falta_usd_regular']):.2f} USD Regular para cuadrar la venta con Cashea. "
+                "Completa el pago o marca 'queda_con_saldo: true'."
+            )
+        else:
+            mensaje_faltante = (
                 f"Faltan ${redondear_usd(calc['falta_usd_promo']):.2f} USD Promo para cuadrar la venta. "
                 "Completa el pago o marca 'queda_con_saldo: true'."
-            ),
+            )
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=mensaje_faltante,
         )
 
     numero_venta = generar_correlativo_corto(bd, Venta, Venta.numero_venta, "N")

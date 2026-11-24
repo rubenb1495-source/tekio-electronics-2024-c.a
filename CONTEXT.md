@@ -127,22 +127,29 @@
 - [x] **Fase 4 completada:** Ventas Multimoneda (POS pagos mixtos y Cashea), Nota de Entrega PDF (`reportlab`), Devoluciones (Notas de Crédito), Verificación de Pagos/CxC, Conciliación Bancaria CSV/Excel, Comisiones exactas y Cierre Mensual inmutable (`pytest` 14/14 y `next build` 24/24 en verde).
 - [x] **Normalización de SKUs ejecutada:** `normalizar_skus_tekio.py` procesó `TEKIO · Configuración.xlsx` (`32` filas → `27` SKUs canónicos limpios en `./salida_limpia`).
 - [x] **Migración histórica completada e idempotente (`migrar_desde_tekio_erp.py --aplicar`):** migrados `27` SKUs, `146` terceros, `51` tasas, `144` equipos (`103` `LISTO`, `33` `VENDIDO`, `8` `CEMENTERIO`), `149` ventas (`172` líneas detalle, `\$28,555.38` Promo exacto), `145` pagos y `45` CxC (`\$747.00` clientes exacto; `\$5,169.88` Cashea por redondeo de `+\$0.02` desde `REAL`). Segunda pasada verificada con `0` duplicados y `pytest` 14/14 en verde.
-- [ ] Despliegue en Vercel + conexión a PostgreSQL (`POSTGRES_URL`) y pruebas UAT con el equipo.
+- [x] **Despliegue en producción verificado en Vercel + Neon PostgreSQL:**
+  - Repositorio GitHub: `https://github.com/rubenb1495-source/tekio-electronics-2024-c.a.git` (`main`).
+  - Frontend (`tekio-admin`): `https://tekio-admin-two.vercel.app` (login y dashboard verificados extremo a extremo).
+  - Backend (`tekio-admin-api`): `https://tekio-admin-api.vercel.app` (`/api/salud` -> `200 OK`).
+  - Base de datos: Neon Serverless Postgres (`tekio-admin-db`) conectada vía `POSTGRES_URL`.
+- [x] **Migración histórica aplicada en producción (Neon PostgreSQL `tekio-admin-db`):** `migrar_desde_tekio_erp.py --aplicar` ejecutado y confirmado atómicamente contra Neon (`27` SKUs, `146` terceros, `51` tasas, `144` equipos, `149` ventas / `172` líneas por `\$28,555.38` Promo, `149` pagos, `45` CxC con `\$747.00` clientes y `\$5,169.88` Cashea). Verificado en vivo en `https://tekio-admin-api.vercel.app` (`/api/catalogo` → `27`, `/api/logistica/inventario/equipos` → `144`, `/api/finanzas/cuentas-por-cobrar` → `45`, `/api/tasas` → `51`, `/api/finanzas/tablero` → `cashea_por_cobrar_usd: 5169.88`).
+- [ ] Realizar pruebas UAT en vivo con el equipo antes de apagar `../tekio-erp`.
 
 ### Próximos pasos
 - [x] Mapear módulos actuales del sistema (11 dominios funcionales y 28 tablas documentados).
 - [x] Configurar la estructura base del repositorio migrado (`tekio-admin`).
 - [x] Implementar y validar **Fases 1, 2, 3 y 4** (`SPEC_FASE_1.md` a `SPEC_FASE_4.md`).
 - [x] Ejecutar limpieza y mapa de equivalencias de SKUs (`salida_limpia/mapa_equivalencias_sku.json`).
-- [x] Cargar los 27 SKUs canónicos y migrar datos históricos vivos desde `../tekio-erp/data/tekio_erp.db` (`migrar_desde_tekio_erp.py --aplicar`).
-- [ ] Configurar variables de entorno en Vercel (`POSTGRES_URL`, `SECRETO_JWT`, `ORIGENES_CORS`, `NEXT_PUBLIC_URL_API_PYTHON`), desplegar `/frontend` y `/backend-python`, y correr `migrar_desde_tekio_erp.py --aplicar` contra PostgreSQL de producción.
+- [x] Cargar los 27 SKUs canónicos y migrar datos históricos vivos desde `../tekio-erp/data/tekio_erp.db` (`migrar_desde_tekio_erp.py --aplicar`) en local.
+- [x] Configurar variables de entorno en Vercel (`POSTGRES_URL`, `JWT_SECRET`, `CORS_ORIGINS`, `NEXT_PUBLIC_API_URL`) y desplegar `/frontend` y `/backend-python`.
+- [x] Correr `migrar_desde_tekio_erp.py --aplicar` contra Neon PostgreSQL de producción y verificar endpoints en vivo.
 - [ ] Realizar pruebas UAT en vivo con usuarios de Dirección, Logística, Taller y Asesoras antes de apagar `../tekio-erp`.
 
 ### Problemas conocidos / Bloqueos críticos detectados
-- **Pendiente de despliegue en la nube:** El equipo local no cuenta con Docker ni PostgreSQL instalado; el sistema corre en desarrollo con SQLite local y está listo para conectarse a PostgreSQL en Vercel apenas se configuren las variables de entorno (`NullPool` serverless y `America/Caracas` verificados).
+- **Despliegue en la nube (Resuelto):** Frontend, backend FastAPI y Neon Postgres operativos en Vercel (`pyproject.toml` actualizado con dependencias runtime para `uv`).
 - **Instrumentos de pago (Resuelto):** Catálogo oficial de 14 instrumentos financieros confirmado y sincronizado de forma idempotente en `app/semilla_finanzas.py` sin borrar historial.
 - **Sistema heredado (`../tekio-erp`):** Se mantiene intacto en solo lectura hasta completar UAT; conserva sus vulnerabilidades previas (endpoints sin RBAC y SQLite efímero en Render free) y debe darse de baja al activar `tekio-admin`.
 
 ## 8. Última Actualización
 - **Fecha:** 2026-11-24
-- **Último cambio:** Se sincronizó el catálogo oficial de 14 instrumentos financieros en `app/semilla_finanzas.py` (idempotente, sin borrar historial), se cerró la preparación de producción para Vercel + PostgreSQL (`NullPool`, `America/Caracas`, `.env.example`) y se validó `pytest` 14/14 + `next build` 24/24 en verde.
+- **Último cambio:** Se corrigió el solapamiento visual del POS (`/dashboard/ventas/nueva`) con selector buscable de equipos (`z-50`, `min-w-0`), se aplicó la regla estricta de Precio Regular en ventas con Cashea (backend + frontend) con cálculo automático del monto financiado en USD Regular y Bs (BCV), y se validó con `pytest` (15/15) y `next build` (24/24).

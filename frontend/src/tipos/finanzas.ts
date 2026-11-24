@@ -11,10 +11,13 @@ export interface SimulacionVenta {
   total_promo_usd: number;
   total_regular_usd: number;
   cubierto_promo_usd: number;
+  cubierto_regular_usd?: number;
   falta_usd_promo: number;
   sobra_usd_promo: number;
   falta_usd_regular: number;
   falta_bs: number | null;
+  cashea_financiado_sugerido_usd?: number;
+  cashea_financiado_sugerido_bs?: number | null;
   usa_cashea: boolean;
   tasa_bcv: number;
   recargo_porcentaje: number;

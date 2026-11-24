@@ -333,3 +333,131 @@ def test_devolucion_comisiones_y_cierre_mensual_bloquea_periodo(cliente: TestCli
         json={"motivo": "Intento tras cierre"},
     )
     assert resp_anular_cerrado.status_code == 403
+
+
+def test_venta_cashea_con_inicial_divisas_aplica_precio_regular_estricto(cliente: TestClient) -> None:
+    cab_dir, _ = login(cliente, "direccion@tekioelectronics.com", "Tekio2026!")
+    cab_asesora, asesora_u = crear_usuario_rol(
+        cliente, cab_dir, "Asesora Cashea", "asesora_cashea@tekioelectronics.com", "ASESORA", 2
+    )
+    hoy = obtener_fecha_hoy()
+
+    # Tasa del día: BCV = 60, USDT = 72, Recargo = 30% -> $200 Promo = $260 Regular
+    cliente.post(
+        "/api/tasas",
+        headers=cab_dir,
+        json={
+            "fecha": hoy.isoformat(),
+            "tasa_bcv": 60.0,
+            "tasa_usdt": 72.0,
+            "recargo_porcentaje": 30.0,
+        },
+    )
+
+    sucs = {s["nombre"]: s["id"] for s in cliente.get("/api/sucursales", headers=cab_dir).json()}
+    central_id = sucs["Tekio central"]
+    insts = {
+        i["nombre"]: i["id"]
+        for i in cliente.get("/api/finanzas/instrumentos", headers=cab_dir).json()
+    }
+
+    cliente.post(
+        "/api/logistica/compras",
+        headers=cab_dir,
+        json={
+            "origen": "NACIONAL",
+            "fecha": hoy.isoformat(),
+            "llega_preparada": True,
+            "equipos": [
+                {
+                    "serial": "CASHEA-REG-1",
+                    "modelo": "Lenovo ThinkPad T14 Gen 2",
+                    "ubicacion_id": central_id,
+                    "costo_compra_usd": 130.0,
+                    "precio_promo_usd": 200.0,
+                }
+            ],
+        },
+    )
+    eq = cliente.get("/api/logistica/inventario/equipos?busqueda=CASHEA-REG-1", headers=cab_dir).json()[0]
+
+    # 1. Inicial $100 Efectivo divisas + $100 Cashea (= $200 Promo) NO cuadra: faltan $60 USD Regular (3,600 Bs)
+    sim_incompleta = cliente.post(
+        "/api/ventas/simular",
+        headers=cab_asesora,
+        json={
+            "sucursal_id": central_id,
+            "items": [{"equipo_id": eq["id"]}],
+            "pagos": [
+                {"instrumento_id": insts["Efectivo divisas"], "monto_moneda_origen": 100.0},
+                {"instrumento_id": insts["Cashea · financiado"], "monto_moneda_origen": 100.0},
+            ],
+        },
+    ).json()
+    assert sim_incompleta["usa_cashea"] is True
+    assert sim_incompleta["total_promo_usd"] == 200.0
+    assert sim_incompleta["total_regular_usd"] == 260.0
+    assert sim_incompleta["cubierto_regular_usd"] == 200.0
+    assert sim_incompleta["falta_usd_regular"] == 60.0
+    assert sim_incompleta["falta_bs"] == 3600.0
+    assert sim_incompleta["cashea_financiado_sugerido_usd"] == 160.0
+    assert sim_incompleta["cashea_financiado_sugerido_bs"] == 9600.0
+    assert sim_incompleta["estado"] == "CON_SALDO"
+
+    # 2. Registrar con $200 totales debe fallar con 400 (no permite Precio Promo si hay Cashea)
+    resp_rechazada = cliente.post(
+        "/api/ventas",
+        headers=cab_asesora,
+        json={
+            "sucursal_id": central_id,
+            "asesor_id": asesora_u["id"],
+            "items": [{"equipo_id": eq["id"]}],
+            "pagos": [
+                {"instrumento_id": insts["Efectivo divisas"], "monto_moneda_origen": 100.0},
+                {"instrumento_id": insts["Cashea · financiado"], "monto_moneda_origen": 100.0},
+            ],
+        },
+    )
+    assert resp_rechazada.status_code == 400
+    assert "Regular" in resp_rechazada.json()["detail"]
+
+    # 3. Inicial $100 Efectivo divisas + $160 Cashea (= $260 Regular exacto) -> CUADRADA + CxC Cashea $160
+    sim_ok = cliente.post(
+        "/api/ventas/simular",
+        headers=cab_asesora,
+        json={
+            "sucursal_id": central_id,
+            "items": [{"equipo_id": eq["id"]}],
+            "pagos": [
+                {"instrumento_id": insts["Efectivo divisas"], "monto_moneda_origen": 100.0},
+                {"instrumento_id": insts["Cashea · financiado"], "monto_moneda_origen": 160.0},
+            ],
+        },
+    ).json()
+    assert sim_ok["estado"] == "CUADRADA"
+    assert sim_ok["falta_usd_regular"] == 0.0
+    assert sim_ok["falta_bs"] == 0.0
+
+    resp_ok = cliente.post(
+        "/api/ventas",
+        headers=cab_asesora,
+        json={
+            "sucursal_id": central_id,
+            "asesor_id": asesora_u["id"],
+            "items": [{"equipo_id": eq["id"]}],
+            "pagos": [
+                {"instrumento_id": insts["Efectivo divisas"], "monto_moneda_origen": 100.0},
+                {"instrumento_id": insts["Cashea · financiado"], "monto_moneda_origen": 160.0},
+            ],
+        },
+    )
+    assert resp_ok.status_code == 201, resp_ok.text
+    vta = resp_ok.json()
+    assert vta["estado"] == "CUADRADA"
+    assert vta["total_regular_usd"] == 260.0
+
+    cxc_lista = cliente.get("/api/finanzas/cuentas-por-cobrar?tipo=CASHEA", headers=cab_dir).json()
+    cxc_cashea = [c for c in cxc_lista if c["venta_id"] == vta["id"]]
+    assert len(cxc_cashea) == 1
+    assert cxc_cashea[0]["monto_original_usd"] == 160.0
+    assert cxc_cashea[0]["saldo_pendiente_usd"] == 160.0
