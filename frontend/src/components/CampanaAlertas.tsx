@@ -2,7 +2,7 @@
 
 import React, { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { AlertTriangle, Bell, CalendarClock, PackageX, X } from "lucide-react";
+import { AlertTriangle, Bell, CalendarClock, Lock, PackageX, X } from "lucide-react";
 import { usePermisos } from "@/lib/permisos";
 import { formatearUsd, solicitarApi } from "@/servicios/api";
 
@@ -29,13 +29,25 @@ export interface AlertaCxp {
   estado: "VENCIDA" | "POR_VENCER";
 }
 
+export interface AlertaSeguridad {
+  usuario_id: number;
+  nombre: string;
+  username: string;
+  rol: string;
+  intentos_fallidos: number;
+  bloqueado_hasta: string | null;
+  mensaje: string;
+}
+
 export interface RespuestaAlertas {
   fecha_corte: string;
   total_alertas: number;
   total_stock_bajo: number;
   total_cxp: number;
+  total_seguridad?: number;
   stock_bajo: AlertaStockBajo[];
   cxp_por_vencer: AlertaCxp[];
+  alertas_seguridad?: AlertaSeguridad[];
 }
 
 export default function CampanaAlertas() {
@@ -104,6 +116,54 @@ export default function CampanaAlertas() {
             </div>
 
             <div className="max-h-96 overflow-y-auto divide-y divide-gray-100 text-xs">
+              {/* Bloque Alertas de Seguridad */}
+              {alertas?.alertas_seguridad && alertas.alertas_seguridad.length > 0 && (
+                <div className="p-3 space-y-2 bg-red-50/40">
+                  <div className="flex items-center justify-between">
+                    <p className="font-bold uppercase tracking-wide text-[10px] text-red-700 flex items-center gap-1">
+                      <Lock className="w-3.5 h-3.5" />
+                      Alertas de Seguridad ({alertas.alertas_seguridad.length})
+                    </p>
+                    <Link
+                      href="/dashboard/usuarios"
+                      onClick={() => setAbierto(false)}
+                      className="text-[11px] font-bold text-[#E85A28] hover:underline"
+                    >
+                      Ver personal
+                    </Link>
+                  </div>
+                  {alertas.alertas_seguridad.map((seg) => (
+                    <div
+                      key={seg.usuario_id}
+                      className="p-2 rounded-xl bg-red-100/70 border border-red-200 flex items-center justify-between gap-2"
+                    >
+                      <div className="min-w-0">
+                        <p className="font-bold text-red-900 truncate">
+                          {seg.nombre} ({seg.rol})
+                        </p>
+                        <p className="text-[11px] text-red-700">{seg.mensaje}</p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          try {
+                            await solicitarApi(`/api/personal/${seg.usuario_id}/desbloquear`, {
+                              method: "POST",
+                            });
+                            await cargar();
+                          } catch {
+                            // Silencioso
+                          }
+                        }}
+                        className="px-2.5 py-1 rounded-lg bg-[#E85A28] text-white text-[10px] font-bold shrink-0 cursor-pointer"
+                      >
+                        Desbloquear
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+
               {/* Bloque CxP */}
               <div className="p-3 space-y-2">
                 <div className="flex items-center justify-between">

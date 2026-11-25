@@ -602,9 +602,9 @@ export default function DisenoDashboard({
                   type="button"
                   onClick={() => setModalPassword(true)}
                   className="ml-1 px-2 py-0.5 rounded-md bg-neutral-100 hover:bg-neutral-200 text-[10px] font-bold text-neutral-700 cursor-pointer"
-                  title="Cambiar contraseña"
+                  title="Cambiar mi clave"
                 >
-                  Clave
+                  Cambiar mi clave
                 </button>
               </div>
             </div>

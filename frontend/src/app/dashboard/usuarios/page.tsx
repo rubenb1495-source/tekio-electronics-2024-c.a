@@ -53,6 +53,7 @@ export default function PaginaPersonalYUsuarios() {
   const [cedula, setCedula] = useState("");
   const [sucursalId, setSucursalId] = useState<string>("");
   const [tieneAcceso, setTieneAcceso] = useState(false);
+  const [usernameForm, setUsernameForm] = useState("");
   const [correo, setCorreo] = useState("");
   const [clave, setClave] = useState("");
   const [guardando, setGuardando] = useState(false);
@@ -145,6 +146,7 @@ export default function PaginaPersonalYUsuarios() {
     setCedula(u.cedula || "");
     setSucursalId(u.sucursal ? String(u.sucursal.id) : "");
     setTieneAcceso(accesoActual);
+    setUsernameForm(u.username || u.nombre || "");
     setCorreo(u.correo || "");
     setClave("");
     setErrorModal(null);
@@ -161,8 +163,9 @@ export default function PaginaPersonalYUsuarios() {
       return;
     }
     if (tieneAcceso) {
-      if (!correo.trim()) {
-        setErrorModal("El correo electrónico es obligatorio para dar acceso al sistema.");
+      const usrFinal = (usernameForm || nombre).trim();
+      if (!usrFinal && !correo.trim()) {
+        setErrorModal("Indica un Usuario de acceso o correo electrónico.");
         return;
       }
       if ((!editandoId || !teniaAccesoAntes) && clave.trim().length < 6) {
@@ -187,7 +190,10 @@ export default function PaginaPersonalYUsuarios() {
         tiene_acceso: tieneAcceso,
       };
       if (tieneAcceso) {
-        payload.correo = correo.trim().toLowerCase();
+        payload.username = (usernameForm || nombre).trim().toLowerCase();
+        if (correo.trim()) {
+          payload.correo = correo.trim().toLowerCase();
+        }
         if (clave.trim()) {
           payload.clave = clave.trim();
         }
@@ -433,13 +439,13 @@ export default function PaginaPersonalYUsuarios() {
                         {u.cuenta_bloqueada && (
                           <div className="flex items-center gap-1.5">
                             <span className="inline-flex px-2 py-0.5 rounded-full text-[10px] font-black bg-red-600 text-white">
-                              Bloqueada
+                              Bloqueado
                             </span>
                             <button
                               type="button"
                               onClick={async () => {
                                 try {
-                                  await solicitarApi(`/api/usuarios/${u.id}/desbloquear`, {
+                                  await solicitarApi(`/api/personal/${u.id}/desbloquear`, {
                                     method: "POST",
                                   });
                                   await cargarDatos();
@@ -453,7 +459,7 @@ export default function PaginaPersonalYUsuarios() {
                               }}
                               className="px-2 py-0.5 rounded-lg bg-[#E85A28] text-white text-[10px] font-bold cursor-pointer"
                             >
-                              Desbloquear
+                              Desbloquear acceso
                             </button>
                           </div>
                         )}
@@ -640,23 +646,41 @@ export default function PaginaPersonalYUsuarios() {
                   <input
                     type="checkbox"
                     checked={tieneAcceso}
-                    onChange={(e) => setTieneAcceso(e.target.checked)}
+                    onChange={(e) => {
+                      const activo = e.target.checked;
+                      setTieneAcceso(activo);
+                      if (activo && !usernameForm.trim() && nombre.trim()) {
+                        setUsernameForm(nombre.trim());
+                      }
+                    }}
                     className="w-4 h-4 accent-[#E85A28]"
                   />
                 </label>
 
                 {tieneAcceso && (
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2 border-t border-neutral-200">
+                    <div className="sm:col-span-2">
+                      <label className="block text-xs font-bold text-neutral-700 mb-1">
+                        Usuario de acceso (Nombre) *
+                      </label>
+                      <input
+                        type="text"
+                        required
+                        value={usernameForm}
+                        onChange={(e) => setUsernameForm(e.target.value)}
+                        placeholder={nombre || "Ej. carlos.perez"}
+                        className="w-full px-3 py-2 rounded-xl border border-neutral-300 text-sm bg-white"
+                      />
+                    </div>
                     <div>
                       <label className="block text-xs font-bold text-neutral-700 mb-1">
-                        Correo electrónico *
+                        Correo electrónico (opcional)
                       </label>
                       <input
                         type="email"
-                        required
                         value={correo}
                         onChange={(e) => setCorreo(e.target.value)}
-                        placeholder="usuario@tekioelectronics.com"
+                        placeholder="opcional@tekioelectronics.com"
                         className="w-full px-3 py-2 rounded-xl border border-neutral-300 text-sm bg-white"
                       />
                     </div>

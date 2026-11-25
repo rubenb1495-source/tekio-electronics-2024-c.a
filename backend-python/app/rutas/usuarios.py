@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session, joinedload
 from app.base_datos import obtener_bd
 from app.servicios.auditoria_service import registrar_auditoria
 from app.esquemas import (
+    DesbloquearUsuarioEntrada,
     SucursalSalida,
     UsuarioActualizarEntrada,
     UsuarioCrearEntrada,
@@ -120,14 +121,15 @@ def crear_usuario(
     clave_hash: str | None = None
 
     if acceso:
-        assert datos.correo is not None and datos.clave is not None
-        correo_normalizado = datos.correo.strip().lower()
-        existente = bd.query(Usuario).filter(Usuario.correo == correo_normalizado).first()
-        if existente is not None:
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail=f"Ya existe un usuario registrado con el correo '{correo_normalizado}'.",
-            )
+        assert datos.clave is not None
+        if datos.correo:
+            correo_normalizado = datos.correo.strip().lower()
+            existente = bd.query(Usuario).filter(Usuario.correo == correo_normalizado).first()
+            if existente is not None:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail=f"Ya existe un usuario registrado con el correo '{correo_normalizado}'.",
+                )
         clave_hash = generar_hash_clave(datos.clave)
 
     if datos.sucursal_id is not None:
@@ -246,19 +248,21 @@ def actualizar_usuario(
     usuario.tiene_acceso = datos.tiene_acceso
 
     if datos.tiene_acceso:
-        assert datos.correo is not None
-        correo_norm = datos.correo.strip().lower()
-        duplicado = (
-            bd.query(Usuario)
-            .filter(Usuario.correo == correo_norm, Usuario.id != usuario.id)
-            .first()
-        )
-        if duplicado is not None:
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail=f"Ya existe otro usuario registrado con el correo '{correo_norm}'.",
+        if datos.correo:
+            correo_norm = datos.correo.strip().lower()
+            duplicado = (
+                bd.query(Usuario)
+                .filter(Usuario.correo == correo_norm, Usuario.id != usuario.id)
+                .first()
             )
-        usuario.correo = correo_norm
+            if duplicado is not None:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail=f"Ya existe otro usuario registrado con el correo '{correo_norm}'.",
+                )
+            usuario.correo = correo_norm
+        else:
+            usuario.correo = None
         if datos.clave:
             usuario.clave_hash = generar_hash_clave(datos.clave)
         elif not usuario.clave_hash:
@@ -314,8 +318,10 @@ def cambiar_estado_usuario(
 
 
 @enrutador.post("/usuarios/{usuario_id}/desbloquear", response_model=UsuarioSalida)
+@enrutador.post("/personal/{usuario_id}/desbloquear", response_model=UsuarioSalida)
 def desbloquear_usuario(
     usuario_id: int,
+    datos: DesbloquearUsuarioEntrada | None = None,
     usuario_actual: Usuario = Depends(require_permiso(Permiso.GESTIONAR_USUARIOS)),
     bd: Session = Depends(obtener_bd),
 ) -> UsuarioSalida:
@@ -334,14 +340,24 @@ def desbloquear_usuario(
     usuario.intentos_fallidos_login = 0
     usuario.cuenta_bloqueada = False
     usuario.bloqueado_hasta = None
+    clave_asignada = False
+    if datos and datos.nueva_clave_temporal:
+        usuario.clave_hash = generar_hash_clave(datos.nueva_clave_temporal)
+        usuario.debe_cambiar_clave = True
+        clave_asignada = True
+
     registrar_auditoria(
         bd,
         usuario=usuario_actual,
         modulo="SEGURIDAD",
         accion="DESBLOQUEAR_CUENTA",
-        entidad_id=usuario.username or usuario.correo or str(usuario.id),
+        entidad_id=usuario.username or usuario.nombre or str(usuario.id),
         detalle_anterior={"cuenta_bloqueada": True},
-        detalle_nuevo={"cuenta_bloqueada": False, "intentos_fallidos_login": 0},
+        detalle_nuevo={
+            "cuenta_bloqueada": False,
+            "intentos_fallidos_login": 0,
+            "clave_temporal_asignada": clave_asignada,
+        },
     )
     bd.commit()
     bd.refresh(usuario)

@@ -258,6 +258,7 @@ def _calcular_alertas_internas(bd: Session, hoy: date) -> dict[str, Any]:
 
 
 @enrutador.get("/alertas")
+@enrutador.get("/alertas/resumen")
 def obtener_alertas_inteligentes(
     _usuario: Usuario = Depends(require_permiso(Permiso.VER_FINANZAS_GLOBALES)),
     bd: Session = Depends(obtener_bd),

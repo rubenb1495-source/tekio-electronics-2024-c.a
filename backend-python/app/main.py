@@ -83,6 +83,7 @@ def asegurar_columnas_compatibles() -> None:
             ("intentos_fallidos_login", "INTEGER NOT NULL DEFAULT 0"),
             ("bloqueado_hasta", f"{tipo_ts_usr} NULL"),
             ("cuenta_bloqueada", "BOOLEAN NOT NULL DEFAULT FALSE"),
+            ("debe_cambiar_clave", "BOOLEAN NOT NULL DEFAULT FALSE"),
         ]
         for nombre_col, ddl_col in nuevas_usuarios:
             if nombre_col not in columnas_usr:

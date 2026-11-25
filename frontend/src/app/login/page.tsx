@@ -83,7 +83,13 @@ export default function PaginaLogin() {
 
           <form onSubmit={manejarEnvio} className="space-y-4">
             {error && (
-              <div className="flex items-start gap-2.5 rounded-xl bg-red-50/90 border border-red-200 p-3.5 text-sm text-red-700">
+              <div
+                className={`flex items-start gap-2.5 rounded-xl p-3.5 text-sm ${
+                  error.toLowerCase().includes("bloqueado")
+                    ? "bg-red-600 text-white border border-red-700 font-bold shadow-sm"
+                    : "bg-red-50/90 border border-red-200 text-red-700"
+                }`}
+              >
                 <AlertCircle className="w-4 h-4 mt-0.5 shrink-0" />
                 <span>{error}</span>
               </div>
@@ -94,7 +100,7 @@ export default function PaginaLogin() {
                 htmlFor="correo"
                 className="block text-xs font-bold text-[#191818] uppercase tracking-wider"
               >
-                Usuario o Correo
+                Usuario (Nombre)
               </label>
               <div className="relative">
                 <Mail className="w-4 h-4 text-neutral-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
@@ -105,7 +111,7 @@ export default function PaginaLogin() {
                   autoComplete="username"
                   value={correo}
                   onChange={(e) => setCorreo(e.target.value)}
-                  placeholder="usuario o correo@tekioelectronics.com"
+                  placeholder="Tu nombre de usuario (o correo)"
                   className="w-full pl-10 pr-3.5 py-2.5 rounded-xl border border-neutral-200 bg-white/90 text-sm text-[#191818] placeholder:text-neutral-400"
                 />
               </div>

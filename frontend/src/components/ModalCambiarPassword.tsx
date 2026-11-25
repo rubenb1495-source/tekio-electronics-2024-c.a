@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
-import { AlertCircle, CheckCircle2, KeyRound, X } from "lucide-react";
+import { AlertCircle, CheckCircle2, Eye, EyeOff, KeyRound, X } from "lucide-react";
 import { extraerMensajeError, solicitarApi } from "@/servicios/api";
 
 export default function ModalCambiarPassword({
@@ -14,6 +14,9 @@ export default function ModalCambiarPassword({
   const [claveActual, setClaveActual] = useState("");
   const [claveNueva, setClaveNueva] = useState("");
   const [confirmacion, setConfirmacion] = useState("");
+  const [verActual, setVerActual] = useState(false);
+  const [verNueva, setVerNueva] = useState(false);
+  const [verConf, setVerConf] = useState(false);
   const [guardando, setGuardando] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [exito, setExito] = useState<string | null>(null);
@@ -25,30 +28,31 @@ export default function ModalCambiarPassword({
     setError(null);
     setExito(null);
 
-    if (claveNueva.length < 8) {
-      setError("La nueva contraseña debe tener al menos 8 caracteres.");
+    if (claveNueva.length < 6) {
+      setError("La nueva clave debe tener al menos 6 caracteres.");
       return;
     }
     if (claveNueva !== confirmacion) {
-      setError("La confirmación no coincide con la nueva contraseña.");
+      setError("La confirmación no coincide con la nueva clave.");
       return;
     }
 
     setGuardando(true);
     try {
-      const res = await solicitarApi<{ mensaje: string }>("/api/auth/cambiar-password", {
+      const res = await solicitarApi<{ mensaje: string }>("/api/auth/cambiar-clave", {
         method: "POST",
         body: JSON.stringify({
           clave_actual: claveActual,
-          clave_nueva: claveNueva,
+          nueva_clave: claveNueva,
+          confirmar_clave: confirmacion,
         }),
       });
-      setExito(res.mensaje || "Contraseña actualizada correctamente.");
+      setExito(res.mensaje || "Clave actualizada correctamente.");
       setClaveActual("");
       setClaveNueva("");
       setConfirmacion("");
     } catch (err) {
-      setError(extraerMensajeError(err, "No se pudo cambiar la contraseña."));
+      setError(extraerMensajeError(err, "No se pudo cambiar la clave."));
     } finally {
       setGuardando(false);
     }
@@ -61,7 +65,7 @@ export default function ModalCambiarPassword({
           <div className="flex items-center gap-2">
             <KeyRound className="w-4 h-4 text-[#E85A28]" />
             <h3 className="text-sm font-black text-[#191818]">
-              Cambiar contraseña de acceso
+              Cambiar mi clave de acceso
             </h3>
           </div>
           <button
@@ -89,43 +93,73 @@ export default function ModalCambiarPassword({
 
           <div>
             <label className="block text-xs font-bold text-neutral-700 mb-1">
-              Contraseña actual
+              Clave actual
             </label>
-            <input
-              type="password"
-              required
-              value={claveActual}
-              onChange={(e) => setClaveActual(e.target.value)}
-              className="w-full px-3 py-2 rounded-xl border border-neutral-300 text-sm"
-            />
+            <div className="relative">
+              <input
+                type={verActual ? "text" : "password"}
+                required
+                value={claveActual}
+                onChange={(e) => setClaveActual(e.target.value)}
+                className="w-full pl-3 pr-9 py-2 rounded-xl border border-neutral-300 text-sm"
+              />
+              <button
+                type="button"
+                onClick={() => setVerActual((v) => !v)}
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-neutral-400 hover:text-neutral-700 cursor-pointer"
+                aria-label="Ver u ocultar clave actual"
+              >
+                {verActual ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+              </button>
+            </div>
           </div>
 
           <div>
             <label className="block text-xs font-bold text-neutral-700 mb-1">
-              Nueva contraseña (mínimo 8 caracteres)
+              Nueva clave (mínimo 6 caracteres)
             </label>
-            <input
-              type="password"
-              required
-              minLength={8}
-              value={claveNueva}
-              onChange={(e) => setClaveNueva(e.target.value)}
-              className="w-full px-3 py-2 rounded-xl border border-neutral-300 text-sm"
-            />
+            <div className="relative">
+              <input
+                type={verNueva ? "text" : "password"}
+                required
+                minLength={6}
+                value={claveNueva}
+                onChange={(e) => setClaveNueva(e.target.value)}
+                className="w-full pl-3 pr-9 py-2 rounded-xl border border-neutral-300 text-sm"
+              />
+              <button
+                type="button"
+                onClick={() => setVerNueva((v) => !v)}
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-neutral-400 hover:text-neutral-700 cursor-pointer"
+                aria-label="Ver u ocultar nueva clave"
+              >
+                {verNueva ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+              </button>
+            </div>
           </div>
 
           <div>
             <label className="block text-xs font-bold text-neutral-700 mb-1">
-              Confirmar nueva contraseña
+              Confirmar nueva clave
             </label>
-            <input
-              type="password"
-              required
-              minLength={8}
-              value={confirmacion}
-              onChange={(e) => setConfirmacion(e.target.value)}
-              className="w-full px-3 py-2 rounded-xl border border-neutral-300 text-sm"
-            />
+            <div className="relative">
+              <input
+                type={verConf ? "text" : "password"}
+                required
+                minLength={6}
+                value={confirmacion}
+                onChange={(e) => setConfirmacion(e.target.value)}
+                className="w-full pl-3 pr-9 py-2 rounded-xl border border-neutral-300 text-sm"
+              />
+              <button
+                type="button"
+                onClick={() => setVerConf((v) => !v)}
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-neutral-400 hover:text-neutral-700 cursor-pointer"
+                aria-label="Ver u ocultar confirmación"
+              >
+                {verConf ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+              </button>
+            </div>
           </div>
 
           <div className="flex justify-end gap-2 pt-2">
@@ -141,7 +175,7 @@ export default function ModalCambiarPassword({
               disabled={guardando}
               className="px-4 py-2 rounded-xl bg-[#E85A28] hover:bg-[#C9461A] text-white text-xs font-bold cursor-pointer disabled:opacity-50"
             >
-              {guardando ? "Actualizando..." : "Guardar contraseña"}
+              {guardando ? "Actualizando..." : "Guardar clave"}
             </button>
           </div>
         </form>

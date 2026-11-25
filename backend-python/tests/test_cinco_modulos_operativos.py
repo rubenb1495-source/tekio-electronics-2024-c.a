@@ -77,7 +77,7 @@ def test_seguridad_login_username_cambio_clave_bloqueo_423_y_desbloqueo(
 
     r_aud = cliente.get("/api/finanzas/auditoria?modulo=SEGURIDAD", headers=cab_dir)
     assert r_aud.status_code == 200
-    assert any(ev["accion"] == "CUENTA_BLOQUEADA_LOGIN" for ev in r_aud.json())
+    assert any(ev["accion"] in ("BLOQUEO_ACCESO", "CUENTA_BLOQUEADA_LOGIN") for ev in r_aud.json())
 
     # 6. Desbloqueo por DIRECCION y login exitoso con nueva clave
     r_un = cliente.post(f"/api/usuarios/{uid}/desbloquear", headers=cab_dir)

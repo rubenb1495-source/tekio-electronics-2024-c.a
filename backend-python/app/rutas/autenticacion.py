@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import func
@@ -20,6 +21,7 @@ from app.servicios.auditoria_service import registrar_auditoria
 
 enrutador = APIRouter(prefix="/api/auth", tags=["Autenticación"])
 MAX_INTENTOS_FALLIDOS = 5
+ZONA_CARACAS = ZoneInfo("America/Caracas")
 
 
 @enrutador.post("/login", response_model=LoginSalida)
@@ -29,8 +31,9 @@ def iniciar_sesion(datos: LoginEntrada, bd: Session = Depends(obtener_bd)) -> Lo
         bd.query(Usuario)
         .options(joinedload(Usuario.sucursal))
         .filter(
-            (func.lower(Usuario.correo) == ident)
+            (func.lower(func.trim(Usuario.nombre)) == ident)
             | (func.lower(Usuario.username) == ident)
+            | (func.lower(Usuario.correo) == ident)
         )
         .first()
     )
@@ -38,7 +41,7 @@ def iniciar_sesion(datos: LoginEntrada, bd: Session = Depends(obtener_bd)) -> Lo
     if usuario is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Usuario/correo o contraseña incorrectos.",
+            detail="Usuario o clave incorrectos.",
         )
 
     if not usuario.tiene_acceso:
@@ -56,34 +59,40 @@ def iniciar_sesion(datos: LoginEntrada, bd: Session = Depends(obtener_bd)) -> Lo
     if usuario.cuenta_bloqueada:
         raise HTTPException(
             status_code=status.HTTP_423_LOCKED,
-            detail="Tu cuenta está bloqueada por exceder 5 intentos fallidos de acceso. Contacta a Dirección o Administración para desbloquearla.",
+            detail="Acceso bloqueado tras 5 intentos fallidos. Contacta al Administrador para desbloquearlo.",
         )
 
-    if not usuario.clave_hash or not verificar_clave(datos.clave, usuario.clave_hash):
+    clave_ingresada = datos.clave or ""
+    if not usuario.clave_hash or not verificar_clave(clave_ingresada, usuario.clave_hash):
         intentos = int(usuario.intentos_fallidos_login or 0) + 1
         usuario.intentos_fallidos_login = intentos
         if intentos >= MAX_INTENTOS_FALLIDOS:
+            ahora_caracas = datetime.now(ZONA_CARACAS)
             usuario.cuenta_bloqueada = True
-            usuario.bloqueado_hasta = datetime.now(timezone.utc)
+            usuario.bloqueado_hasta = ahora_caracas
             registrar_auditoria(
                 bd,
                 usuario=usuario,
                 modulo="SEGURIDAD",
-                accion="CUENTA_BLOQUEADA_LOGIN",
-                entidad_id=usuario.username or usuario.correo or str(usuario.id),
-                detalle_anterior={"cuenta_bloqueada": False, "intentos_fallidos_login": intentos - 1},
-                detalle_nuevo={"cuenta_bloqueada": True, "intentos_fallidos_login": intentos},
+                accion="BLOQUEO_ACCESO",
+                entidad_id=usuario.username or usuario.nombre or str(usuario.id),
+                detalle_anterior={"cuenta_bloqueada": False, "intentos_fallidos": intentos - 1},
+                detalle_nuevo={
+                    "cuenta_bloqueada": True,
+                    "intentos_fallidos": intentos,
+                    "fecha_bloqueo": ahora_caracas.isoformat(),
+                },
             )
             bd.commit()
             raise HTTPException(
                 status_code=status.HTTP_423_LOCKED,
-                detail="Cuenta bloqueada automáticamente tras 5 intentos fallidos de acceso. Se notificó a Dirección/Administración.",
+                detail="Acceso bloqueado tras 5 intentos fallidos. Contacta al Administrador para desbloquearlo.",
             )
         bd.commit()
         restantes = MAX_INTENTOS_FALLIDOS - intentos
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail=f"Usuario/correo o contraseña incorrectos. Te quedan {restantes} intento(s) antes del bloqueo.",
+            detail=f"Clave incorrecta. Te quedan {restantes} intento(s) antes de bloquear tu acceso.",
         )
 
     if usuario.intentos_fallidos_login or usuario.cuenta_bloqueada or usuario.bloqueado_hasta:
@@ -99,37 +108,40 @@ def iniciar_sesion(datos: LoginEntrada, bd: Session = Depends(obtener_bd)) -> Lo
     )
 
 
+@enrutador.post("/cambiar-clave")
 @enrutador.post("/cambiar-password")
 def cambiar_password_propio(
     datos: CambiarPasswordEntrada,
     usuario_actual: Usuario = Depends(obtener_usuario_actual),
     bd: Session = Depends(obtener_bd),
 ) -> dict[str, str]:
+    nueva = datos.clave_nueva or ""
     if not usuario_actual.clave_hash or not verificar_clave(
         datos.clave_actual, usuario_actual.clave_hash
     ):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="La contraseña actual ingresada es incorrecta.",
+            detail="La clave actual ingresada es incorrecta.",
         )
-    if datos.clave_actual == datos.clave_nueva:
+    if datos.clave_actual == nueva:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="La nueva contraseña debe ser diferente a la actual.",
+            detail="La nueva clave debe ser diferente a la actual.",
         )
 
-    usuario_actual.clave_hash = generar_hash_clave(datos.clave_nueva)
+    usuario_actual.clave_hash = generar_hash_clave(nueva)
+    usuario_actual.debe_cambiar_clave = False
     registrar_auditoria(
         bd,
         usuario=usuario_actual,
         modulo="SEGURIDAD",
-        accion="CAMBIAR_PASSWORD",
-        entidad_id=usuario_actual.username or usuario_actual.correo or str(usuario_actual.id),
+        accion="CAMBIAR_CLAVE",
+        entidad_id=usuario_actual.username or usuario_actual.nombre or str(usuario_actual.id),
         detalle_anterior={},
         detalle_nuevo={"cambio_exitoso": True},
     )
     bd.commit()
-    return {"mensaje": "Contraseña actualizada correctamente."}
+    return {"mensaje": "Clave actualizada correctamente."}
 
 
 @enrutador.get("/perfil", response_model=UsuarioSalida)

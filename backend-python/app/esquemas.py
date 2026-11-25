@@ -35,22 +35,52 @@ class SucursalSalida(BaseModel):
 
 class LoginEntrada(ModeloEntradaLimpio):
     identificador: str | None = Field(default=None, max_length=180)
+    usuario: str | None = Field(default=None, max_length=180)
     correo: str | None = Field(default=None, max_length=180)
-    username: str | None = Field(default=None, max_length=80)
-    clave: str = Field(min_length=1)
+    email: str | None = Field(default=None, max_length=180)
+    username: str | None = Field(default=None, max_length=180)
+    clave: str | None = Field(default=None, min_length=1)
+    password: str | None = Field(default=None, min_length=1)
 
     @model_validator(mode="after")
     def validar_identificador(self) -> "LoginEntrada":
-        ident = (self.identificador or self.username or self.correo or "").strip().lower()
+        ident = (
+            self.usuario
+            or self.identificador
+            or self.username
+            or self.correo
+            or self.email
+            or ""
+        ).strip()
         if not ident:
             raise ValueError("Debes ingresar tu nombre de usuario o correo electrónico.")
-        self.identificador = ident
+        pwd = self.clave or self.password or ""
+        if not pwd:
+            raise ValueError("Debes ingresar tu contraseña.")
+        self.identificador = ident.lower()
+        self.clave = pwd
         return self
 
 
 class CambiarPasswordEntrada(ModeloEntradaLimpio):
     clave_actual: str = Field(min_length=1)
-    clave_nueva: str = Field(min_length=8, max_length=128)
+    clave_nueva: str | None = Field(default=None, min_length=6, max_length=128)
+    nueva_clave: str | None = Field(default=None, min_length=6, max_length=128)
+    confirmar_clave: str | None = Field(default=None, max_length=128)
+
+    @model_validator(mode="after")
+    def validar_claves(self) -> "CambiarPasswordEntrada":
+        nueva = self.nueva_clave or self.clave_nueva or ""
+        if len(nueva) < 6:
+            raise ValueError("La nueva clave debe tener al menos 6 caracteres.")
+        if self.confirmar_clave is not None and nueva != self.confirmar_clave:
+            raise ValueError("La confirmación de clave no coincide con la nueva clave.")
+        self.clave_nueva = nueva
+        return self
+
+
+class DesbloquearUsuarioEntrada(ModeloEntradaLimpio):
+    nueva_clave_temporal: str | None = Field(default=None, min_length=6, max_length=128)
 
 
 class UsuarioSalida(BaseModel):
@@ -123,8 +153,8 @@ class UsuarioCrearEntrada(ModeloEntradaLimpio):
         )
         self.tiene_acceso = acceso
         if acceso:
-            if not self.correo:
-                raise ValueError("El correo electrónico es obligatorio cuando el colaborador tiene acceso al sistema.")
+            if not self.correo and not self.username:
+                raise ValueError("Debes indicar un nombre de usuario o correo electrónico cuando el colaborador tiene acceso al sistema.")
             if not self.clave or len(self.clave) < 6:
                 raise ValueError("La contraseña es obligatoria (mínimo 6 caracteres) cuando tiene acceso al sistema.")
         else:
@@ -170,8 +200,8 @@ class UsuarioActualizarEntrada(ModeloEntradaLimpio):
     @model_validator(mode="after")
     def validar_acceso_edicion(self) -> "UsuarioActualizarEntrada":
         if self.tiene_acceso:
-            if not self.correo:
-                raise ValueError("El correo electrónico es obligatorio cuando el colaborador tiene acceso al sistema.")
+            if not self.correo and not self.username:
+                raise ValueError("Debes indicar un nombre de usuario o correo electrónico cuando el colaborador tiene acceso al sistema.")
             if self.clave is not None and len(self.clave) < 6:
                 raise ValueError("La contraseña debe tener al menos 6 caracteres.")
         else:
