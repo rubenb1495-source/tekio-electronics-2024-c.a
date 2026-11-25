@@ -7,6 +7,7 @@ import {
   CheckCircle2,
   Copy,
   Plus,
+  Printer,
   Truck,
 } from "lucide-react";
 import BuscadorTabla from "@/componentes/BuscadorTabla";
@@ -17,6 +18,7 @@ import {
   formatearWhatsAppTraslado,
 } from "@/lib/whatsapp";
 import {
+  abrirPdfEnPestanaApi,
   ErrorApi,
   solicitarApi,
 } from "@/servicios/api";
@@ -388,6 +390,18 @@ export default function PaginaTraslados() {
                       </span>
                     </td>
                     <td className="px-4 py-3 text-right space-x-2 whitespace-nowrap">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          void abrirPdfEnPestanaApi(
+                            `/api/logistica/traslados/${t.id}/pdf`
+                          )
+                        }
+                        className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-[#191818] text-white text-xs font-bold cursor-pointer"
+                      >
+                        <Printer className="w-3.5 h-3.5" />
+                        Planilla PDF
+                      </button>
                       <button
                         type="button"
                         onClick={() => void copiarTrasladoWa(t)}

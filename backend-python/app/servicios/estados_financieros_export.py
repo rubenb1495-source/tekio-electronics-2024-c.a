@@ -305,3 +305,129 @@ def generar_xlsx_balance_general(bal: dict[str, Any]) -> bytes:
     out = io.BytesIO()
     wb.save(out)
     return out.getvalue()
+
+
+def generar_plantilla_apertura_xlsx(tipo: str) -> bytes:
+    """
+    Genera plantillas Excel (.xlsx) oficiales de carga inicial de apertura para Tekio Electronics:
+    - saldos_iniciales (incluyendo Caja Chica $60 USD por sucursal + bancos/billeteras contra Capital Inicial)
+    - inventario_inicial (equipos por serial + componentes/accesorios)
+    - cxc_cxp_iniciales (CxC/Cashea pendiente + CxP proveedores con vencimientos)
+    """
+    wb = Workbook()
+    fill_hdr = PatternFill(start_color="191818", end_color="191818", fill_type="solid")
+    fill_sub = PatternFill(start_color="FDF0EB", end_color="FDF0EB", fill_type="solid")
+    font_hdr = Font(bold=True, color="FFFFFF")
+    font_note = Font(italic=True, color="555555")
+
+    if tipo == "saldos_iniciales":
+        ws = wb.active
+        ws.title = "Saldos Cajas y Bancos"
+        ws["A1"] = "TEKIO ELECTRONICS — Plantilla de Saldos Iniciales de Cajas y Bancos"
+        ws["A1"].font = Font(bold=True, size=12)
+        ws["A2"] = "Contrapartida automática: 3.1.01 Capital Inicial (Impacto $0.00 en Estado de Resultados P&L)"
+        ws["A2"].font = font_note
+        headers = [
+            "instrumento",
+            "sucursal",
+            "moneda",
+            "saldo_inicial_origen",
+            "tasa_referencia_bcv",
+            "cuenta_contrapartida",
+            "nota",
+        ]
+        ws.append([])
+        ws.append(headers)
+        for col in range(1, len(headers) + 1):
+            c = ws.cell(row=4, column=col)
+            c.fill = fill_hdr
+            c.font = font_hdr
+
+        ejemplos = [
+            ["Efectivo USD Tienda", "Tekio central", "USD", 500.00, 1.00, "3.1.01 - Capital Inicial", "Saldo inicial caja principal"],
+            ["Efectivo USD Tienda", "Gran Bazar", "USD", 350.00, 1.00, "3.1.01 - Capital Inicial", "Saldo inicial caja principal"],
+            ["Caja Chica USD", "Tekio central", "USD", 60.00, 1.00, "3.1.01 - Capital Inicial", "Fondo fijo caja chica $60 USD"],
+            ["Caja Chica USD", "Gran Bazar", "USD", 60.00, 1.00, "3.1.01 - Capital Inicial", "Fondo fijo caja chica $60 USD"],
+            ["Zelle", "General", "USD", 2500.00, 1.00, "3.1.01 - Capital Inicial", "Saldo inicial cuenta Zelle"],
+            ["Binance USDT", "General", "USDT", 1800.00, 1.00, "3.1.01 - Capital Inicial", "Saldo inicial billetera USDT"],
+            ["Banco Mercantil Bs", "General", "BS", 45000.00, 45.00, "3.1.01 - Capital Inicial", "Saldo inicial banco en Bs"],
+            ["Pago Móvil Bs", "General", "BS", 12000.00, 45.00, "3.1.01 - Capital Inicial", "Saldo inicial Pago Móvil"],
+        ]
+        for fila in ejemplos:
+            ws.append(fila)
+            r = ws.max_row
+            if "Caja Chica" in fila[0]:
+                for col in range(1, len(headers) + 1):
+                    ws.cell(row=r, column=col).fill = fill_sub
+
+        for idx, ancho in enumerate([24, 18, 10, 20, 18, 28, 34], start=1):
+            ws.column_dimensions[chr(64 + idx)].width = ancho
+
+    elif tipo == "inventario_inicial":
+        ws = wb.active
+        ws.title = "Equipos por Serial"
+        headers_eq = [
+            "serial",
+            "sku",
+            "modelo",
+            "configuracion",
+            "categoria",
+            "sucursal",
+            "estado",
+            "costo_compra_usd",
+            "costo_flete_usd",
+            "costo_taller_usd",
+            "precio_promo_usd",
+        ]
+        ws.append(headers_eq)
+        for col in range(1, len(headers_eq) + 1):
+            c = ws.cell(row=1, column=col)
+            c.fill = fill_hdr
+            c.font = font_hdr
+        ws.append(["SN-APE-0001", "LAP-LEN-T14", "Lenovo ThinkPad T14", "Core i5 / 16GB / 512GB", "Laptop", "Tekio central", "LISTO", 220.00, 25.00, 0.00, 390.00])
+        ws.append(["SN-APE-0002", "LAP-DELL-5420", "Dell Latitude 5420", "Core i5 / 8GB / 256GB", "Laptop", "Bodega", "POR_PREPARAR", 190.00, 20.00, 0.00, 340.00])
+        for idx in range(1, len(headers_eq) + 1):
+            ws.column_dimensions[chr(64 + idx)].width = 20
+
+        ws2 = wb.create_sheet(title="Componentes y Accesorios")
+        headers_comp = ["sku", "descripcion", "tipo", "sucursal", "cantidad", "costo_unitario_usd", "precio_promo_usd"]
+        ws2.append(headers_comp)
+        for col in range(1, len(headers_comp) + 1):
+            c = ws2.cell(row=1, column=col)
+            c.fill = fill_hdr
+            c.font = font_hdr
+        ws2.append(["RAM-8GB-DDR4", "Memoria RAM 8GB DDR4", "COMPONENTE", "Bodega", 10, 18.00, 35.00])
+        ws2.append(["SSD-512-NVME", "SSD 512GB NVMe", "COMPONENTE", "Bodega", 8, 28.00, 50.00])
+        for idx in range(1, len(headers_comp) + 1):
+            ws2.column_dimensions[chr(64 + idx)].width = 22
+
+    elif tipo == "cxc_cxp_iniciales":
+        ws = wb.active
+        ws.title = "CxC y Cashea Pendiente"
+        headers_cxc = ["tipo", "cliente", "documento_ref", "fecha_emision", "fecha_vencimiento", "saldo_pendiente_usd", "nota"]
+        ws.append(headers_cxc)
+        for col in range(1, len(headers_cxc) + 1):
+            c = ws.cell(row=1, column=col)
+            c.fill = fill_hdr
+            c.font = font_hdr
+        ws.append(["CASHEA", "Cliente Ejemplo 1", "N-0100", "2026-11-15", "2026-11-30", 240.00, "Cuota pendiente Cashea"])
+        ws.append(["CLIENTE", "Empresa Ejemplo CA", "N-0101", "2026-11-10", "2026-12-10", 150.00, "Saldo crédito cliente"])
+        for idx in range(1, len(headers_cxc) + 1):
+            ws.column_dimensions[chr(64 + idx)].width = 22
+
+        ws2 = wb.create_sheet(title="CxP Proveedores")
+        headers_cxp = ["proveedor", "factura_ref", "origen", "fecha_emision", "fecha_vencimiento", "saldo_pendiente_usd", "nota"]
+        ws2.append(headers_cxp)
+        for col in range(1, len(headers_cxp) + 1):
+            c = ws2.cell(row=1, column=col)
+            c.fill = fill_hdr
+            c.font = font_hdr
+        ws2.append(["Miami Tech Wholesale", "INV-MIA-900", "INTERNACIONAL", "2026-11-01", "2026-12-01", 1200.00, "Saldo proveedor exterior"])
+        for idx in range(1, len(headers_cxp) + 1):
+            ws2.column_dimensions[chr(64 + idx)].width = 22
+    else:
+        raise ValueError("Tipo de plantilla de apertura no soportado.")
+
+    out = io.BytesIO()
+    wb.save(out)
+    return out.getvalue()

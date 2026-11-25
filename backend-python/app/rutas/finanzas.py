@@ -176,21 +176,64 @@ def listar_cuentas_por_cobrar(
         consulta = consulta.filter(CuentaPorCobrar.estado == estado.value)
 
     filas = consulta.order_by(CuentaPorCobrar.id.desc()).all()
-    return [
-        {
-            "id": c.id,
-            "venta_id": c.venta_id,
-            "numero_venta": c.venta.numero_venta if c.venta else None,
-            "sucursal": c.venta.sucursal.nombre if c.venta and c.venta.sucursal else None,
-            "fecha_venta": c.venta.fecha.isoformat() if c.venta else None,
-            "tipo": c.tipo,
-            "cliente": c.cliente.nombre if c.cliente else "Cliente general",
-            "monto_original_usd": redondear_usd(c.monto_original_usd),
-            "saldo_pendiente_usd": redondear_usd(c.saldo_pendiente_usd),
-            "estado": c.estado,
-        }
-        for c in filas
-    ]
+    resultado: list[dict[str, Any]] = []
+    for c in filas:
+        v = c.venta
+        total_reg = v.total_regular_usd if v else c.monto_original_usd
+        precio_reg_bs = (
+            v.precio_regular_bs
+            if v and getattr(v, "precio_regular_bs", Decimal("0")) > 0
+            else (
+                (total_reg * v.tasa_bcv_snapshot).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+                if v and v.tasa_bcv_snapshot > 0
+                else Decimal("0.00")
+            )
+        )
+        com_tot = (
+            v.comision_cashea_venta_total_usd
+            if v and getattr(v, "comision_cashea_venta_total_usd", Decimal("0")) > 0
+            else (total_reg * Decimal("0.04")).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        )
+        com_fin = (
+            v.comision_cashea_financiado_usd
+            if v and getattr(v, "comision_cashea_financiado_usd", Decimal("0")) > 0
+            else (c.monto_original_usd * Decimal("0.04")).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        )
+        iva_c = (
+            v.iva_cashea_usd
+            if v and getattr(v, "iva_cashea_usd", Decimal("0")) > 0
+            else (com_tot * Decimal("0.16")).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        )
+        islr_c = (
+            v.islr_cashea_usd
+            if v and getattr(v, "islr_cashea_usd", Decimal("0")) > 0
+            else (com_tot * Decimal("0.02")).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        )
+        tot_ded = (com_tot + com_fin + iva_c + islr_c).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        neto_esp = max(Decimal("0.00"), (c.saldo_pendiente_usd - tot_ded).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
+        resultado.append(
+            {
+                "id": c.id,
+                "venta_id": c.venta_id,
+                "numero_venta": v.numero_venta if v else None,
+                "sucursal": v.sucursal.nombre if v and v.sucursal else None,
+                "fecha_venta": v.fecha.isoformat() if v else None,
+                "tipo": c.tipo,
+                "cliente": c.cliente.nombre if c.cliente else "Cliente general",
+                "monto_original_usd": redondear_usd(c.monto_original_usd),
+                "saldo_pendiente_usd": redondear_usd(c.saldo_pendiente_usd),
+                "total_regular_usd": redondear_usd(total_reg),
+                "precio_regular_bs": redondear_usd(precio_reg_bs),
+                "comision_cashea_venta_total_usd": redondear_usd(com_tot),
+                "comision_cashea_financiado_usd": redondear_usd(com_fin),
+                "iva_cashea_usd": redondear_usd(iva_c),
+                "islr_cashea_usd": redondear_usd(islr_c),
+                "total_deducciones_cashea_usd": redondear_usd(tot_ded),
+                "neto_esperado_cashea_usd": redondear_usd(neto_esp),
+                "estado": c.estado,
+            }
+        )
+    return resultado
 
 
 @enrutador.post("/cuentas-por-cobrar/{cxc_id}/abono")

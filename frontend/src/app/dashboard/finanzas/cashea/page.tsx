@@ -8,7 +8,7 @@ import {
   copiarTextoPortapapeles,
   formatearWhatsAppPago,
 } from "@/lib/whatsapp";
-import { ErrorApi, fechaHoyCaracas, formatearUsd, solicitarApi } from "@/servicios/api";
+import { ErrorApi, fechaHoyCaracas, formatearBs, formatearUsd, solicitarApi } from "@/servicios/api";
 import type {
   CuentaPorCobrarResumen,
   InstrumentoFinanciero,
@@ -131,17 +131,66 @@ export default function PaginaFinanzasCashea() {
     );
   }, [cuentas, busqueda]);
 
+  const cuentasLote = useMemo(() => {
+    if (seleccionadas.length > 0) {
+      return cuentas.filter((c) => seleccionadas.includes(c.id));
+    }
+    return cuentasFiltradas;
+  }, [cuentas, cuentasFiltradas, seleccionadas]);
+
+  const consolidadoCashea = useMemo(() => {
+    return cuentasLote.reduce(
+      (acc, c) => ({
+        financiado: acc.financiado + (c.saldo_pendiente_usd || 0),
+        comTotal: acc.comTotal + (c.comision_cashea_venta_total_usd || 0),
+        comFin: acc.comFin + (c.comision_cashea_financiado_usd || 0),
+        iva: acc.iva + (c.iva_cashea_usd || 0),
+        islr: acc.islr + (c.islr_cashea_usd || 0),
+        deducciones: acc.deducciones + (c.total_deducciones_cashea_usd || 0),
+        neto: acc.neto + (c.neto_esperado_cashea_usd ?? c.saldo_pendiente_usd ?? 0),
+      }),
+      { financiado: 0, comTotal: 0, comFin: 0, iva: 0, islr: 0, deducciones: 0, neto: 0 }
+    );
+  }, [cuentasLote]);
+
   return (
     <div className="space-y-6">
       <div>
         <h2 className="text-2xl font-black text-slate-900 flex items-center gap-2">
           <CreditCard className="w-6 h-6 text-[#E85A28]" />
-          Por Cobrar Cashea y Liquidaciones
+          Conciliación Financiera Cashea (Solo Administración / Dirección)
         </h2>
-        <p className="text-sm text-slate-500">
-          Selecciona las cuotas financiadas por liquidar y registra el depósito
-          neto a tasa BCV del día de pago.
+        <p className="text-xs text-neutral-500 mt-0.5">
+          Desglose consolidado: 4% sobre total Regular + 4% sobre financiado + 16% IVA + 2% ISLR sobre el fee total.
         </p>
+      </div>
+
+      {/* Consolidado financiero Cashea */}
+      <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 tabular-nums">
+        <div className="bg-white/80 backdrop-blur-md border border-neutral-200/80 rounded-2xl p-4">
+          <p className="text-[11px] font-bold uppercase text-neutral-500">Financiado Bruto</p>
+          <p className="text-xl font-black text-[#191818] mt-1">{formatearUsd(consolidadoCashea.financiado)}</p>
+        </div>
+        <div className="bg-white/80 backdrop-blur-md border border-neutral-200/80 rounded-2xl p-4">
+          <p className="text-[11px] font-bold uppercase text-neutral-500">4% Total + 4% Fin.</p>
+          <p className="text-xl font-black text-amber-700 mt-1">
+            -{formatearUsd(consolidadoCashea.comTotal + consolidadoCashea.comFin)}
+          </p>
+        </div>
+        <div className="bg-white/80 backdrop-blur-md border border-neutral-200/80 rounded-2xl p-4">
+          <p className="text-[11px] font-bold uppercase text-neutral-500">16% IVA + 2% ISLR</p>
+          <p className="text-xl font-black text-amber-700 mt-1">
+            -{formatearUsd(consolidadoCashea.iva + consolidadoCashea.islr)}
+          </p>
+        </div>
+        <div className="bg-white/80 backdrop-blur-md border border-neutral-200/80 rounded-2xl p-4">
+          <p className="text-[11px] font-bold uppercase text-neutral-500">Total Deducciones</p>
+          <p className="text-xl font-black text-red-700 mt-1">-{formatearUsd(consolidadoCashea.deducciones)}</p>
+        </div>
+        <div className="bg-[#FDF0EB] border border-[#E85A28]/30 rounded-2xl p-4">
+          <p className="text-[11px] font-bold uppercase text-[#E85A28]">Neto Real Esperado</p>
+          <p className="text-xl font-black text-[#191818] mt-1">{formatearUsd(consolidadoCashea.neto)}</p>
+        </div>
       </div>
 
       {error && (
@@ -256,20 +305,25 @@ export default function PaginaFinanzasCashea() {
             No hay cuotas Cashea que coincidan.
           </p>
         ) : (
-          <table className="w-full text-sm text-left">
-            <thead className="bg-slate-50 border-b border-slate-200 text-xs uppercase text-slate-500">
+          <div className="overflow-x-auto">
+          <table className="w-full text-xs text-left">
+            <thead className="bg-slate-50 border-b border-slate-200 text-[11px] uppercase text-slate-500">
               <tr>
-                <th className="px-4 py-3 w-10" />
-                <th className="px-4 py-3">Nota</th>
-                <th className="px-4 py-3">Fecha</th>
-                <th className="px-4 py-3">Sucursal</th>
-                <th className="px-4 py-3 text-right">Pendiente USD</th>
+                <th className="px-3 py-3 w-8" />
+                <th className="px-3 py-3">Nota / Fecha</th>
+                <th className="px-3 py-3">Sucursal / Cliente</th>
+                <th className="px-3 py-3 text-right">Regular (USDT / Bs)</th>
+                <th className="px-3 py-3 text-right">Financiado</th>
+                <th className="px-3 py-3 text-right">4% Tot + 4% Fin</th>
+                <th className="px-3 py-3 text-right">IVA 16% + ISLR 2%</th>
+                <th className="px-3 py-3 text-right">Deducciones</th>
+                <th className="px-3 py-3 text-right">Neto Esperado</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-100">
+            <tbody className="divide-y divide-slate-100 tabular-nums">
               {cuentasFiltradas.map((c) => (
-                <tr key={c.id}>
-                  <td className="px-4 py-3">
+                <tr key={c.id} className="hover:bg-slate-50/70">
+                  <td className="px-3 py-3">
                     <input
                       type="checkbox"
                       checked={seleccionadas.includes(c.id)}
@@ -282,18 +336,38 @@ export default function PaginaFinanzasCashea() {
                       }
                     />
                   </td>
-                  <td className="px-4 py-3 font-mono font-bold">
-                    {c.numero_venta}
+                  <td className="px-3 py-3">
+                    <p className="font-mono font-bold text-[#191818]">{c.numero_venta}</p>
+                    <p className="text-[11px] text-neutral-500">{c.fecha_venta}</p>
                   </td>
-                  <td className="px-4 py-3">{c.fecha_venta}</td>
-                  <td className="px-4 py-3">{c.sucursal}</td>
-                  <td className="px-4 py-3 text-right font-black text-[#C9461A]">
+                  <td className="px-3 py-3">
+                    <p className="font-semibold">{c.sucursal}</p>
+                    <p className="text-[11px] text-neutral-500">{c.cliente}</p>
+                  </td>
+                  <td className="px-3 py-3 text-right">
+                    <p className="font-bold">{formatearUsd(c.total_regular_usd ?? c.monto_original_usd)}</p>
+                    <p className="text-[10px] text-neutral-500">{formatearBs(c.precio_regular_bs ?? 0)}</p>
+                  </td>
+                  <td className="px-3 py-3 text-right font-bold text-[#191818]">
                     {formatearUsd(c.saldo_pendiente_usd)}
+                  </td>
+                  <td className="px-3 py-3 text-right text-amber-700">
+                    -{formatearUsd((c.comision_cashea_venta_total_usd ?? 0) + (c.comision_cashea_financiado_usd ?? 0))}
+                  </td>
+                  <td className="px-3 py-3 text-right text-amber-700">
+                    -{formatearUsd((c.iva_cashea_usd ?? 0) + (c.islr_cashea_usd ?? 0))}
+                  </td>
+                  <td className="px-3 py-3 text-right font-bold text-red-700">
+                    -{formatearUsd(c.total_deducciones_cashea_usd ?? 0)}
+                  </td>
+                  <td className="px-3 py-3 text-right font-black text-emerald-700">
+                    {formatearUsd(c.neto_esperado_cashea_usd ?? c.saldo_pendiente_usd)}
                   </td>
                 </tr>
               ))}
             </tbody>
           </table>
+          </div>
         )}
       </div>
     </div>

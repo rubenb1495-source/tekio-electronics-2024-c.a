@@ -1200,6 +1200,7 @@ def crear_traslado(
 
 
 @enrutador.post("/traslados/{traslado_id}/confirmar")
+@enrutador.post("/traslados/{traslado_id}/confirmar-recepcion")
 def confirmar_traslado(
     traslado_id: int,
     datos: TrasladoConfirmarEntrada,
@@ -1209,6 +1210,7 @@ def confirmar_traslado(
     traslado = (
         bd.query(Traslado)
         .options(
+            joinedload(Traslado.origen),
             joinedload(Traslado.destino),
             joinedload(Traslado.detalles).joinedload(TrasladoDetalle.equipo),
         )
@@ -1217,10 +1219,14 @@ def confirmar_traslado(
     )
     if traslado is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Traslado no encontrado.")
-    if usuario_actual.rol == RolUsuario.ENCARGADO.value and traslado.destino_id != usuario_actual.sucursal_id:
+    if (
+        usuario_actual.rol not in (RolUsuario.DIRECCION.value, RolUsuario.ADMINISTRACION.value)
+        and usuario_actual.sucursal_id is not None
+        and traslado.destino_id != usuario_actual.sucursal_id
+    ):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Solo puedes confirmar la recepción de traslados dirigidos a tu sucursal asignada.",
+            detail="Solo la sucursal destino o Dirección/Administración pueden confirmar la recepción de este traslado.",
         )
     if traslado.estado != EstadoTraslado.EN_TRANSITO.value:
         raise HTTPException(
@@ -1268,6 +1274,20 @@ def confirmar_traslado(
                 )
             )
 
+    registrar_auditoria(
+        bd,
+        usuario=usuario_actual,
+        modulo="LOGISTICA",
+        accion="CONFIRMAR_RECEPCION_TRASLADO",
+        entidad_id=traslado.numero_traslado,
+        detalle_anterior={"estado": EstadoTraslado.EN_TRANSITO.value},
+        detalle_nuevo={
+            "estado": EstadoTraslado.RECIBIDO.value,
+            "destino": traslado.destino.nombre if traslado.destino else str(traslado.destino_id),
+            "nota_recepcion": traslado.nota_recepcion,
+            "total_items": len(traslado.detalles),
+        },
+    )
     bd.commit()
     return {
         "id": traslado.id,
@@ -1275,6 +1295,145 @@ def confirmar_traslado(
         "estado": traslado.estado,
         "recibido_por": usuario_actual.nombre,
     }
+
+
+@enrutador.get("/traslados/{traslado_id}/pdf")
+def descargar_planilla_traslado_pdf(
+    traslado_id: int,
+    _usuario: Usuario = Depends(obtener_usuario_actual),
+    bd: Session = Depends(obtener_bd),
+) -> Response:
+    """Genera la Planilla Imprimible de Traslado PDF con marca de agua y espacios de firma física (sin costos USD)."""
+    from reportlab.lib import colors
+    from reportlab.lib.pagesizes import letter
+    from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
+    from reportlab.lib.units import cm
+    from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+    from app.utils.pdf_branding import dibujar_marca_de_agua
+
+    traslado = (
+        bd.query(Traslado)
+        .options(
+            joinedload(Traslado.origen),
+            joinedload(Traslado.destino),
+            joinedload(Traslado.enviado_por),
+            joinedload(Traslado.recibido_por),
+            joinedload(Traslado.detalles).joinedload(TrasladoDetalle.equipo),
+            joinedload(Traslado.detalles).joinedload(TrasladoDetalle.articulo),
+        )
+        .filter(Traslado.id == traslado_id)
+        .first()
+    )
+    if traslado is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Traslado no encontrado.")
+
+    fecha_caracas = (
+        traslado.fecha_envio.astimezone(ZoneInfo("America/Caracas")).strftime("%d/%m/%Y %I:%M %p")
+        if traslado.fecha_envio and traslado.fecha_envio.tzinfo
+        else datetime.now(ZoneInfo("America/Caracas")).strftime("%d/%m/%Y %I:%M %p")
+    )
+    origen_nom = traslado.origen.nombre if traslado.origen else f"Sucursal #{traslado.origen_id}"
+    destino_nom = traslado.destino.nombre if traslado.destino else f"Sucursal #{traslado.destino_id}"
+    enviado_nom = traslado.enviado_por.nombre if traslado.enviado_por else "Equipo Logística"
+    recibido_nom = traslado.recibido_por.nombre if traslado.recibido_por else "Pendiente de recepción"
+
+    buf = io.BytesIO()
+    doc = SimpleDocTemplate(
+        buf,
+        pagesize=letter,
+        leftMargin=1.8 * cm,
+        rightMargin=1.8 * cm,
+        topMargin=1.8 * cm,
+        bottomMargin=1.8 * cm,
+    )
+    base = getSampleStyleSheet()
+    st_sub = ParagraphStyle("TrSub", parent=base["Normal"], fontSize=9, textColor=colors.HexColor("#555555"), spaceAfter=4)
+    st_tit = ParagraphStyle("TrTit", parent=base["Heading1"], fontName="Helvetica-Bold", fontSize=14, textColor=colors.HexColor("#191818"), spaceAfter=8)
+
+    elementos: list[Any] = [
+        Paragraph("TEKIO ELECTRONICS 2024, C.A. · RIF J-50637518-4", st_sub),
+        Paragraph(f"PLANILLA DE TRASLADO DE INVENTARIO · {traslado.numero_traslado}", st_tit),
+        Paragraph(
+            f"Fecha/Hora (America/Caracas): {fecha_caracas} · Estado: <b>{traslado.estado}</b>",
+            st_sub,
+        ),
+        Paragraph(
+            f"Sucursal Origen: <b>{origen_nom}</b> → Sucursal Destino: <b>{destino_nom}</b> · Despachado por: <b>{enviado_nom}</b>",
+            st_sub,
+        ),
+    ]
+    if traslado.nota:
+        elementos.append(Paragraph(f"Observaciones de envío: {traslado.nota}", st_sub))
+    if traslado.nota_recepcion:
+        elementos.append(Paragraph(f"Observaciones de recepción ({recibido_nom}): {traslado.nota_recepcion}", st_sub))
+    elementos.append(Spacer(1, 0.3 * cm))
+
+    filas: list[list[str]] = [["#", "Tipo", "Serial / SKU", "Descripción / Configuración", "Cant."]]
+    for idx, det in enumerate(traslado.detalles, start=1):
+        if det.equipo is not None:
+            filas.append(
+                [
+                    str(idx),
+                    "EQUIPO",
+                    det.equipo.serial,
+                    f"{det.equipo.modelo} {det.equipo.configuracion}".strip() or "Equipo",
+                    "1",
+                ]
+            )
+        elif det.articulo is not None:
+            filas.append(
+                [
+                    str(idx),
+                    det.articulo.tipo,
+                    det.articulo.sku,
+                    det.articulo.descripcion,
+                    str(det.cantidad),
+                ]
+            )
+
+    tabla = Table(filas, colWidths=[1.0 * cm, 2.5 * cm, 4.2 * cm, 8.6 * cm, 1.5 * cm])
+    tabla.setStyle(
+        TableStyle(
+            [
+                ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#191818")),
+                ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+                ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                ("FONTSIZE", (0, 0), (-1, -1), 8.5),
+                ("ALIGN", (0, 0), (0, -1), "CENTER"),
+                ("ALIGN", (4, 0), (4, -1), "RIGHT"),
+                ("GRID", (0, 0), (-1, -1), 0.35, colors.HexColor("#DDDDDD")),
+                ("TOPPADDING", (0, 0), (-1, -1), 5),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+                ("VALIGN", (0, 0), (-1, -1), "TOP"),
+            ]
+        )
+    )
+    elementos.append(tabla)
+    elementos.append(Spacer(1, 1.0 * cm))
+
+    firmas = Table(
+        [
+            ["______________________", "______________________", "______________________"],
+            [f"Despachado por:\n{enviado_nom}", "Transportado por:\n(Nombre y Cédula)", f"Recibido conforme por:\n{recibido_nom}"],
+        ],
+        colWidths=[5.9 * cm, 5.9 * cm, 5.9 * cm],
+    )
+    firmas.setStyle(
+        TableStyle(
+            [
+                ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+                ("FONTSIZE", (0, 0), (-1, -1), 8),
+                ("TOPPADDING", (0, 0), (-1, -1), 6),
+            ]
+        )
+    )
+    elementos.append(firmas)
+    doc.build(elementos, onFirstPage=dibujar_marca_de_agua, onLaterPages=dibujar_marca_de_agua)
+    return Response(
+        content=buf.getvalue(),
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'inline; filename="planilla_traslado_{traslado.numero_traslado}.pdf"'},
+    )
 
 
 @enrutador.post("/traslados/{traslado_id}/anular")

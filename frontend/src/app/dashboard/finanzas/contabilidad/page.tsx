@@ -323,6 +323,40 @@ export default function PaginaContabilidadPyL() {
 
       <PanelImportacionAdmin flujoInicial="gastos_operativos" alCompletar={() => void cargar()} />
 
+      {/* Plantillas Excel de Carga Inicial de Apertura */}
+      <div className="bg-white/80 backdrop-blur-md border border-neutral-200/80 rounded-2xl p-4 flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h3 className="text-sm font-black text-[#191818]">
+            Plantillas Excel (.xlsx) de Carga Inicial de Apertura
+          </h3>
+          <p className="text-xs text-neutral-500">
+            Descarga las plantillas oficiales pre-configuradas (incluyendo Caja Chica $60 USD por sucursal contra Capital Inicial).
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {[
+            { id: "saldos_iniciales", label: "Saldos Cajas y Bancos" },
+            { id: "inventario_inicial", label: "Inventario Inicial" },
+            { id: "cxc_cxp_iniciales", label: "CxC / Cashea y CxP" },
+          ].map((p) => (
+            <button
+              key={p.id}
+              type="button"
+              onClick={() =>
+                void descargarPdfApi(
+                  `/api/finanzas/apertura/plantillas/${p.id}`,
+                  `tekio_apertura_${p.id}.xlsx`
+                )
+              }
+              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold cursor-pointer"
+            >
+              <FileSpreadsheet className="w-3.5 h-3.5" />
+              {p.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
       {/* Historial de Gastos */}
       <div className="bg-white/80 backdrop-blur-md border border-white/70 rounded-2xl p-5 shadow-xs space-y-3">
         <div className="flex flex-wrap items-center justify-between gap-3">

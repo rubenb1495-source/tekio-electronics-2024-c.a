@@ -181,11 +181,28 @@ def anular_liquidacion_comisiones(
         nota_prev = (liq.pago_egreso.nota or "").strip()
         liq.pago_egreso.nota = f"{nota_prev} | ANULADO ({liq.codigo}): {motivo}".strip(" |")
 
-    # 4. Marcar liquidación como ANULADA con trazabilidad de auditoría
+    # 4. Marcar liquidación como ANULADA con trazabilidad de auditoría y reverso contable
     liq.estado = "ANULADA"
     liq.anulada_por_id = usuario_actual.id
     liq.fecha_anulacion = datetime.now(timezone.utc)
     liq.motivo_anulacion = motivo
+
+    if liq.monto_total_usd > Decimal("0.00"):
+        from app.servicios.contabilidad_service import registrar_asiento
+
+        registrar_asiento(
+            bd,
+            fecha=obtener_fecha_hoy(),
+            referencia=f"ANUL-{liq.codigo}",
+            modulo_origen="COMISIONES_ANULACION",
+            entidad_id=liq.id,
+            descripcion=f"Reverso contable por anulación de liquidación {liq.codigo}: {motivo}",
+            lineas=[
+                {"codigo_cuenta": "1.1.01", "debe_usd": liq.monto_total_usd, "descripcion": f"Reverso egreso {liq.codigo}"},
+                {"codigo_cuenta": "6.1.01", "haber_usd": liq.monto_total_usd, "descripcion": f"Reverso gasto comisiones {liq.codigo}"},
+            ],
+            creado_por_id=usuario_actual.id,
+        )
 
     registrar_auditoria(
         bd,

@@ -48,6 +48,7 @@ from app.servicios.contabilidad_service import asegurar_plan_cuentas, registrar_
 from app.servicios.estados_financieros_export import (
     generar_pdf_balance_general,
     generar_pdf_pl_escalonado,
+    generar_plantilla_apertura_xlsx,
     generar_xlsx_balance_general,
     generar_xlsx_pl_escalonado,
 )
@@ -1453,4 +1454,73 @@ def descargar_pdf_reparto_utilidades(
         content=buf.getvalue(),
         media_type="application/pdf",
         headers={"Content-Disposition": f'inline; filename="reparto_utilidades_{rep.periodo_mes}_{rep.id}.pdf"'},
+    )
+
+
+# =====================================================================
+# 5. AUDITORÍA DE ASIENTOS Y PLANTILLAS EXCEL DE APERTURA
+# =====================================================================
+
+@enrutador.get("/contabilidad/auditoria-asientos")
+def auditar_asientos_contables(
+    _usuario: Usuario = Depends(require_permiso(Permiso.VER_FINANZAS_GLOBALES)),
+    bd: Session = Depends(obtener_bd),
+) -> dict[str, Any]:
+    """Audita todos los asientos contables registrados verificando sum(debe) == sum(haber)."""
+    asientos = (
+        bd.query(AsientoContable)
+        .options(joinedload(AsientoContable.lineas))
+        .order_by(AsientoContable.id.asc())
+        .all()
+    )
+    descuadrados: list[dict[str, Any]] = []
+    total_debe_global = Decimal("0.00")
+    total_haber_global = Decimal("0.00")
+
+    for a in asientos:
+        debe_a = sum((l.debe_usd for l in a.lineas), Decimal("0.00"))
+        haber_a = sum((l.haber_usd for l in a.lineas), Decimal("0.00"))
+        total_debe_global += debe_a
+        total_haber_global += haber_a
+        if debe_a != haber_a or len(a.lineas) < 2:
+            descuadrados.append(
+                {
+                    "asiento_id": a.id,
+                    "referencia": a.referencia,
+                    "modulo_origen": a.modulo_origen,
+                    "debe_usd": redondear_usd(debe_a),
+                    "haber_usd": redondear_usd(haber_a),
+                    "lineas": len(a.lineas),
+                }
+            )
+
+    return {
+        "total_asientos": len(asientos),
+        "asientos_cuadrados": len(asientos) - len(descuadrados),
+        "asientos_descuadrados": len(descuadrados),
+        "total_debe_global_usd": redondear_usd(total_debe_global),
+        "total_haber_global_usd": redondear_usd(total_haber_global),
+        "diferencia_global_usd": redondear_usd(total_debe_global - total_haber_global),
+        "integridad_ok": len(descuadrados) == 0 and total_debe_global == total_haber_global,
+        "detalle_descuadrados": descuadrados,
+    }
+
+
+@enrutador.get("/apertura/plantillas/{tipo}")
+def descargar_plantilla_apertura(
+    tipo: str,
+    _usuario: Usuario = Depends(require_permiso(Permiso.VER_FINANZAS_GLOBALES)),
+) -> Response:
+    if tipo not in ("saldos_iniciales", "inventario_inicial", "cxc_cxp_iniciales"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Tipo de plantilla inválido. Usa: saldos_iniciales, inventario_inicial o cxc_cxp_iniciales.",
+        )
+    contenido = generar_plantilla_apertura_xlsx(tipo)
+    return Response(
+        content=contenido,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={
+            "Content-Disposition": f'attachment; filename="tekio_apertura_{tipo}.xlsx"'
+        },
     )

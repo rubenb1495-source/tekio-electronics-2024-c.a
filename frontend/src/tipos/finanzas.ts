@@ -132,6 +132,14 @@ export interface CuentaPorCobrarResumen {
   cliente: string;
   monto_original_usd: number;
   saldo_pendiente_usd: number;
+  total_regular_usd?: number;
+  precio_regular_bs?: number;
+  comision_cashea_venta_total_usd?: number;
+  comision_cashea_financiado_usd?: number;
+  iva_cashea_usd?: number;
+  islr_cashea_usd?: number;
+  total_deducciones_cashea_usd?: number;
+  neto_esperado_cashea_usd?: number;
   estado: "PENDIENTE" | "PAGADA" | "ANULADA";
 }
 
