@@ -1,5 +1,9 @@
 import { formatearBs, formatearUsd } from "@/servicios/api";
-import type { PagoBandeja, VentaResumen } from "@/tipos/finanzas";
+import type {
+  ComisionPersona,
+  PagoBandeja,
+  VentaResumen,
+} from "@/tipos/finanzas";
 import type { TrasladoResumen } from "@/tipos/logistica";
 import type {
   CotizacionResumen,
@@ -456,6 +460,142 @@ export function formatearWhatsAppCotizacion(cot: CotizacionResumen): string {
   lineas.push(
     "",
     "⚠️ _Presupuesto sujeto a disponibilidad de inventario y tasa BCV vigente al momento del pago._"
+  );
+  return lineas.join("\n");
+}
+
+function formatearFechaLatam(iso: string): string {
+  const partes = (iso || "").split("-");
+  if (partes.length === 3) {
+    return `${partes[2]}/${partes[1]}/${partes[0]}`;
+  }
+  return iso;
+}
+
+export function construirUrlWhatsApp(
+  texto: string,
+  telefono?: string | null
+): string {
+  const encoded = encodeURIComponent(texto);
+  if (!telefono) return `https://wa.me/?text=${encoded}`;
+  const digitos = telefono.replace(/\D/g, "");
+  if (digitos.length < 10) return `https://wa.me/?text=${encoded}`;
+  const normalizado =
+    digitos.startsWith("0") && digitos.length === 11
+      ? `58${digitos.slice(1)}`
+      : digitos.length === 10 && digitos.startsWith("4")
+      ? `58${digitos}`
+      : digitos;
+  return `https://wa.me/${normalizado}?text=${encoded}`;
+}
+
+/**
+ * 7. Resumen individual de comisiones para enviar por WhatsApp (sin costos internos ni márgenes).
+ */
+export function formatearWhatsAppComisionIndividual(
+  persona: ComisionPersona,
+  fechaInicio: string,
+  fechaFin: string,
+  incluirNotas: boolean
+): string {
+  const periodo = `${formatearFechaLatam(fechaInicio)} al ${formatearFechaLatam(fechaFin)}`;
+  const cantVentas = persona.cantidad_ventas ?? 0;
+  const esLider = persona.rol === "LIDER";
+  const esTecnico =
+    persona.rol === "TECNICO" ||
+    persona.comision_servicios_50_usd > 0 ||
+    persona.pago_preparaciones_usd > 0;
+
+  const lineas: string[] = [
+    "💼 *Resumen de Comisiones — Tekio Electronics*",
+    `📅 Período: *${periodo}*`,
+    `👤 Colaborador: *${persona.nombre}* (${persona.rol})`,
+    "",
+    "📊 *Desglose (sobre Precio Promo USD):*",
+  ];
+
+  if (persona.ventas_promo_usd > 0 || persona.comision_ventas_1_usd > 0 || !esTecnico) {
+    lineas.push(
+      `• Ventas propias (${cantVentas}): Base ${formatearUsd(persona.ventas_promo_usd)} → *1%: ${formatearUsd(persona.comision_ventas_1_usd)}*`
+    );
+  }
+
+  if (esLider) {
+    const baseEquipo = persona.ventas_equipo_lider_usd ?? 0;
+    lineas.push(
+      `• Equipo multi-tienda: Base ${formatearUsd(baseEquipo)} → *0,5%: ${formatearUsd(persona.comision_lider_05_usd)}*`
+    );
+  }
+
+  if (esTecnico) {
+    lineas.push(
+      `• Servicios técnicos / Mano de obra (50%): *${formatearUsd(persona.comision_servicios_50_usd)}*`,
+      `• Preparaciones de equipos: *${formatearUsd(persona.pago_preparaciones_usd)}*`
+    );
+  }
+
+  if (incluirNotas && persona.notas && persona.notas.length > 0) {
+    const notasTxt = persona.notas.slice(0, 40).join(", ");
+    const sufijo =
+      persona.notas.length > 40 ? ` (+${persona.notas.length - 40} más)` : "";
+    lineas.push("", `🧾 *Notas incluidas:* ${notasTxt}${sufijo}`);
+  }
+
+  lineas.push(
+    "",
+    `💵 *TOTAL A PAGAR: ${formatearUsd(persona.total_comision_usd)} USD*`
+  );
+
+  return lineas.join("\n");
+}
+
+/**
+ * 8. Resumen general de comisiones del filtro activo para WhatsApp (sin costos internos ni márgenes).
+ */
+export function formatearWhatsAppComisionesGeneral(
+  comisiones: ComisionPersona[],
+  fechaInicio: string,
+  fechaFin: string,
+  incluirNotas: boolean
+): string {
+  const periodo = `${formatearFechaLatam(fechaInicio)} al ${formatearFechaLatam(fechaFin)}`;
+  const totalBase = comisiones.reduce((acc, c) => acc + c.ventas_promo_usd, 0);
+  const totalPagar = comisiones.reduce((acc, c) => acc + c.total_comision_usd, 0);
+
+  const lineas: string[] = [
+    "📊 *Resumen General de Comisiones — Tekio Electronics*",
+    `📅 Período: *${periodo}*`,
+    `💵 Base Promo USD: *${formatearUsd(totalBase)}*`,
+    "",
+    "👥 *Detalle por colaborador:*",
+  ];
+
+  for (const c of comisiones) {
+    const partes: string[] = [];
+    if (c.comision_ventas_1_usd > 0) {
+      partes.push(`1% Ventas: ${formatearUsd(c.comision_ventas_1_usd)}`);
+    }
+    if (c.comision_lider_05_usd > 0) {
+      partes.push(`0,5% Líder: ${formatearUsd(c.comision_lider_05_usd)}`);
+    }
+    if (c.comision_servicios_50_usd > 0) {
+      partes.push(`50% ST: ${formatearUsd(c.comision_servicios_50_usd)}`);
+    }
+    if (c.pago_preparaciones_usd > 0) {
+      partes.push(`Preps: ${formatearUsd(c.pago_preparaciones_usd)}`);
+    }
+    const detalleTxt = partes.length > 0 ? ` (${partes.join(" · ")})` : "";
+    lineas.push(
+      `• *${c.nombre}* [${c.rol}]: *${formatearUsd(c.total_comision_usd)}*${detalleTxt}`
+    );
+    if (incluirNotas && c.notas && c.notas.length > 0) {
+      lineas.push(`  ↳ _Notas:_ ${c.notas.slice(0, 20).join(", ")}`);
+    }
+  }
+
+  lineas.push(
+    "",
+    `💰 *TOTAL COMISIONES A PAGAR: ${formatearUsd(totalPagar)} USD*`
   );
   return lineas.join("\n");
 }

@@ -66,6 +66,7 @@ class Usuario(Base):
     correo: Mapped[str] = mapped_column(String(180), unique=True, index=True, nullable=False)
     clave_hash: Mapped[str] = mapped_column(String(255), nullable=False)
     rol: Mapped[str] = mapped_column(String(30), nullable=False)
+    telefono: Mapped[str] = mapped_column(String(40), default="", nullable=False)
     sucursal_id: Mapped[int | None] = mapped_column(ForeignKey("sucursales.id"), nullable=True)
     activo: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     motivo_estado: Mapped[str | None] = mapped_column(String(255), nullable=True)

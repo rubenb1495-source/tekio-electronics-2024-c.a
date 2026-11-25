@@ -56,6 +56,16 @@ def asegurar_columnas_compatibles() -> None:
                         "ADD COLUMN datos_entrega_json TEXT NOT NULL DEFAULT ''"
                     )
                 )
+    if inspector.has_table("usuarios"):
+        columnas_usr = {col["name"] for col in inspector.get_columns("usuarios")}
+        if "telefono" not in columnas_usr:
+            with motor.begin() as conexion:
+                conexion.execute(
+                    text(
+                        "ALTER TABLE usuarios "
+                        "ADD COLUMN telefono VARCHAR(40) NOT NULL DEFAULT ''"
+                    )
+                )
 
 
 @asynccontextmanager

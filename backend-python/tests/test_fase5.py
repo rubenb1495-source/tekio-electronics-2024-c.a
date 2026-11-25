@@ -602,3 +602,144 @@ def test_cotizacion_asesora_pdf_sin_descontar_stock_y_conversion_a_venta(cliente
     cot_post = cliente.get(f"/api/cotizaciones/{cot['id']}", headers=h_as).json()
     assert cot_post["estado"] == "CONVERTIDA"
     assert cot_post["venta_id"] == vta["id"]
+
+
+def test_comisiones_filtros_rango_usuario_lider_multitienda_y_tecnico(cliente: TestClient) -> None:
+    from datetime import timedelta
+
+    ctx = _preparar_escenario_base(cliente)
+    h_dir = ctx["headers_dir"]
+    h_as = ctx["headers_as"]
+
+    # Crear Líder multi-tienda y Técnico
+    r_lider = cliente.post(
+        "/api/usuarios",
+        headers=h_dir,
+        json={
+            "nombre": "Mariana Líder",
+            "correo": "mariana.lider.f5@tekio.com",
+            "clave": "Password123!",
+            "rol": "LIDER",
+            "sucursal_id": 1,
+        },
+    )
+    assert r_lider.status_code == 201, r_lider.text
+    lider_id = r_lider.json()["id"]
+
+    r_tec = cliente.post(
+        "/api/usuarios",
+        headers=h_dir,
+        json={
+            "nombre": "Luis Técnico",
+            "correo": "luis.tec.f5@tekio.com",
+            "clave": "Password123!",
+            "rol": "TECNICO",
+            "sucursal_id": 1,
+        },
+    )
+    assert r_tec.status_code == 201, r_tec.text
+    tecnico_id = r_tec.json()["id"]
+
+    # Crear artículo SERVICIO (Mano de Obra $80 Promo)
+    bd = cliente.sesion_factory()  # type: ignore[attr-defined]
+    try:
+        hoy_d = obtener_fecha_hoy()
+        art_st = CatalogoArticulo(
+            sku="ST-MANT-80",
+            descripcion="Mantenimiento Preventivo Completo",
+            tipo=TipoArticulo.SERVICIO.value,
+            categoria="Servicios",
+        )
+        bd.add(art_st)
+        bd.flush()
+        bd.add(
+            CatalogoPrecio(
+                articulo_id=art_st.id,
+                precio_promo_usd=Decimal("80.00"),
+                costo_referencia_usd=Decimal("0.00"),
+                fecha_vigencia=hoy_d,
+            )
+        )
+        bd.commit()
+        art_st_id = art_st.id
+    finally:
+        bd.close()
+
+    # Venta 1 hoy: Asesora vende equipo $400 + Servicio Técnico $80 con Luis Técnico
+    r_v1 = cliente.post(
+        "/api/ventas",
+        headers=h_as,
+        json={
+            "sucursal_id": 1,
+            "cliente_id": ctx["cliente_id"],
+            "asesor_id": ctx["asesora_id"],
+            "tecnico_id": tecnico_id,
+            "items": [
+                {"equipo_id": ctx["eq_hp_1"], "cantidad": 1},
+                {"articulo_id": art_st_id, "cantidad": 1, "descripcion_servicio": "Limpieza y pasta térmica"},
+            ],
+            "pagos": [{"instrumento_id": ctx["inst_usd_id"], "monto_moneda_origen": 480.0}],
+        },
+    )
+    assert r_v1.status_code == 201, r_v1.text
+
+    # Venta 2 hoy: Líder vende equipo $600
+    r_v2 = cliente.post(
+        "/api/ventas",
+        headers=h_dir,
+        json={
+            "sucursal_id": 1,
+            "cliente_id": ctx["cliente_id"],
+            "asesor_id": lider_id,
+            "items": [{"equipo_id": ctx["eq_dell_1"], "cantidad": 1}],
+            "pagos": [{"instrumento_id": ctx["inst_usd_id"], "monto_moneda_origen": 600.0}],
+        },
+    )
+    assert r_v2.status_code == 201, r_v2.text
+
+    hoy_str = obtener_fecha_hoy().isoformat()
+
+    # 1. Filtrar exactamente por fecha_inicio=hoy & fecha_fin=hoy (todos)
+    resp_all = cliente.get(
+        f"/api/finanzas/comisiones?fecha_inicio={hoy_str}&fecha_fin={hoy_str}",
+        headers=h_dir,
+    )
+    assert resp_all.status_code == 200, resp_all.text
+    body = resp_all.json()
+    assert body["fecha_inicio"] == hoy_str
+    assert body["fecha_fin"] == hoy_str
+    assert len(body["operaciones"]) == 3  # venta asesora + ST técnico + venta líder
+    assert "costo" not in str(body).lower()
+
+    fila_as = next(c for c in body["comisiones"] if c["usuario_id"] == ctx["asesora_id"])
+    assert fila_as["ventas_promo_usd"] == 400.0
+    assert fila_as["comision_ventas_1_usd"] == 4.0  # 1% de $400 (excluye ST $80)
+
+    fila_tec = next(c for c in body["comisiones"] if c["usuario_id"] == tecnico_id)
+    assert fila_tec["comision_servicios_50_usd"] == 40.0  # 50% de $80
+    assert fila_tec["total_comision_usd"] == 40.0
+
+    # 2. Filtrar por usuario_id=lider_id: mantiene 1% propio ($6) + 0.5% del equipo ($400 * 0.5% = $2) = $8
+    resp_lider = cliente.get(
+        f"/api/finanzas/comisiones?fecha_inicio={hoy_str}&fecha_fin={hoy_str}&usuario_id={lider_id}",
+        headers=h_dir,
+    )
+    assert resp_lider.status_code == 200, resp_lider.text
+    body_l = resp_lider.json()
+    assert len(body_l["comisiones"]) == 1
+    fila_l = body_l["comisiones"][0]
+    assert fila_l["ventas_promo_usd"] == 600.0
+    assert fila_l["comision_ventas_1_usd"] == 6.0
+    assert fila_l["comision_lider_05_usd"] == 2.0
+    assert fila_l["total_comision_usd"] == 8.0
+    assert "telefono" in fila_l
+
+    # 3. Rango pasado sin ventas debe devolver 0 operaciones y $0
+    ayer = (obtener_fecha_hoy() - timedelta(days=5)).isoformat()
+    resp_vacio = cliente.get(
+        f"/api/finanzas/comisiones?fecha_inicio={ayer}&fecha_fin={ayer}&usuario_id={ctx['asesora_id']}",
+        headers=h_dir,
+    )
+    assert resp_vacio.status_code == 200
+    assert resp_vacio.json()["comisiones"][0]["total_comision_usd"] == 0.0
+    assert len(resp_vacio.json()["operaciones"]) == 0

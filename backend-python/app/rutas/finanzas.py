@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import calendar
 import json
 from datetime import date, datetime
 from decimal import Decimal, ROUND_HALF_UP
@@ -478,20 +479,31 @@ def cruzar_conciliacion_manual(
 
 # ---------------- Comisiones, Tablero y Cierre Mensual ----------------
 
-def calcular_reporte_comisiones(
-    bd: Session, mes: int, anio: int, sucursal_id: int | None = None
-) -> list[dict[str, Any]]:
+def calcular_reporte_comisiones_rango(
+    bd: Session,
+    fecha_inicio: date,
+    fecha_fin: date,
+    sucursal_id: int | None = None,
+    usuario_id: int | None = None,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     usuarios = bd.query(Usuario).filter(Usuario.activo.is_(True)).all()
     usuarios_map = {u.id: u for u in usuarios}
 
     consulta_ventas_globales = (
         bd.query(Venta)
-        .options(joinedload(Venta.detalles).joinedload(VentaDetalle.articulo))
+        .options(
+            joinedload(Venta.cliente),
+            joinedload(Venta.sucursal),
+            joinedload(Venta.asesor),
+            joinedload(Venta.tecnico),
+            joinedload(Venta.detalles).joinedload(VentaDetalle.articulo),
+        )
         .filter(
             Venta.estado.notin_([EstadoVenta.ANULADA.value, EstadoVenta.DEVUELTA.value]),
-            extract("month", Venta.fecha) == mes,
-            extract("year", Venta.fecha) == anio,
+            Venta.fecha >= fecha_inicio,
+            Venta.fecha <= fecha_fin,
         )
+        .order_by(Venta.fecha.desc(), Venta.id.desc())
     )
     ventas_globales = consulta_ventas_globales.all()
     ventas = (
@@ -506,8 +518,17 @@ def calcular_reporte_comisiones(
     # - Servicio Técnico / Mano de Obra (TipoArticulo.SERVICIO) -> 50% al tecnico_id (excluido de 1% asesor y 0.5% líder).
     ventas_por_asesor: dict[int, Decimal] = {}
     ventas_globales_por_asesor: dict[int, Decimal] = {}
+    cantidad_ventas_asesor: dict[int, int] = {}
+    cantidad_ops_usuario: dict[int, int] = {}
+    notas_por_usuario: dict[int, list[str]] = {}
     total_ventas_con_asesor_global = Decimal("0")
     st_por_tecnico: dict[int, Decimal] = {}
+    operaciones_detalle: list[dict[str, Any]] = []
+
+    def _registrar_nota(uid: int, numero: str) -> None:
+        lista = notas_por_usuario.setdefault(uid, [])
+        if numero and numero not in lista:
+            lista.append(numero)
 
     for v in ventas_globales:
         if not v.detalles:
@@ -528,30 +549,105 @@ def calcular_reporte_comisiones(
                 total_ventas_con_asesor_global += subtotal_promo
 
     for v in ventas:
+        cliente_nom = v.cliente.nombre if v.cliente else "Cliente general"
+        suc_nom = v.sucursal.nombre if v.sucursal else ""
+
         if not v.detalles:
-            if v.asesor_id is not None:
-                ventas_por_asesor[v.asesor_id] = ventas_por_asesor.get(v.asesor_id, Decimal("0")) + v.total_promo_usd
+            if v.asesor_id is not None and v.total_promo_usd > 0:
+                ventas_por_asesor[v.asesor_id] = (
+                    ventas_por_asesor.get(v.asesor_id, Decimal("0")) + v.total_promo_usd
+                )
+                cantidad_ventas_asesor[v.asesor_id] = cantidad_ventas_asesor.get(v.asesor_id, 0) + 1
+                cantidad_ops_usuario[v.asesor_id] = cantidad_ops_usuario.get(v.asesor_id, 0) + 1
+                _registrar_nota(v.asesor_id, v.numero_venta)
+                com_v = (v.total_promo_usd * Decimal("0.01")).quantize(
+                    Decimal("0.01"), rounding=ROUND_HALF_UP
+                )
+                u_as = usuarios_map.get(v.asesor_id)
+                operaciones_detalle.append(
+                    {
+                        "numero_nota": v.numero_venta,
+                        "fecha": v.fecha.isoformat(),
+                        "cliente": cliente_nom,
+                        "sucursal": suc_nom,
+                        "usuario_id": v.asesor_id,
+                        "usuario_nombre": u_as.nombre if u_as else (v.asesor.nombre if v.asesor else "Asesor"),
+                        "rol": u_as.rol if u_as else "",
+                        "tipo": "VENTA_1%",
+                        "base_promo_usd": redondear_usd(v.total_promo_usd),
+                        "comision_usd": redondear_usd(com_v),
+                    }
+                )
             continue
 
+        base_prod_venta = Decimal("0")
+        base_st_venta = Decimal("0")
         for det in v.detalles:
             subtotal_promo = det.precio_promo_usd * Decimal(det.cantidad)
             es_servicio = det.articulo is not None and det.articulo.tipo == TipoArticulo.SERVICIO.value
             if es_servicio:
-                if v.tecnico_id is not None:
-                    com_50 = (subtotal_promo * Decimal("0.50")).quantize(
-                        Decimal("0.01"), rounding=ROUND_HALF_UP
-                    )
-                    st_por_tecnico[v.tecnico_id] = st_por_tecnico.get(v.tecnico_id, Decimal("0")) + com_50
+                base_st_venta += subtotal_promo
             else:
-                if v.asesor_id is not None:
-                    ventas_por_asesor[v.asesor_id] = ventas_por_asesor.get(v.asesor_id, Decimal("0")) + subtotal_promo
+                base_prod_venta += subtotal_promo
+
+        if base_prod_venta > 0 and v.asesor_id is not None:
+            ventas_por_asesor[v.asesor_id] = (
+                ventas_por_asesor.get(v.asesor_id, Decimal("0")) + base_prod_venta
+            )
+            cantidad_ventas_asesor[v.asesor_id] = cantidad_ventas_asesor.get(v.asesor_id, 0) + 1
+            cantidad_ops_usuario[v.asesor_id] = cantidad_ops_usuario.get(v.asesor_id, 0) + 1
+            _registrar_nota(v.asesor_id, v.numero_venta)
+            com_v = (base_prod_venta * Decimal("0.01")).quantize(
+                Decimal("0.01"), rounding=ROUND_HALF_UP
+            )
+            u_as = usuarios_map.get(v.asesor_id)
+            operaciones_detalle.append(
+                {
+                    "numero_nota": v.numero_venta,
+                    "fecha": v.fecha.isoformat(),
+                    "cliente": cliente_nom,
+                    "sucursal": suc_nom,
+                    "usuario_id": v.asesor_id,
+                    "usuario_nombre": u_as.nombre if u_as else (v.asesor.nombre if v.asesor else "Asesor"),
+                    "rol": u_as.rol if u_as else "",
+                    "tipo": "VENTA_1%",
+                    "base_promo_usd": redondear_usd(base_prod_venta),
+                    "comision_usd": redondear_usd(com_v),
+                }
+            )
+
+        if base_st_venta > 0 and v.tecnico_id is not None:
+            com_50 = (base_st_venta * Decimal("0.50")).quantize(
+                Decimal("0.01"), rounding=ROUND_HALF_UP
+            )
+            st_por_tecnico[v.tecnico_id] = st_por_tecnico.get(v.tecnico_id, Decimal("0")) + com_50
+            cantidad_ops_usuario[v.tecnico_id] = cantidad_ops_usuario.get(v.tecnico_id, 0) + 1
+            _registrar_nota(v.tecnico_id, v.numero_venta)
+            u_tec = usuarios_map.get(v.tecnico_id)
+            operaciones_detalle.append(
+                {
+                    "numero_nota": v.numero_venta,
+                    "fecha": v.fecha.isoformat(),
+                    "cliente": cliente_nom,
+                    "sucursal": suc_nom,
+                    "usuario_id": v.tecnico_id,
+                    "usuario_nombre": u_tec.nombre if u_tec else (v.tecnico.nombre if v.tecnico else "Técnico"),
+                    "rol": u_tec.rol if u_tec else "",
+                    "tipo": "SERVICIO_TECNICO_50%",
+                    "base_promo_usd": redondear_usd(base_st_venta),
+                    "comision_usd": redondear_usd(com_50),
+                }
+            )
 
     # Ajustes de comisión por cambios Upgrade (+) y Downgrade (-) del período
     from app.modelos_operaciones import DevolucionGarantia, TipoResolucionDevolucion
 
     ajustes_dev = (
         bd.query(DevolucionGarantia)
-        .options(joinedload(DevolucionGarantia.venta))
+        .options(
+            joinedload(DevolucionGarantia.venta).joinedload(Venta.cliente),
+            joinedload(DevolucionGarantia.venta).joinedload(Venta.sucursal),
+        )
         .filter(
             DevolucionGarantia.tipo_resolucion.in_(
                 [
@@ -559,8 +655,8 @@ def calcular_reporte_comisiones(
                     TipoResolucionDevolucion.CAMBIO_DOWNGRADE.value,
                 ]
             ),
-            extract("month", DevolucionGarantia.fecha) == mes,
-            extract("year", DevolucionGarantia.fecha) == anio,
+            DevolucionGarantia.fecha >= fecha_inicio,
+            DevolucionGarantia.fecha <= fecha_fin,
         )
         .all()
     )
@@ -581,19 +677,55 @@ def calcular_reporte_comisiones(
                 Decimal("0"),
                 ventas_por_asesor.get(vta.asesor_id, Decimal("0")) + dif,
             )
+            cantidad_ops_usuario[vta.asesor_id] = cantidad_ops_usuario.get(vta.asesor_id, 0) + 1
+            _registrar_nota(vta.asesor_id, dev.numero_operacion)
+            com_dif = (dif * Decimal("0.01")).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+            u_as = usuarios_map.get(vta.asesor_id)
+            operaciones_detalle.append(
+                {
+                    "numero_nota": dev.numero_operacion,
+                    "fecha": dev.fecha.isoformat(),
+                    "cliente": vta.cliente.nombre if vta.cliente else "Cliente general",
+                    "sucursal": vta.sucursal.nombre if vta.sucursal else "",
+                    "usuario_id": vta.asesor_id,
+                    "usuario_nombre": u_as.nombre if u_as else "Asesor",
+                    "rol": u_as.rol if u_as else "",
+                    "tipo": "UPGRADE_1%" if dif >= 0 else "DOWNGRADE_1%",
+                    "base_promo_usd": redondear_usd(dif),
+                    "comision_usd": redondear_usd(com_dif),
+                }
+            )
 
-    # Preparaciones y servicios técnicos del mes
+    # Preparaciones y servicios técnicos del período
     preparaciones = (
         bd.query(Preparacion)
+        .options(joinedload(Preparacion.equipo))
         .filter(
-            extract("month", Preparacion.fecha) == mes,
-            extract("year", Preparacion.fecha) == anio,
+            Preparacion.fecha >= fecha_inicio,
+            Preparacion.fecha <= fecha_fin,
         )
         .all()
     )
     prep_por_tecnico: dict[int, Decimal] = {}
     for p in preparaciones:
         prep_por_tecnico[p.tecnico_id] = prep_por_tecnico.get(p.tecnico_id, Decimal("0")) + p.pago_tecnico_usd
+        cantidad_ops_usuario[p.tecnico_id] = cantidad_ops_usuario.get(p.tecnico_id, 0) + 1
+        u_tec = usuarios_map.get(p.tecnico_id)
+        serial_txt = p.equipo.serial if p.equipo else f"PREP-{p.id}"
+        operaciones_detalle.append(
+            {
+                "numero_nota": f"PREP-{p.id}",
+                "fecha": p.fecha.isoformat(),
+                "cliente": f"Preparación ({serial_txt})",
+                "sucursal": "",
+                "usuario_id": p.tecnico_id,
+                "usuario_nombre": u_tec.nombre if u_tec else "Técnico",
+                "rol": u_tec.rol if u_tec else "",
+                "tipo": "PREPARACION",
+                "base_promo_usd": redondear_usd(p.pago_tecnico_usd),
+                "comision_usd": redondear_usd(p.pago_tecnico_usd),
+            }
+        )
 
     estados_st = {
         EstadoCasoPostventa.TERMINADO.value,
@@ -602,17 +734,24 @@ def calcular_reporte_comisiones(
     }
     casos_st = (
         bd.query(CasoPostventa)
-        .options(joinedload(CasoPostventa.presupuestos))
+        .options(
+            joinedload(CasoPostventa.presupuestos),
+            joinedload(CasoPostventa.cliente),
+            joinedload(CasoPostventa.sucursal),
+        )
         .filter(
             CasoPostventa.tipo == TipoCasoPostventa.SERVICIO.value,
             CasoPostventa.estado.in_(estados_st),
-            extract("month", CasoPostventa.fecha_ingreso) == mes,
-            extract("year", CasoPostventa.fecha_ingreso) == anio,
         )
         .all()
     )
     for c in casos_st:
-        if c.tecnico_id is None:
+        if c.tecnico_id is None or c.fecha_ingreso is None:
+            continue
+        fecha_caso = c.fecha_ingreso.date()
+        if fecha_caso < fecha_inicio or fecha_caso > fecha_fin:
+            continue
+        if sucursal_id is not None and c.sucursal_id != sucursal_id:
             continue
         pres_aprob = next((pr for pr in c.presupuestos if pr.aprobado_cliente is True), None)
         if pres_aprob is not None:
@@ -620,13 +759,33 @@ def calcular_reporte_comisiones(
                 Decimal("0.01"), rounding=ROUND_HALF_UP
             )
             st_por_tecnico[c.tecnico_id] = st_por_tecnico.get(c.tecnico_id, Decimal("0")) + com_50
+            cantidad_ops_usuario[c.tecnico_id] = cantidad_ops_usuario.get(c.tecnico_id, 0) + 1
+            _registrar_nota(c.tecnico_id, c.numero_caso)
+            u_tec = usuarios_map.get(c.tecnico_id)
+            operaciones_detalle.append(
+                {
+                    "numero_nota": c.numero_caso,
+                    "fecha": fecha_caso.isoformat(),
+                    "cliente": c.cliente.nombre if c.cliente else "Cliente Taller",
+                    "sucursal": c.sucursal.nombre if c.sucursal else "",
+                    "usuario_id": c.tecnico_id,
+                    "usuario_nombre": u_tec.nombre if u_tec else "Técnico",
+                    "rol": u_tec.rol if u_tec else "",
+                    "tipo": "SERVICIO_TECNICO_50%",
+                    "base_promo_usd": redondear_usd(pres_aprob.mano_obra_usd),
+                    "comision_usd": redondear_usd(com_50),
+                }
+            )
 
     reporte: list[dict[str, Any]] = []
     for uid, u in usuarios_map.items():
+        if usuario_id is not None and uid != usuario_id:
+            continue
         ventas_propias = ventas_por_asesor.get(uid, Decimal("0"))
         com_ventas_1 = (ventas_propias * Decimal("0.01")).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
         com_lider_05 = Decimal("0")
+        ventas_equipo_resto = Decimal("0")
         if u.rol == RolUsuario.LIDER.value:
             ventas_propias_global = ventas_globales_por_asesor.get(uid, Decimal("0"))
             ventas_equipo_resto = max(Decimal("0"), total_ventas_con_asesor_global - ventas_propias_global)
@@ -638,25 +797,52 @@ def calcular_reporte_comisiones(
         pago_preps = prep_por_tecnico.get(uid, Decimal("0"))
         total_persona = com_ventas_1 + com_lider_05 + com_servicios + pago_preps
 
-        if total_persona > 0 or u.rol in (
-            RolUsuario.ASESORA.value,
-            RolUsuario.LIDER.value,
-            RolUsuario.TECNICO.value,
+        if (
+            usuario_id is not None
+            or total_persona > 0
+            or u.rol
+            in (
+                RolUsuario.ASESORA.value,
+                RolUsuario.LIDER.value,
+                RolUsuario.TECNICO.value,
+            )
         ):
             reporte.append(
                 {
                     "usuario_id": uid,
                     "nombre": u.nombre,
                     "rol": u.rol,
+                    "telefono": getattr(u, "telefono", "") or "",
+                    "cantidad_ventas": cantidad_ventas_asesor.get(uid, 0),
+                    "cantidad_operaciones": cantidad_ops_usuario.get(uid, 0),
                     "ventas_promo_usd": redondear_usd(ventas_propias),
+                    "ventas_equipo_lider_usd": redondear_usd(ventas_equipo_resto),
                     "comision_ventas_1_usd": redondear_usd(com_ventas_1),
                     "comision_lider_05_usd": redondear_usd(com_lider_05),
                     "comision_servicios_50_usd": redondear_usd(com_servicios),
                     "pago_preparaciones_usd": redondear_usd(pago_preps),
                     "total_comision_usd": redondear_usd(total_persona),
+                    "notas": notas_por_usuario.get(uid, []),
                 }
             )
 
+    if usuario_id is not None:
+        operaciones_detalle = [op for op in operaciones_detalle if op["usuario_id"] == usuario_id]
+
+    operaciones_detalle.sort(key=lambda x: (x["fecha"], x["numero_nota"]), reverse=True)
+    return reporte, operaciones_detalle
+
+
+def calcular_reporte_comisiones(
+    bd: Session, mes: int, anio: int, sucursal_id: int | None = None
+) -> list[dict[str, Any]]:
+    ultimo_dia = calendar.monthrange(anio, mes)[1]
+    reporte, _ = calcular_reporte_comisiones_rango(
+        bd,
+        fecha_inicio=date(anio, mes, 1),
+        fecha_fin=date(anio, mes, ultimo_dia),
+        sucursal_id=sucursal_id,
+    )
     return reporte
 
 
@@ -664,24 +850,63 @@ def calcular_reporte_comisiones(
 def obtener_comisiones(
     mes: int | None = Query(default=None, ge=1, le=12),
     anio: int | None = Query(default=None, ge=2020, le=2100),
+    fecha_inicio: date | None = Query(default=None),
+    fecha_fin: date | None = Query(default=None),
+    usuario_id: int | None = Query(default=None),
     sucursal_id: int | None = Query(default=None),
     _usuario: Usuario = Depends(requerir_roles(*ROLES_ADMINISTRATIVOS)),
     bd: Session = Depends(obtener_bd),
 ) -> dict[str, Any]:
     hoy = obtener_fecha_hoy()
-    mes_obj = mes or hoy.month
-    anio_obj = anio or hoy.year
-    reporte = calcular_reporte_comisiones(bd, mes_obj, anio_obj, sucursal_id)
+    if fecha_inicio is not None or fecha_fin is not None:
+        f_inicio = fecha_inicio or fecha_fin or date(hoy.year, hoy.month, 1)
+        f_fin = fecha_fin or fecha_inicio or hoy
+        if f_inicio > f_fin:
+            f_inicio, f_fin = f_fin, f_inicio
+        mes_obj = f_inicio.month
+        anio_obj = f_inicio.year
+    else:
+        mes_obj = mes or hoy.month
+        anio_obj = anio or hoy.year
+        ultimo_dia = calendar.monthrange(anio_obj, mes_obj)[1]
+        f_inicio = date(anio_obj, mes_obj, 1)
+        f_fin = date(anio_obj, mes_obj, ultimo_dia)
+
+    reporte, operaciones = calcular_reporte_comisiones_rango(
+        bd,
+        fecha_inicio=f_inicio,
+        fecha_fin=f_fin,
+        sucursal_id=sucursal_id,
+        usuario_id=usuario_id,
+    )
     cierre = (
         bd.query(CierreMensual)
         .filter(CierreMensual.anio == anio_obj, CierreMensual.mes == mes_obj)
         .first()
     )
+
+    total_base_promo = sum(
+        (Decimal(str(c["ventas_promo_usd"])) for c in reporte),
+        Decimal("0"),
+    )
+    total_comisiones = sum(
+        (Decimal(str(c["total_comision_usd"])) for c in reporte),
+        Decimal("0"),
+    )
+
     return {
+        "fecha_inicio": f_inicio.isoformat(),
+        "fecha_fin": f_fin.isoformat(),
         "mes": mes_obj,
         "anio": anio_obj,
         "mes_cerrado": bool(cierre and cierre.bloqueado),
+        "resumen": {
+            "total_base_promo_usd": redondear_usd(total_base_promo),
+            "total_comisiones_usd": redondear_usd(total_comisiones),
+            "cantidad_operaciones": len(operaciones),
+        },
         "comisiones": reporte,
+        "operaciones": operaciones,
     }
 
 

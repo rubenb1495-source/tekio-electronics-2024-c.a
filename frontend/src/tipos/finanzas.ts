@@ -161,19 +161,45 @@ export interface ComisionPersona {
   usuario_id: number;
   nombre: string;
   rol: string;
+  telefono?: string;
+  cantidad_ventas?: number;
+  cantidad_operaciones?: number;
   ventas_promo_usd: number;
+  ventas_equipo_lider_usd?: number;
   comision_ventas_1_usd: number;
   comision_lider_05_usd: number;
   comision_servicios_50_usd: number;
   pago_preparaciones_usd: number;
   total_comision_usd: number;
+  notas?: string[];
+}
+
+export interface OperacionComision {
+  numero_nota: string;
+  fecha: string;
+  cliente: string;
+  sucursal: string;
+  usuario_id: number;
+  usuario_nombre: string;
+  rol: string;
+  tipo: string;
+  base_promo_usd: number;
+  comision_usd: number;
 }
 
 export interface ReporteComisiones {
+  fecha_inicio: string;
+  fecha_fin: string;
   mes: number;
   anio: number;
   mes_cerrado: boolean;
+  resumen?: {
+    total_base_promo_usd: number;
+    total_comisiones_usd: number;
+    cantidad_operaciones: number;
+  };
   comisiones: ComisionPersona[];
+  operaciones?: OperacionComision[];
 }
 
 export interface TableroFinanciero {
