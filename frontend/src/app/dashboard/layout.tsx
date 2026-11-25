@@ -35,6 +35,7 @@ import {
 } from "lucide-react";
 import LogoTekio from "@/components/LogoTekio";
 import ModalRecargoDiario from "@/components/ModalRecargoDiario";
+import ModalCambiarPassword from "@/components/ModalCambiarPassword";
 import InstaladorPwa from "@/components/InstaladorPwa";
 import CampanaAlertas from "@/components/CampanaAlertas";
 import { usarSesion } from "@/contexto/SesionContexto";
@@ -75,6 +76,7 @@ export default function DisenoDashboard({
   const [menuMovilAbierto, setMenuMovilAbierto] = useState(false);
   const [sidebarColapsado, setSidebarColapsado] = useState(false);
   const [avisoPermiso, setAvisoPermiso] = useState<string | null>(null);
+  const [modalPassword, setModalPassword] = useState(false);
 
   useEffect(() => {
     if (!cargandoSesion && !usuario) {
@@ -195,6 +197,12 @@ export default function DisenoDashboard({
       titulo: "Taller",
       enlaces: [
         {
+          href: "/dashboard/taller/recepcion",
+          etiqueta: "Recepción GT / ST",
+          icono: <ClipboardList className="w-4 h-4 shrink-0" />,
+          visible: true,
+        },
+        {
           href: "/dashboard/taller/preparaciones",
           etiqueta: "Preparaciones",
           icono: <Wrench className="w-4 h-4 shrink-0" />,
@@ -251,6 +259,12 @@ export default function DisenoDashboard({
           href: "/dashboard/finanzas/prestamos",
           etiqueta: "Préstamos",
           icono: <CreditCard className="w-4 h-4 shrink-0" />,
+          visible: esAdmin,
+        },
+        {
+          href: "/dashboard/finanzas/utilidades",
+          etiqueta: "Reparto Utilidades",
+          icono: <Award className="w-4 h-4 shrink-0" />,
           visible: esAdmin,
         },
         {
@@ -584,6 +598,14 @@ export default function DisenoDashboard({
                   <Shield className="w-2.5 h-2.5" />
                   {usuario.rol}
                 </span>
+                <button
+                  type="button"
+                  onClick={() => setModalPassword(true)}
+                  className="ml-1 px-2 py-0.5 rounded-md bg-neutral-100 hover:bg-neutral-200 text-[10px] font-bold text-neutral-700 cursor-pointer"
+                  title="Cambiar contraseña"
+                >
+                  Clave
+                </button>
               </div>
             </div>
           </div>
@@ -618,6 +640,10 @@ export default function DisenoDashboard({
 
       {/* Modal bloqueante de confirmación de recargo diario */}
       <ModalRecargoDiario />
+      <ModalCambiarPassword
+        abierto={modalPassword}
+        alCerrar={() => setModalPassword(false)}
+      />
     </div>
   );
 }

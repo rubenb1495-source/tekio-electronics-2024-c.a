@@ -18,6 +18,8 @@ from app.esquemas_logistica import (
     AjusteCrearEntrada,
     AjusteRevisarEntrada,
     CompraCrearEntrada,
+    CompraTrackingCrearEntrada,
+    CompraTrackingEstadoEntrada,
     EquipoEstadoIndividualEntrada,
     EquipoEstadoMasivoEntrada,
     FilaValidacionArchivo,
@@ -36,6 +38,7 @@ from app.modelos_logistica import (
     AjusteInventario,
     Compra,
     CompraComponente,
+    CompraTracking,
     Equipo,
     EstadoAjusteInventario,
     EstadoCompra,
@@ -1935,3 +1938,146 @@ async def confirmar_importacion_logistica(
         nombre_archivo=archivo.filename or "archivo.xlsx",
         usuario=usuario_actual,
     )
+
+
+# ---------------- Control de Trackings en Compras Internacionales ----------------
+
+def _serializar_tracking(t: CompraTracking) -> dict[str, Any]:
+    return {
+        "id": t.id,
+        "compra_id": t.compra_id,
+        "numero_compra": t.compra.numero_compra if t.compra else "",
+        "origen": t.compra.origen if t.compra else "",
+        "proveedor": t.compra.proveedor.nombre if t.compra and t.compra.proveedor else "Sin proveedor",
+        "numero_tracking": t.numero_tracking,
+        "courier": t.courier,
+        "estado": t.estado,
+        "peso_lb": float(t.peso_lb),
+        "fecha_estimada": t.fecha_estimada.isoformat() if t.fecha_estimada else None,
+        "notas": t.notas,
+        "actualizado_en": t.actualizado_en.isoformat() if t.actualizado_en else None,
+    }
+
+
+@enrutador.get("/trackings")
+def listar_trackings_internacionales(
+    compra_id: int | None = Query(default=None),
+    estado: str | None = Query(default=None),
+    busqueda: str | None = Query(default=None),
+    _usuario: Usuario = Depends(require_permiso(Permiso.GESTIONAR_COMPRAS)),
+    bd: Session = Depends(obtener_bd),
+) -> list[dict[str, Any]]:
+    q = (
+        bd.query(CompraTracking)
+        .options(joinedload(CompraTracking.compra).joinedload(Compra.proveedor))
+        .order_by(CompraTracking.id.desc())
+    )
+    if compra_id is not None:
+        q = q.filter(CompraTracking.compra_id == compra_id)
+    if estado and estado.strip():
+        q = q.filter(CompraTracking.estado == estado.strip().upper())
+    if busqueda and busqueda.strip():
+        patron = f"%{busqueda.strip()}%"
+        q = q.filter(
+            or_(
+                CompraTracking.numero_tracking.ilike(patron),
+                CompraTracking.courier.ilike(patron),
+                CompraTracking.notas.ilike(patron),
+            )
+        )
+    return [_serializar_tracking(t) for t in q.limit(300).all()]
+
+
+@enrutador.post("/compras/{compra_id}/trackings", status_code=status.HTTP_201_CREATED)
+def crear_tracking_compra(
+    compra_id: int,
+    datos: CompraTrackingCrearEntrada,
+    usuario_actual: Usuario = Depends(require_permiso(Permiso.GESTIONAR_COMPRAS)),
+    bd: Session = Depends(obtener_bd),
+) -> dict[str, Any]:
+    compra = (
+        bd.query(Compra)
+        .options(joinedload(Compra.proveedor))
+        .filter(Compra.id == compra_id)
+        .first()
+    )
+    if compra is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Compra no encontrada.",
+        )
+
+    num_norm = datos.numero_tracking.strip().upper()
+    trk = CompraTracking(
+        compra_id=compra.id,
+        numero_tracking=num_norm,
+        courier=datos.courier.strip(),
+        estado=datos.estado,
+        peso_lb=datos.peso_lb,
+        fecha_estimada=datos.fecha_estimada,
+        notas=datos.notas.strip(),
+    )
+    bd.add(trk)
+    bd.flush()
+    registrar_auditoria(
+        bd,
+        usuario=usuario_actual,
+        modulo="LOGISTICA",
+        accion="REGISTRAR_TRACKING",
+        entidad_id=num_norm,
+        detalle_anterior={},
+        detalle_nuevo={
+            "compra_id": compra.id,
+            "numero_compra": compra.numero_compra,
+            "courier": trk.courier,
+            "estado": trk.estado,
+        },
+    )
+    bd.commit()
+    bd.refresh(trk)
+    trk.compra = compra
+    return _serializar_tracking(trk)
+
+
+@enrutador.patch("/trackings/{tracking_id}/estado")
+def actualizar_estado_tracking(
+    tracking_id: int,
+    datos: CompraTrackingEstadoEntrada,
+    usuario_actual: Usuario = Depends(require_permiso(Permiso.GESTIONAR_COMPRAS)),
+    bd: Session = Depends(obtener_bd),
+) -> dict[str, Any]:
+    trk = (
+        bd.query(CompraTracking)
+        .options(joinedload(CompraTracking.compra).joinedload(Compra.proveedor))
+        .filter(CompraTracking.id == tracking_id)
+        .first()
+    )
+    if trk is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Tracking no encontrado.",
+        )
+
+    estado_anterior = trk.estado
+    trk.estado = datos.estado
+    if datos.courier is not None:
+        trk.courier = datos.courier.strip()
+    if datos.peso_lb is not None:
+        trk.peso_lb = datos.peso_lb
+    if datos.fecha_estimada is not None:
+        trk.fecha_estimada = datos.fecha_estimada
+    if datos.notas is not None:
+        trk.notas = datos.notas.strip()
+
+    registrar_auditoria(
+        bd,
+        usuario=usuario_actual,
+        modulo="LOGISTICA",
+        accion="ACTUALIZAR_ESTADO_TRACKING",
+        entidad_id=trk.numero_tracking,
+        detalle_anterior={"estado": estado_anterior},
+        detalle_nuevo={"estado": trk.estado, "courier": trk.courier, "peso_lb": float(trk.peso_lb)},
+    )
+    bd.commit()
+    bd.refresh(trk)
+    return _serializar_tracking(trk)

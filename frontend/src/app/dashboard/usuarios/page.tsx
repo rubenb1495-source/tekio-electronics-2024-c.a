@@ -376,7 +376,14 @@ export default function PaginaPersonalYUsuarios() {
                   return (
                     <tr key={u.id} className="hover:bg-white/60">
                       <td className="px-4 py-3">
-                        <p className="font-bold text-[#191818]">{u.nombre}</p>
+                        <p className="font-bold text-[#191818]">
+                          {u.nombre}
+                          {u.username && (
+                            <span className="ml-1.5 font-mono text-[11px] font-semibold text-[#E85A28]">
+                              @{u.username}
+                            </span>
+                          )}
+                        </p>
                         <p className="text-xs text-neutral-500">
                           {u.correo || "Sin correo"}
                           {u.cedula ? ` · C.I.: ${u.cedula}` : ""}
@@ -413,7 +420,7 @@ export default function PaginaPersonalYUsuarios() {
                           {conAcceso ? "Con acceso" : "Solo comisiones"}
                         </span>
                       </td>
-                      <td className="px-4 py-3">
+                      <td className="px-4 py-3 space-y-1">
                         <span
                           className={`inline-flex px-2.5 py-0.5 rounded-full text-xs font-bold ${
                             u.activo
@@ -423,6 +430,33 @@ export default function PaginaPersonalYUsuarios() {
                         >
                           {u.activo ? "Activo" : "Inactivo"}
                         </span>
+                        {u.cuenta_bloqueada && (
+                          <div className="flex items-center gap-1.5">
+                            <span className="inline-flex px-2 py-0.5 rounded-full text-[10px] font-black bg-red-600 text-white">
+                              Bloqueada
+                            </span>
+                            <button
+                              type="button"
+                              onClick={async () => {
+                                try {
+                                  await solicitarApi(`/api/usuarios/${u.id}/desbloquear`, {
+                                    method: "POST",
+                                  });
+                                  await cargarDatos();
+                                } catch (err) {
+                                  setError(
+                                    err instanceof ErrorApi
+                                      ? err.message
+                                      : "No se pudo desbloquear la cuenta."
+                                  );
+                                }
+                              }}
+                              className="px-2 py-0.5 rounded-lg bg-[#E85A28] text-white text-[10px] font-bold cursor-pointer"
+                            >
+                              Desbloquear
+                            </button>
+                          </div>
+                        )}
                       </td>
                       <td className="px-4 py-3 text-right whitespace-nowrap space-x-1.5">
                         <button

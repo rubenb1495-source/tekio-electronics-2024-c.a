@@ -180,3 +180,57 @@ class PrestamoCuota(Base):
     prestamo = relationship("Prestamo", back_populates="cuotas")
     pago_egreso = relationship("Pago")
     instrumento_pago = relationship("InstrumentoFinanciero")
+
+
+class Socio(Base):
+    __tablename__ = "socios"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    nombre: Mapped[str] = mapped_column(String(160), nullable=False, index=True)
+    porcentaje_participacion: Mapped[Decimal] = mapped_column(Numeric(6, 2), nullable=False)
+    activo: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    creado_en: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+class RepartoUtilidad(Base):
+    __tablename__ = "reparto_utilidades"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    periodo_mes: Mapped[str] = mapped_column(String(10), index=True, nullable=False)  # YYYY-MM
+    utilidad_neta_base_usd: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False)
+    monto_distribuido_usd: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False)
+    fecha_pago: Mapped[date] = mapped_column(Date, index=True, nullable=False)
+    instrumento_id: Mapped[int] = mapped_column(ForeignKey("instrumentos_financieros.id"), nullable=False)
+    pago_egreso_id: Mapped[int | None] = mapped_column(ForeignKey("pagos.id"), nullable=True)
+    notas: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    creado_por_id: Mapped[int | None] = mapped_column(ForeignKey("usuarios.id"), nullable=True)
+    creado_en: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    instrumento = relationship("InstrumentoFinanciero")
+    pago_egreso = relationship("Pago")
+    creado_por = relationship("Usuario")
+    detalles = relationship(
+        "RepartoUtilidadDetalle",
+        back_populates="reparto",
+        cascade="all, delete-orphan",
+    )
+
+
+class RepartoUtilidadDetalle(Base):
+    __tablename__ = "reparto_utilidades_detalle"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    reparto_id: Mapped[int] = mapped_column(
+        ForeignKey("reparto_utilidades.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    socio_id: Mapped[int] = mapped_column(ForeignKey("socios.id"), index=True, nullable=False)
+    porcentaje_aplicado: Mapped[Decimal] = mapped_column(Numeric(6, 2), nullable=False)
+    monto_usd: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False)
+    referencia: Mapped[str] = mapped_column(String(120), default="", nullable=False)
+
+    reparto = relationship("RepartoUtilidad", back_populates="detalles")
+    socio = relationship("Socio")

@@ -82,3 +82,21 @@ class CasoActualizarEntrada(BaseModel):
     resultado_estado: EstadoCasoPostventa
     repuestos_usados: list[ComponenteUsadoEntrada] = Field(default_factory=list)
     repuestos_faltantes: list[RepuestoFaltanteEntrada] = Field(default_factory=list)
+
+
+class RecepcionTallerCrearEntrada(BaseModel):
+    tipo: Literal["GARANTIA", "SERVICIO_TECNICO"]
+    sucursal_id: int
+    numero_nota_entrega: str = Field(default="", max_length=40)
+    cliente_id: int | None = None
+    cliente_nombre: str = Field(default="", max_length=160)
+    cliente_telefono: str = Field(default="", max_length=40)
+    serial_o_codigo: str = Field(default="", max_length=100)
+    descripcion_equipo: str = Field(min_length=2, max_length=255)
+    tipo_marca_color: str = Field(default="", max_length=160)
+    accesorios_recibidos: str = Field(default="", max_length=500)
+    estado_fisico: str = Field(default="", max_length=500)
+    clave_equipo: str = Field(default="", max_length=100)
+    ingresa_apagado: bool = False
+    falla_reportada: str = Field(min_length=3, max_length=1000)
+    tecnico_id: int | None = None

@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import BuscadorTabla from "@/componentes/BuscadorTabla";
 import PanelImportacionMasiva from "@/components/PanelImportacionMasiva";
+import PanelTrackingsInternacionales from "@/components/PanelTrackingsInternacionales";
 import {
   ErrorApi,
   fechaHoyCaracas,
@@ -337,6 +338,8 @@ export default function PaginaCompras() {
         flujoInicial="compras_internacionales"
         alCompletar={() => void cargarDatos()}
       />
+
+      <PanelTrackingsInternacionales compras={compras} />
 
       {error && (
         <div className="flex items-center gap-2.5 p-4 rounded-xl bg-red-50 border border-red-200 text-sm text-red-700">

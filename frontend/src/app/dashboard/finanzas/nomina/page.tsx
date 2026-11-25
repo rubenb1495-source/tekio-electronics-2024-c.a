@@ -28,6 +28,7 @@ interface EmpleadoNomina {
   usuario_rol: string;
   cedula: string;
   cargo: string;
+  categoria_laboral?: string;
   sucursal: string;
   salario_base_usd: number;
   bono_cestaticket_usd: number;
@@ -76,6 +77,7 @@ export default function PaginaNominaLaboral() {
   const [usuarioId, setUsuarioId] = useState("");
   const [cedula, setCedula] = useState("");
   const [cargo, setCargo] = useState("");
+  const [categoriaLaboral, setCategoriaLaboral] = useState("ASESOR");
   const [salarioBase, setSalarioBase] = useState("");
   const [bono, setBono] = useState("40");
   const [datosBanco, setDatosBanco] = useState("");
@@ -120,6 +122,7 @@ export default function PaginaNominaLaboral() {
           usuario_id: Number(usuarioId),
           cedula: cedula.trim(),
           cargo: cargo.trim(),
+          categoria_laboral: categoriaLaboral,
           salario_base_usd: Number(salarioBase || 0),
           bono_cestaticket_usd: Number(bono || 0),
           datos_bancarios: datosBanco.trim(),
@@ -211,10 +214,17 @@ export default function PaginaNominaLaboral() {
         <h3 className="text-sm font-black text-[#191818] flex items-center gap-1.5">
           <Plus className="w-4 h-4 text-[#E85A28]" /> Registrar / Actualizar Ficha Laboral
         </h3>
-        <div className="grid grid-cols-1 md:grid-cols-6 gap-2.5">
+        <div className="grid grid-cols-1 md:grid-cols-7 gap-2.5">
           <select required value={usuarioId} onChange={(e) => setUsuarioId(e.target.value)} className="px-2.5 py-2 rounded-xl border border-neutral-200 bg-white font-semibold">
             <option value="">Colaborador...</option>
             {usuarios.map((u) => <option key={u.id} value={String(u.id)}>{u.nombre} ({u.rol})</option>)}
+          </select>
+          <select value={categoriaLaboral} onChange={(e) => setCategoriaLaboral(e.target.value)} className="px-2.5 py-2 rounded-xl border border-neutral-200 bg-white font-bold">
+            <option value="ASESOR">ASESOR</option>
+            <option value="LIDER_ENCARGADO">LÍDER / ENCARGADO</option>
+            <option value="ADMINISTRADORA">ADMINISTRADORA</option>
+            <option value="ACCIONISTA">ACCIONISTA</option>
+            <option value="CHOFER_MENSAJERO">CHOFER / MENSAJERO</option>
           </select>
           <input type="text" value={cedula} onChange={(e) => setCedula(e.target.value)} placeholder="Cédula (V-...)" className="px-2.5 py-2 rounded-xl border border-neutral-200 bg-white" />
           <input type="text" value={cargo} onChange={(e) => setCargo(e.target.value)} placeholder="Cargo" className="px-2.5 py-2 rounded-xl border border-neutral-200 bg-white" />
@@ -229,7 +239,7 @@ export default function PaginaNominaLaboral() {
           <div className="flex flex-wrap gap-2 pt-1">
             {empleados.map((e) => (
               <span key={e.id} className="px-2.5 py-1 rounded-xl bg-neutral-100 text-[11px] font-semibold tabular-nums">
-                <strong>{e.usuario_nombre}</strong> · {e.cargo} · Base {formatearUsd(e.salario_base_usd)} + Bono {formatearUsd(e.bono_cestaticket_usd)}
+                <strong>{e.usuario_nombre}</strong> · <span className="text-[#E85A28] font-bold">{e.categoria_laboral || "ASESOR"}</span> · {e.cargo} · Base {formatearUsd(e.salario_base_usd)} + Bono {formatearUsd(e.bono_cestaticket_usd)}
               </span>
             ))}
           </div>

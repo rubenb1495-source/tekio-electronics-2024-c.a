@@ -34,8 +34,23 @@ class SucursalSalida(BaseModel):
 # ---------------- Autenticación y Usuarios ----------------
 
 class LoginEntrada(ModeloEntradaLimpio):
-    correo: EmailStr
+    identificador: str | None = Field(default=None, max_length=180)
+    correo: str | None = Field(default=None, max_length=180)
+    username: str | None = Field(default=None, max_length=80)
     clave: str = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def validar_identificador(self) -> "LoginEntrada":
+        ident = (self.identificador or self.username or self.correo or "").strip().lower()
+        if not ident:
+            raise ValueError("Debes ingresar tu nombre de usuario o correo electrónico.")
+        self.identificador = ident
+        return self
+
+
+class CambiarPasswordEntrada(ModeloEntradaLimpio):
+    clave_actual: str = Field(min_length=1)
+    clave_nueva: str = Field(min_length=8, max_length=128)
 
 
 class UsuarioSalida(BaseModel):
@@ -43,12 +58,16 @@ class UsuarioSalida(BaseModel):
 
     id: int
     nombre: str
+    username: str | None = None
     correo: str | None = None
     rol: RolUsuario
     modalidad: str = "PRESENCIAL"
     telefono: str = ""
     cedula: str = ""
     tiene_acceso: bool = True
+    intentos_fallidos_login: int = 0
+    cuenta_bloqueada: bool = False
+    bloqueado_hasta: datetime | None = None
     activo: bool
     motivo_estado: str | None = None
     creado_en: datetime
@@ -62,6 +81,7 @@ class LoginSalida(BaseModel):
 
 class UsuarioCrearEntrada(ModeloEntradaLimpio):
     nombre: str = Field(min_length=2, max_length=150)
+    username: str | None = Field(default=None, max_length=80)
     rol: RolUsuario
     modalidad: Literal["PRESENCIAL", "ONLINE"] = "PRESENCIAL"
     telefono: str = Field(default="", max_length=40)
@@ -115,6 +135,7 @@ class UsuarioCrearEntrada(ModeloEntradaLimpio):
 
 class UsuarioActualizarEntrada(ModeloEntradaLimpio):
     nombre: str = Field(min_length=2, max_length=150)
+    username: str | None = Field(default=None, max_length=80)
     rol: RolUsuario
     modalidad: Literal["PRESENCIAL", "ONLINE"] = "PRESENCIAL"
     telefono: str = Field(default="", max_length=40)

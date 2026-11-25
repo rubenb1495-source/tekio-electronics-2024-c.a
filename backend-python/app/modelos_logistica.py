@@ -159,6 +159,28 @@ class Compra(Base):
     guias = relationship("GuiaImportacion", secondary=guias_compras, back_populates="compras")
     equipos = relationship("Equipo", back_populates="compra")
     componentes = relationship("CompraComponente", back_populates="compra")
+    trackings = relationship("CompraTracking", back_populates="compra", cascade="all, delete-orphan")
+
+
+class CompraTracking(Base):
+    __tablename__ = "compras_trackings"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    compra_id: Mapped[int] = mapped_column(ForeignKey("compras.id", ondelete="CASCADE"), index=True, nullable=False)
+    numero_tracking: Mapped[str] = mapped_column(String(120), index=True, nullable=False)
+    courier: Mapped[str] = mapped_column(String(80), default="", nullable=False)
+    estado: Mapped[str] = mapped_column(String(30), default="EN_ORIGEN", index=True, nullable=False)
+    peso_lb: Mapped[Decimal] = mapped_column(Numeric(10, 2), default=Decimal("0"), nullable=False)
+    fecha_estimada: Mapped[date | None] = mapped_column(Date, nullable=True)
+    notas: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    actualizado_en: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+    compra = relationship("Compra", back_populates="trackings")
 
 
 class CompraComponente(Base):

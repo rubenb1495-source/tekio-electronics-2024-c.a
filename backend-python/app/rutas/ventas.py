@@ -421,6 +421,41 @@ def evaluar_venta(
             else EstadoVenta.CON_SALDO.value
         )
 
+    precio_regular_bs = (
+        (total_regular * tasa_bcv).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        if tasa_bcv > 0
+        else Decimal("0.00")
+    )
+    if usa_cashea and total_cashea_usd > Decimal("0.00"):
+        com_cashea_venta_total = (total_regular * Decimal("0.04")).quantize(
+            Decimal("0.01"), rounding=ROUND_HALF_UP
+        )
+        com_cashea_financiado = (total_cashea_usd * Decimal("0.04")).quantize(
+            Decimal("0.01"), rounding=ROUND_HALF_UP
+        )
+        iva_cashea = (com_cashea_venta_total * Decimal("0.16")).quantize(
+            Decimal("0.01"), rounding=ROUND_HALF_UP
+        )
+        islr_cashea = (com_cashea_venta_total * Decimal("0.02")).quantize(
+            Decimal("0.01"), rounding=ROUND_HALF_UP
+        )
+        total_deducciones_cashea = (
+            com_cashea_venta_total + com_cashea_financiado + iva_cashea + islr_cashea
+        ).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        neto_esperado_cashea = max(
+            Decimal("0.00"),
+            (total_cashea_usd - total_deducciones_cashea).quantize(
+                Decimal("0.01"), rounding=ROUND_HALF_UP
+            ),
+        )
+    else:
+        com_cashea_venta_total = Decimal("0.00")
+        com_cashea_financiado = Decimal("0.00")
+        iva_cashea = Decimal("0.00")
+        islr_cashea = Decimal("0.00")
+        total_deducciones_cashea = Decimal("0.00")
+        neto_esperado_cashea = Decimal("0.00")
+
     return {
         "sucursal": sucursal,
         "tasa_bcv": tasa_bcv,
@@ -429,6 +464,7 @@ def evaluar_venta(
         "usa_cashea": usa_cashea,
         "total_promo_usd": total_promo,
         "total_regular_usd": total_regular,
+        "precio_regular_bs": precio_regular_bs,
         "cubierto_promo_usd": cubierto_neto,
         "cubierto_regular_usd": cubierto_regular_neto,
         "falta_usd_promo": falta_promo,
@@ -436,6 +472,12 @@ def evaluar_venta(
         "falta_usd_regular": falta_regular,
         "falta_bs": falta_bs,
         "total_cashea_usd": total_cashea_usd,
+        "comision_cashea_venta_total_usd": com_cashea_venta_total,
+        "comision_cashea_financiado_usd": com_cashea_financiado,
+        "iva_cashea_usd": iva_cashea,
+        "islr_cashea_usd": islr_cashea,
+        "total_deducciones_cashea_usd": total_deducciones_cashea,
+        "neto_esperado_cashea_usd": neto_esperado_cashea,
         "cashea_financiado_sugerido_usd": cashea_sugerido_usd,
         "cashea_financiado_sugerido_bs": cashea_sugerido_bs,
         "tiene_servicio_tecnico": tiene_servicio_tecnico,
@@ -562,6 +604,14 @@ def serializar_venta(venta: Venta, incluir_costos: bool) -> dict[str, Any]:
         datos["margen_neto_real_usd"] = redondear_usd(margen_neto_real)
         datos["margen_neto_real_pct"] = margen_pct
         datos["utilidad_real_usd"] = redondear_usd(total_real - total_costo)
+        datos["precio_regular_bs"] = redondear_usd(getattr(venta, "precio_regular_bs", Decimal("0")) or Decimal("0"))
+        datos["monto_financiado_cashea_usd"] = redondear_usd(getattr(venta, "monto_financiado_cashea_usd", Decimal("0")) or Decimal("0"))
+        datos["comision_cashea_venta_total_usd"] = redondear_usd(getattr(venta, "comision_cashea_venta_total_usd", Decimal("0")) or Decimal("0"))
+        datos["comision_cashea_financiado_usd"] = redondear_usd(getattr(venta, "comision_cashea_financiado_usd", Decimal("0")) or Decimal("0"))
+        datos["iva_cashea_usd"] = redondear_usd(getattr(venta, "iva_cashea_usd", Decimal("0")) or Decimal("0"))
+        datos["islr_cashea_usd"] = redondear_usd(getattr(venta, "islr_cashea_usd", Decimal("0")) or Decimal("0"))
+        datos["total_deducciones_cashea_usd"] = redondear_usd(getattr(venta, "total_deducciones_cashea_usd", Decimal("0")) or Decimal("0"))
+        datos["neto_esperado_cashea_usd"] = redondear_usd(getattr(venta, "neto_esperado_cashea_usd", Decimal("0")) or Decimal("0"))
     return datos
 
 
@@ -796,6 +846,14 @@ def crear_venta(
         recargo_especial_porcentaje=datos.recargo_especial,
         total_promo_usd=calc["total_promo_usd"],
         total_regular_usd=calc["total_regular_usd"],
+        precio_regular_bs=calc["precio_regular_bs"],
+        monto_financiado_cashea_usd=calc["total_cashea_usd"],
+        comision_cashea_venta_total_usd=calc["comision_cashea_venta_total_usd"],
+        comision_cashea_financiado_usd=calc["comision_cashea_financiado_usd"],
+        iva_cashea_usd=calc["iva_cashea_usd"],
+        islr_cashea_usd=calc["islr_cashea_usd"],
+        total_deducciones_cashea_usd=calc["total_deducciones_cashea_usd"],
+        neto_esperado_cashea_usd=calc["neto_esperado_cashea_usd"],
         vuelto_caja_chica_usd=datos.vuelto_usd,
         es_factura=datos.es_factura,
         numero_control=datos.numero_control.strip(),
@@ -1042,6 +1100,32 @@ def crear_venta(
             entidad_id=venta.id,
             descripcion=f"Descarga de inventario a costo de ventas {numero_venta}",
             lineas=lineas_cogs,
+            creado_por_id=usuario_actual.id,
+        )
+
+    if calc["total_deducciones_cashea_usd"] > Decimal("0.00"):
+        registrar_asiento(
+            bd,
+            fecha=fecha_op,
+            referencia=numero_venta,
+            modulo_origen="CASHEA_DEDUCCIONES",
+            entidad_id=venta.id,
+            descripcion=(
+                f"Deducciones financieras Cashea {numero_venta} "
+                f"(4% total + 4% financiado + 16% IVA + 2% ISLR)"
+            ),
+            lineas=[
+                {
+                    "codigo_cuenta": "6.3.03",
+                    "debe_usd": calc["total_deducciones_cashea_usd"],
+                    "descripcion": f"Comisión/Impuestos Cashea {numero_venta}",
+                },
+                {
+                    "codigo_cuenta": "1.1.03",
+                    "haber_usd": calc["total_deducciones_cashea_usd"],
+                    "descripcion": f"Ajuste neto Cashea por cobrar {numero_venta}",
+                },
+            ],
             creado_por_id=usuario_actual.id,
         )
 

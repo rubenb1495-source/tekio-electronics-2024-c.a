@@ -27,7 +27,7 @@ export default function PaginaLogin() {
     setError(null);
 
     if (!correo.trim() || !clave) {
-      setError("Ingresa tu correo electrónico y tu clave de acceso.");
+      setError("Ingresa tu nombre de usuario o correo y tu clave de acceso.");
       return;
     }
 
@@ -94,18 +94,18 @@ export default function PaginaLogin() {
                 htmlFor="correo"
                 className="block text-xs font-bold text-[#191818] uppercase tracking-wider"
               >
-                Correo electrónico
+                Usuario o Correo
               </label>
               <div className="relative">
                 <Mail className="w-4 h-4 text-neutral-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
                 <input
                   id="correo"
-                  type="email"
+                  type="text"
                   required
-                  autoComplete="email"
+                  autoComplete="username"
                   value={correo}
                   onChange={(e) => setCorreo(e.target.value)}
-                  placeholder="usuario@tekioelectronics.com"
+                  placeholder="usuario o correo@tekioelectronics.com"
                   className="w-full pl-10 pr-3.5 py-2.5 rounded-xl border border-neutral-200 bg-white/90 text-sm text-[#191818] placeholder:text-neutral-400"
                 />
               </div>

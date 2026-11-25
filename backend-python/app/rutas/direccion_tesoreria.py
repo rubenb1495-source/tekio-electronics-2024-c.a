@@ -209,13 +209,51 @@ def _calcular_alertas_internas(bd: Session, hoy: date) -> dict[str, Any]:
             }
         )
 
+    # 5. Alertas de Seguridad: Cuentas bloqueadas tras 5 intentos fallidos de login
+    from app.modelos import Usuario as UsuarioModelo
+
+    usuarios_bloqueados = (
+        bd.query(UsuarioModelo)
+        .filter(UsuarioModelo.cuenta_bloqueada.is_(True))
+        .order_by(UsuarioModelo.id.asc())
+        .all()
+    )
+    alertas_seguridad: list[dict[str, Any]] = []
+    for ub in usuarios_bloqueados:
+        alertas_seguridad.append(
+            {
+                "usuario_id": ub.id,
+                "nombre": ub.nombre,
+                "username": ub.username or ub.correo or f"usr-{ub.id}",
+                "rol": ub.rol,
+                "intentos_fallidos": ub.intentos_fallidos_login,
+                "bloqueado_hasta": ub.bloqueado_hasta.isoformat() if ub.bloqueado_hasta else None,
+                "mensaje": f"Cuenta bloqueada tras {ub.intentos_fallidos_login} intentos fallidos.",
+            }
+        )
+        cxp_alertas.append(
+            {
+                "compra_id": 300000 + ub.id,
+                "numero_compra": f"SEG-{ub.id}",
+                "factura_orden": f"Cuenta bloqueada: {ub.nombre} ({ub.username or ub.correo})",
+                "proveedor": f"Seguridad · {ub.rol}",
+                "origen": "SEGURIDAD",
+                "fecha_vencimiento": hoy.isoformat(),
+                "dias_restantes": 0,
+                "saldo_pendiente_usd": 0.0,
+                "estado": "VENCIDA",
+            }
+        )
+
     return {
         "fecha_corte": hoy.isoformat(),
         "total_alertas": len(stock_bajo) + len(cxp_alertas),
         "total_stock_bajo": len(stock_bajo),
         "total_cxp": len(cxp_alertas),
+        "total_seguridad": len(alertas_seguridad),
         "stock_bajo": stock_bajo,
         "cxp_por_vencer": cxp_alertas,
+        "alertas_seguridad": alertas_seguridad,
     }
 
 

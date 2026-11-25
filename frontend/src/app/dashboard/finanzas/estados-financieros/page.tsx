@@ -38,6 +38,7 @@ interface PlEscalonado {
   margen_operativo_pct: number;
   diferencial_cambiario_usd: number;
   intereses_prestamos_usd: number;
+  comisiones_cashea_usd?: number;
   utilidad_neta_usd: number;
   margen_neto_pct: number;
 }
@@ -359,6 +360,11 @@ export default function PaginaEstadosFinancieros() {
                   <tr>
                     <td className="px-5 py-3 text-red-700">(-) Intereses Financieros de Préstamos</td>
                     <td className="px-5 py-3 text-right text-red-700">-{formatearUsd(pl.intereses_prestamos_usd)}</td>
+                    <td className="px-5 py-3 text-right text-neutral-400">—</td>
+                  </tr>
+                  <tr>
+                    <td className="px-5 py-3 text-red-700">(-) Comisiones e Impuestos Financieros Cashea</td>
+                    <td className="px-5 py-3 text-right text-red-700">-{formatearUsd(pl.comisiones_cashea_usd ?? 0)}</td>
                     <td className="px-5 py-3 text-right text-neutral-400">—</td>
                   </tr>
                   <tr className="bg-[#E85A28] text-white font-black text-base">

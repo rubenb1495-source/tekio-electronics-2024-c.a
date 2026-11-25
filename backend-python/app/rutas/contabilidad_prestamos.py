@@ -21,6 +21,9 @@ from app.modelos_contabilidad import (
     PlanCuenta,
     Prestamo,
     PrestamoCuota,
+    RepartoUtilidad,
+    RepartoUtilidadDetalle,
+    Socio,
 )
 from app.modelos_finanzas import (
     CuentaPorCobrar,
@@ -717,8 +720,13 @@ def _calcular_pl_escalonado(
         Decimal("0.00"),
     ).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
+    comisiones_cashea = sum(
+        (getattr(v, "total_deducciones_cashea_usd", Decimal("0.00")) or Decimal("0.00") for v in ventas),
+        Decimal("0.00"),
+    ).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
     utilidad_neta = (
-        utilidad_operativa + diferencial_cambiario - intereses_prestamos
+        utilidad_operativa + diferencial_cambiario - intereses_prestamos - comisiones_cashea
     ).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
     def _pct(num: Decimal) -> float:
@@ -745,6 +753,7 @@ def _calcular_pl_escalonado(
         "margen_operativo_pct": _pct(utilidad_operativa),
         "diferencial_cambiario_usd": redondear_usd(diferencial_cambiario),
         "intereses_prestamos_usd": redondear_usd(intereses_prestamos),
+        "comisiones_cashea_usd": redondear_usd(comisiones_cashea),
         "utilidad_neta_usd": redondear_usd(utilidad_neta),
         "margen_neto_pct": _pct(utilidad_neta),
     }
@@ -1001,4 +1010,447 @@ def exportar_balance_general(
         content=generar_pdf_balance_general(bal),
         media_type="application/pdf",
         headers={"Content-Disposition": f'inline; filename="tekio_balance_general_{corte}.pdf"'},
+    )
+
+
+# =====================================================================
+# 4. SOCIOS Y REPARTO DE UTILIDADES A SOCIOS
+# =====================================================================
+
+class SocioCrearEntrada(BaseModel):
+    nombre: str = Field(min_length=2, max_length=160)
+    porcentaje_participacion: Decimal = Field(gt=0, le=100)
+    activo: bool = True
+
+
+class RepartoUtilidadCrearEntrada(BaseModel):
+    periodo_mes: str = Field(pattern=r"^\d{4}-\d{2}$")
+    utilidad_neta_base_usd: Decimal | None = Field(default=None, ge=0)
+    monto_distribuido_usd: Decimal = Field(gt=0)
+    fecha_pago: date | None = None
+    instrumento_id: int
+    referencia_base: str = Field(default="", max_length=100)
+    notas: str = Field(default="", max_length=1000)
+
+
+@enrutador.get("/socios")
+def listar_socios(
+    _usuario: Usuario = Depends(require_permiso(Permiso.VER_FINANZAS_GLOBALES)),
+    bd: Session = Depends(obtener_bd),
+) -> list[dict[str, Any]]:
+    socios = bd.query(Socio).order_by(Socio.id.asc()).all()
+    return [
+        {
+            "id": s.id,
+            "nombre": s.nombre,
+            "porcentaje_participacion": float(s.porcentaje_participacion),
+            "activo": s.activo,
+        }
+        for s in socios
+    ]
+
+
+@enrutador.post("/socios", status_code=status.HTTP_201_CREATED)
+def crear_socio(
+    datos: SocioCrearEntrada,
+    usuario_actual: Usuario = Depends(require_permiso(Permiso.VER_FINANZAS_GLOBALES)),
+    bd: Session = Depends(obtener_bd),
+) -> dict[str, Any]:
+    total_actual = sum(
+        (s.porcentaje_participacion for s in bd.query(Socio).filter(Socio.activo.is_(True)).all()),
+        Decimal("0.00"),
+    )
+    if datos.activo and (total_actual + datos.porcentaje_participacion) > Decimal("100.00"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"La suma de participación de socios activos excedería el 100% (actual: {float(total_actual):.2f}%).",
+        )
+    socio = Socio(
+        nombre=datos.nombre.strip(),
+        porcentaje_participacion=datos.porcentaje_participacion,
+        activo=datos.activo,
+    )
+    bd.add(socio)
+    bd.flush()
+    registrar_auditoria(
+        bd,
+        usuario_actual,
+        "UTILIDADES",
+        "CREAR_SOCIO",
+        str(socio.id),
+        {},
+        {"nombre": socio.nombre, "porcentaje_participacion": float(socio.porcentaje_participacion)},
+    )
+    bd.commit()
+    return {
+        "id": socio.id,
+        "nombre": socio.nombre,
+        "porcentaje_participacion": float(socio.porcentaje_participacion),
+        "activo": socio.activo,
+    }
+
+
+@enrutador.put("/socios/{socio_id}")
+def actualizar_socio(
+    socio_id: int,
+    datos: SocioCrearEntrada,
+    usuario_actual: Usuario = Depends(require_permiso(Permiso.VER_FINANZAS_GLOBALES)),
+    bd: Session = Depends(obtener_bd),
+) -> dict[str, Any]:
+    socio = bd.query(Socio).filter(Socio.id == socio_id).first()
+    if socio is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Socio no encontrado.")
+    otros_activos = sum(
+        (
+            s.porcentaje_participacion
+            for s in bd.query(Socio).filter(Socio.activo.is_(True), Socio.id != socio_id).all()
+        ),
+        Decimal("0.00"),
+    )
+    if datos.activo and (otros_activos + datos.porcentaje_participacion) > Decimal("100.00"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"La suma de participación de socios activos excedería el 100% (otros socios: {float(otros_activos):.2f}%).",
+        )
+    socio.nombre = datos.nombre.strip()
+    socio.porcentaje_participacion = datos.porcentaje_participacion
+    socio.activo = datos.activo
+    bd.commit()
+    return {
+        "id": socio.id,
+        "nombre": socio.nombre,
+        "porcentaje_participacion": float(socio.porcentaje_participacion),
+        "activo": socio.activo,
+    }
+
+
+def _serializar_reparto(r: RepartoUtilidad) -> dict[str, Any]:
+    return {
+        "id": r.id,
+        "periodo_mes": r.periodo_mes,
+        "utilidad_neta_base_usd": redondear_usd(r.utilidad_neta_base_usd),
+        "monto_distribuido_usd": redondear_usd(r.monto_distribuido_usd),
+        "fecha_pago": r.fecha_pago.isoformat(),
+        "instrumento_id": r.instrumento_id,
+        "instrumento": r.instrumento.nombre if r.instrumento else "",
+        "pago_egreso_id": r.pago_egreso_id,
+        "notas": r.notas,
+        "creado_por": r.creado_por.nombre if r.creado_por else "",
+        "detalles": [
+            {
+                "id": d.id,
+                "socio_id": d.socio_id,
+                "socio_nombre": d.socio.nombre if d.socio else "",
+                "porcentaje_aplicado": float(d.porcentaje_aplicado),
+                "monto_usd": redondear_usd(d.monto_usd),
+                "referencia": d.referencia,
+            }
+            for d in r.detalles
+        ],
+    }
+
+
+@enrutador.get("/utilidades/simular")
+def simular_reparto_utilidades(
+    periodo_mes: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}$"),
+    monto_distribuir_usd: Decimal | None = Query(default=None, ge=0),
+    _usuario: Usuario = Depends(require_permiso(Permiso.VER_FINANZAS_GLOBALES)),
+    bd: Session = Depends(obtener_bd),
+) -> dict[str, Any]:
+    hoy = obtener_fecha_hoy()
+    mes_str = periodo_mes or f"{hoy.year:04d}-{hoy.month:02d}"
+    anio, mes = int(mes_str.split("-")[0]), int(mes_str.split("-")[1])
+    ultimo_dia = calendar.monthrange(anio, mes)[1]
+    pl = _calcular_pl_escalonado(
+        bd, fecha_inicio=date(anio, mes, 1), fecha_fin=date(anio, mes, ultimo_dia)
+    )
+    utilidad_disponible = max(Decimal("0.00"), Decimal(str(pl["utilidad_neta_usd"])))
+    base_reparto = monto_distribuir_usd if monto_distribuir_usd is not None else utilidad_disponible
+    socios = bd.query(Socio).filter(Socio.activo.is_(True)).order_by(Socio.id.asc()).all()
+    distribucion = [
+        {
+            "socio_id": s.id,
+            "socio_nombre": s.nombre,
+            "porcentaje_participacion": float(s.porcentaje_participacion),
+            "monto_usd": redondear_usd(
+                (base_reparto * s.porcentaje_participacion / Decimal("100")).quantize(
+                    Decimal("0.01"), rounding=ROUND_HALF_UP
+                )
+            ),
+        }
+        for s in socios
+    ]
+    return {
+        "periodo_mes": mes_str,
+        "utilidad_neta_mes_usd": redondear_usd(utilidad_disponible),
+        "monto_a_distribuir_usd": redondear_usd(base_reparto),
+        "porcentaje_total_socios": float(sum((s.porcentaje_participacion for s in socios), Decimal("0"))),
+        "distribucion": distribucion,
+    }
+
+
+@enrutador.get("/utilidades/repartos")
+def listar_repartos_utilidades(
+    _usuario: Usuario = Depends(require_permiso(Permiso.VER_FINANZAS_GLOBALES)),
+    bd: Session = Depends(obtener_bd),
+) -> list[dict[str, Any]]:
+    repartos = (
+        bd.query(RepartoUtilidad)
+        .options(
+            joinedload(RepartoUtilidad.instrumento),
+            joinedload(RepartoUtilidad.creado_por),
+            joinedload(RepartoUtilidad.detalles).joinedload(RepartoUtilidadDetalle.socio),
+        )
+        .order_by(RepartoUtilidad.id.desc())
+        .all()
+    )
+    return [_serializar_reparto(r) for r in repartos]
+
+
+@enrutador.post("/utilidades/repartos", status_code=status.HTTP_201_CREATED)
+def registrar_reparto_utilidades(
+    datos: RepartoUtilidadCrearEntrada,
+    usuario_actual: Usuario = Depends(require_permiso(Permiso.VER_FINANZAS_GLOBALES)),
+    bd: Session = Depends(obtener_bd),
+) -> dict[str, Any]:
+    socios = bd.query(Socio).filter(Socio.activo.is_(True)).order_by(Socio.id.asc()).all()
+    if not socios:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Debes registrar al menos un socio activo antes de distribuir utilidades.",
+        )
+
+    inst = (
+        bd.query(InstrumentoFinanciero)
+        .filter(InstrumentoFinanciero.id == datos.instrumento_id)
+        .first()
+    )
+    if inst is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Instrumento/banco no encontrado.")
+
+    fecha_pago = datos.fecha_pago or obtener_fecha_hoy()
+    anio, mes = int(datos.periodo_mes.split("-")[0]), int(datos.periodo_mes.split("-")[1])
+    ultimo_dia = calendar.monthrange(anio, mes)[1]
+    pl = _calcular_pl_escalonado(
+        bd, fecha_inicio=date(anio, mes, 1), fecha_fin=date(anio, mes, ultimo_dia)
+    )
+    utilidad_base = (
+        datos.utilidad_neta_base_usd
+        if datos.utilidad_neta_base_usd is not None
+        else max(Decimal("0.00"), Decimal(str(pl["utilidad_neta_usd"])))
+    )
+
+    # Calcular montos exactos por socio
+    detalles_calc: list[tuple[Socio, Decimal]] = []
+    total_repartido = Decimal("0.00")
+    for s in socios:
+        monto_s = (
+            datos.monto_distribuido_usd * s.porcentaje_participacion / Decimal("100")
+        ).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        if monto_s > Decimal("0.00"):
+            detalles_calc.append((s, monto_s))
+            total_repartido += monto_s
+
+    if total_repartido <= Decimal("0.00"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="El monto calculado a distribuir entre los socios debe ser mayor que 0.",
+        )
+
+    tasa_bcv, tasa_usdt = _tasa_bcv_usdt_corte(bd, fecha_pago)
+    if inst.moneda == MonedaInstrumento.BS.value and tasa_bcv > 0:
+        monto_orig = (total_repartido * tasa_bcv).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        usd_real = (monto_orig / tasa_usdt).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP) if tasa_usdt > 0 else total_repartido
+    else:
+        monto_orig = total_repartido
+        usd_real = total_repartido
+
+    ref_base = datos.referencia_base.strip() or f"DIV-{datos.periodo_mes}"
+    pago = Pago(
+        venta_id=None,
+        instrumento_id=inst.id,
+        fecha=fecha_pago,
+        tipo_movimiento=TipoMovimientoPago.EGRESO.value,
+        tipo_documento="REPARTO_UTILIDADES",
+        monto_moneda_origen=monto_orig,
+        moneda=inst.moneda,
+        tasa_bcv_dia=tasa_bcv,
+        tasa_usdt_dia=tasa_usdt,
+        usd_nominal=total_repartido,
+        usd_real=usd_real,
+        referencia=ref_base,
+        estado_verificacion=EstadoVerificacionPago.CONFIRMADO.value,
+        verificado_por_id=usuario_actual.id,
+        nota=f"Reparto de utilidades período {datos.periodo_mes}. {datos.notas.strip()}".strip(),
+    )
+    bd.add(pago)
+    bd.flush()
+
+    reparto = RepartoUtilidad(
+        periodo_mes=datos.periodo_mes,
+        utilidad_neta_base_usd=utilidad_base,
+        monto_distribuido_usd=total_repartido,
+        fecha_pago=fecha_pago,
+        instrumento_id=inst.id,
+        pago_egreso_id=pago.id,
+        notas=datos.notas.strip(),
+        creado_por_id=usuario_actual.id,
+    )
+    bd.add(reparto)
+    bd.flush()
+
+    for idx, (s, monto_s) in enumerate(detalles_calc, start=1):
+        bd.add(
+            RepartoUtilidadDetalle(
+                reparto_id=reparto.id,
+                socio_id=s.id,
+                porcentaje_aplicado=s.porcentaje_participacion,
+                monto_usd=monto_s,
+                referencia=f"{ref_base}-S{idx}",
+            )
+        )
+
+    # Asiento automático: Debe Utilidades Distribuidas / Patrimonio (3.1.03) / Haber Caja y Bancos (1.1.01)
+    registrar_asiento(
+        bd,
+        fecha=fecha_pago,
+        referencia=ref_base,
+        modulo_origen="REPARTO_UTILIDADES",
+        entidad_id=reparto.id,
+        descripcion=f"Distribución de utilidades a socios ({datos.periodo_mes})",
+        lineas=[
+            {
+                "codigo_cuenta": "3.1.03",
+                "debe_usd": total_repartido,
+                "descripcion": f"Utilidades distribuidas período {datos.periodo_mes}",
+            },
+            {
+                "codigo_cuenta": "1.1.01",
+                "haber_usd": total_repartido,
+                "descripcion": f"Pago dividendos desde {inst.nombre}",
+            },
+        ],
+        creado_por_id=usuario_actual.id,
+    )
+    registrar_auditoria(
+        bd,
+        usuario_actual,
+        "UTILIDADES",
+        "REGISTRAR_REPARTO",
+        f"REPARTO-{reparto.id}",
+        {},
+        {
+            "periodo_mes": datos.periodo_mes,
+            "monto_distribuido_usd": float(total_repartido),
+            "socios": len(detalles_calc),
+        },
+    )
+    bd.commit()
+
+    rep_full = (
+        bd.query(RepartoUtilidad)
+        .options(
+            joinedload(RepartoUtilidad.instrumento),
+            joinedload(RepartoUtilidad.creado_por),
+            joinedload(RepartoUtilidad.detalles).joinedload(RepartoUtilidadDetalle.socio),
+        )
+        .filter(RepartoUtilidad.id == reparto.id)
+        .first()
+    )
+    return _serializar_reparto(rep_full)
+
+
+@enrutador.get("/utilidades/repartos/{reparto_id}/pdf")
+def descargar_pdf_reparto_utilidades(
+    reparto_id: int,
+    _usuario: Usuario = Depends(require_permiso(Permiso.VER_FINANZAS_GLOBALES)),
+    bd: Session = Depends(obtener_bd),
+) -> Response:
+    import io
+    from reportlab.lib import colors
+    from reportlab.lib.pagesizes import letter
+    from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
+    from reportlab.lib.units import cm
+    from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+    from app.utils.pdf_branding import dibujar_marca_de_agua
+
+    rep = (
+        bd.query(RepartoUtilidad)
+        .options(
+            joinedload(RepartoUtilidad.instrumento),
+            joinedload(RepartoUtilidad.creado_por),
+            joinedload(RepartoUtilidad.detalles).joinedload(RepartoUtilidadDetalle.socio),
+        )
+        .filter(RepartoUtilidad.id == reparto_id)
+        .first()
+    )
+    if rep is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Reparto de utilidades no encontrado.")
+
+    buf = io.BytesIO()
+    doc = SimpleDocTemplate(
+        buf,
+        pagesize=letter,
+        leftMargin=1.8 * cm,
+        rightMargin=1.8 * cm,
+        topMargin=1.8 * cm,
+        bottomMargin=1.8 * cm,
+    )
+    base = getSampleStyleSheet()
+    st_sub = ParagraphStyle("RepSub", parent=base["Normal"], fontSize=9, textColor=colors.HexColor("#555555"), spaceAfter=4)
+    st_tit = ParagraphStyle("RepTit", parent=base["Heading1"], fontName="Helvetica-Bold", fontSize=14, textColor=colors.HexColor("#191818"), spaceAfter=8)
+
+    elementos: list[Any] = [
+        Paragraph("TEKIO ELECTRONICS 2024, C.A. · RIF J-50637518-4", st_sub),
+        Paragraph(f"Comprobante de Reparto de Utilidades #{rep.id}", st_tit),
+        Paragraph(
+            f"Período: {rep.periodo_mes} · Fecha de pago: {rep.fecha_pago.isoformat()} · "
+            f"Banco/Instrumento: {rep.instrumento.nombre if rep.instrumento else 'N/D'}",
+            st_sub,
+        ),
+        Paragraph(
+            f"Utilidad Neta Base: ${float(rep.utilidad_neta_base_usd):,.2f} USD · "
+            f"Total Distribuido: ${float(rep.monto_distribuido_usd):,.2f} USD",
+            st_sub,
+        ),
+        Spacer(1, 0.3 * cm),
+    ]
+
+    filas = [["Socio / Accionista", "% Participación", "Referencia", "Monto (USD)"]]
+    for d in rep.detalles:
+        filas.append(
+            [
+                d.socio.nombre if d.socio else f"Socio #{d.socio_id}",
+                f"{float(d.porcentaje_aplicado):.2f}%",
+                d.referencia,
+                f"${float(d.monto_usd):,.2f}",
+            ]
+        )
+    filas.append(["TOTAL DISTRIBUIDO", "", "", f"${float(rep.monto_distribuido_usd):,.2f}"])
+
+    tabla = Table(filas, colWidths=[6.8 * cm, 3.2 * cm, 4.2 * cm, 3.6 * cm])
+    tabla.setStyle(
+        TableStyle(
+            [
+                ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#191818")),
+                ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+                ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                ("BACKGROUND", (0, -1), (-1, -1), colors.HexColor("#E85A28")),
+                ("TEXTCOLOR", (0, -1), (-1, -1), colors.white),
+                ("FONTNAME", (0, -1), (-1, -1), "Helvetica-Bold"),
+                ("ALIGN", (1, 0), (1, -1), "RIGHT"),
+                ("ALIGN", (3, 0), (3, -1), "RIGHT"),
+                ("GRID", (0, 0), (-1, -1), 0.35, colors.HexColor("#DDDDDD")),
+                ("FONTSIZE", (0, 0), (-1, -1), 9),
+                ("TOPPADDING", (0, 0), (-1, -1), 6),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+            ]
+        )
+    )
+    elementos.append(tabla)
+    doc.build(elementos, onFirstPage=dibujar_marca_de_agua, onLaterPages=dibujar_marca_de_agua)
+    return Response(
+        content=buf.getvalue(),
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'inline; filename="reparto_utilidades_{rep.periodo_mes}_{rep.id}.pdf"'},
     )

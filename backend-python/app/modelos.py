@@ -64,6 +64,7 @@ class Usuario(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     nombre: Mapped[str] = mapped_column(String(150), nullable=False)
+    username: Mapped[str | None] = mapped_column(String(80), unique=True, index=True, nullable=True)
     correo: Mapped[str | None] = mapped_column(String(180), unique=True, index=True, nullable=True)
     clave_hash: Mapped[str | None] = mapped_column(String(255), nullable=True)
     rol: Mapped[str] = mapped_column(String(30), nullable=False)
@@ -71,6 +72,9 @@ class Usuario(Base):
     telefono: Mapped[str] = mapped_column(String(40), default="", nullable=False)
     cedula: Mapped[str] = mapped_column(String(40), default="", nullable=False)
     tiene_acceso: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    intentos_fallidos_login: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    bloqueado_hasta: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    cuenta_bloqueada: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     sucursal_id: Mapped[int | None] = mapped_column(ForeignKey("sucursales.id"), nullable=True)
     activo: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     motivo_estado: Mapped[str | None] = mapped_column(String(255), nullable=True)

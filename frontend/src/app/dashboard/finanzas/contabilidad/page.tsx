@@ -56,7 +56,10 @@ interface EstadoResultados {
 }
 
 const CATEGORIAS = [
-  "ALQUILER",
+  "ALQUILER_TIENDA",
+  "ALQUILER_ALMACEN",
+  "CONDOMINIO",
+  "COMISIONES_BANCARIAS",
   "SERVICIOS",
   "NOMINA",
   "PUBLICIDAD",
@@ -86,7 +89,7 @@ export default function PaginaContabilidadPyL() {
 
   // Formulario gasto
   const [fechaGasto, setFechaGasto] = useState(hoy);
-  const [categoria, setCategoria] = useState("ALQUILER");
+  const [categoria, setCategoria] = useState("ALQUILER_TIENDA");
   const [sucursalGasto, setSucursalGasto] = useState("");
   const [instrumentoId, setInstrumentoId] = useState("");
   const [moneda, setMoneda] = useState<"USD" | "USDT" | "BS">("USD");

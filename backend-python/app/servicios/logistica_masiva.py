@@ -74,6 +74,8 @@ FLUJOS_PLANTILLAS: dict[str, dict[str, Any]] = {
             "precio_promo_usd",
             "proveedor",
             "numero_guia",
+            "numero_tracking",
+            "courier",
             "flete_total_usd",
             "aduana_total_usd",
             "moneda",
@@ -91,6 +93,8 @@ FLUJOS_PLANTILLAS: dict[str, dict[str, Any]] = {
             "450.00",
             "Miami Tech Wholesale",
             "GUIA-MIA-2026-01",
+            "1Z999AA10123456784",
+            "UPS",
             "60.00",
             "40.00",
             "USD",
@@ -597,6 +601,26 @@ def confirmar_importacion_atomica(
                     )
                 )
                 creados += 1
+
+            # Registrar trackings únicos cuando vengan en filas de compras internacionales
+            if flujo == "compras_internacionales":
+                from app.modelos_logistica import CompraTracking
+
+                trackings_vistos: set[str] = set()
+                for f in filas_datos:
+                    num_trk = str(f.get("numero_tracking") or "").strip().upper()
+                    if not num_trk or num_trk in trackings_vistos:
+                        continue
+                    trackings_vistos.add(num_trk)
+                    bd.add(
+                        CompraTracking(
+                            compra_id=compra.id,
+                            numero_tracking=num_trk,
+                            courier=str(f.get("courier") or "").strip()[:80],
+                            estado="EN_ORIGEN",
+                            notas=f"Importado desde {nombre_archivo}",
+                        )
+                    )
 
             bd.commit()
             return {

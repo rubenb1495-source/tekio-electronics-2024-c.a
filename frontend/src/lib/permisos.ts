@@ -86,6 +86,7 @@ export function puedeAccederRuta(
     ruta.startsWith("/dashboard/finanzas/contabilidad") ||
     ruta.startsWith("/dashboard/finanzas/estados-financieros") ||
     ruta.startsWith("/dashboard/finanzas/prestamos") ||
+    ruta.startsWith("/dashboard/finanzas/utilidades") ||
     ruta.startsWith("/dashboard/finanzas/fiscal") ||
     ruta.startsWith("/dashboard/finanzas/nomina") ||
     ruta.startsWith("/dashboard/finanzas/auditoria")

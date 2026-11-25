@@ -98,6 +98,7 @@ class NominaEmpleado(Base):
     usuario_id: Mapped[int] = mapped_column(ForeignKey("usuarios.id"), unique=True, index=True, nullable=False)
     cedula: Mapped[str] = mapped_column(String(40), default="", nullable=False)
     cargo: Mapped[str] = mapped_column(String(100), default="", nullable=False)
+    categoria_laboral: Mapped[str] = mapped_column(String(40), default="ASESOR", index=True, nullable=False)
     sucursal_id: Mapped[int | None] = mapped_column(ForeignKey("sucursales.id"), nullable=True)
     fecha_ingreso: Mapped[date | None] = mapped_column(Date, nullable=True)
     salario_base_usd: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=Decimal("0"), nullable=False)

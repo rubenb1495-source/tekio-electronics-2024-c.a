@@ -54,21 +54,35 @@ def asegurar_columnas_compatibles() -> None:
                     )
     if inspector.has_table("ventas"):
         columnas_vta = {col["name"] for col in inspector.get_columns("ventas")}
-        if "datos_entrega_json" not in columnas_vta:
-            with motor.begin() as conexion:
-                conexion.execute(
-                    text(
-                        "ALTER TABLE ventas "
-                        "ADD COLUMN datos_entrega_json TEXT NOT NULL DEFAULT ''"
+        nuevas_ventas = [
+            ("datos_entrega_json", "TEXT NOT NULL DEFAULT ''"),
+            ("precio_regular_bs", "NUMERIC(16, 2) NOT NULL DEFAULT 0"),
+            ("monto_financiado_cashea_usd", "NUMERIC(14, 2) NOT NULL DEFAULT 0"),
+            ("comision_cashea_venta_total_usd", "NUMERIC(14, 2) NOT NULL DEFAULT 0"),
+            ("comision_cashea_financiado_usd", "NUMERIC(14, 2) NOT NULL DEFAULT 0"),
+            ("iva_cashea_usd", "NUMERIC(14, 2) NOT NULL DEFAULT 0"),
+            ("islr_cashea_usd", "NUMERIC(14, 2) NOT NULL DEFAULT 0"),
+            ("total_deducciones_cashea_usd", "NUMERIC(14, 2) NOT NULL DEFAULT 0"),
+            ("neto_esperado_cashea_usd", "NUMERIC(14, 2) NOT NULL DEFAULT 0"),
+        ]
+        for nombre_col, ddl_col in nuevas_ventas:
+            if nombre_col not in columnas_vta:
+                with motor.begin() as conexion:
+                    conexion.execute(
+                        text(f"ALTER TABLE ventas ADD COLUMN {nombre_col} {ddl_col}")
                     )
-                )
     if inspector.has_table("usuarios"):
         columnas_usr = {col["name"] for col in inspector.get_columns("usuarios")}
+        tipo_ts_usr = "TIMESTAMPTZ" if motor.dialect.name == "postgresql" else "DATETIME"
         nuevas_usuarios = [
+            ("username", "VARCHAR(80) NULL"),
             ("telefono", "VARCHAR(40) NOT NULL DEFAULT ''"),
             ("modalidad", "VARCHAR(20) NOT NULL DEFAULT 'PRESENCIAL'"),
             ("cedula", "VARCHAR(40) NOT NULL DEFAULT ''"),
             ("tiene_acceso", "BOOLEAN NOT NULL DEFAULT TRUE"),
+            ("intentos_fallidos_login", "INTEGER NOT NULL DEFAULT 0"),
+            ("bloqueado_hasta", f"{tipo_ts_usr} NULL"),
+            ("cuenta_bloqueada", "BOOLEAN NOT NULL DEFAULT FALSE"),
         ]
         for nombre_col, ddl_col in nuevas_usuarios:
             if nombre_col not in columnas_usr:
@@ -161,6 +175,29 @@ def asegurar_columnas_compatibles() -> None:
                     conexion.execute(
                         text(f"ALTER TABLE liquidaciones_comisiones ADD COLUMN {nombre_col} {ddl_col}")
                     )
+    if inspector.has_table("casos_postventa"):
+        columnas_cp = {col["name"] for col in inspector.get_columns("casos_postventa")}
+        nuevas_cp = [
+            ("numero_nota_entrega", "VARCHAR(40) NOT NULL DEFAULT ''"),
+            ("venta_id", "INTEGER NULL"),
+            ("ingresa_apagado", "BOOLEAN NOT NULL DEFAULT FALSE"),
+            ("recibido_por_id", "INTEGER NULL"),
+            ("cliente_nombre_manual", "VARCHAR(160) NOT NULL DEFAULT ''"),
+            ("cliente_telefono_manual", "VARCHAR(40) NOT NULL DEFAULT ''"),
+        ]
+        for nombre_col, ddl_col in nuevas_cp:
+            if nombre_col not in columnas_cp:
+                with motor.begin() as conexion:
+                    conexion.execute(
+                        text(f"ALTER TABLE casos_postventa ADD COLUMN {nombre_col} {ddl_col}")
+                    )
+    if inspector.has_table("nomina_empleados"):
+        columnas_ne = {col["name"] for col in inspector.get_columns("nomina_empleados")}
+        if "categoria_laboral" not in columnas_ne:
+            with motor.begin() as conexion:
+                conexion.execute(
+                    text("ALTER TABLE nomina_empleados ADD COLUMN categoria_laboral VARCHAR(40) NOT NULL DEFAULT 'ASESOR'")
+                )
 
 
 @asynccontextmanager
@@ -172,6 +209,16 @@ async def ciclo_vida(_app: FastAPI) -> AsyncIterator[None]:
         ejecutar_semilla(bd)
         ejecutar_semilla_finanzas(bd)
         asegurar_plan_cuentas(bd)
+        # Completar username automático en minúsculas para usuarios existentes que aún no lo tengan
+        from app.modelos import Usuario as _Usuario
+        from app.rutas.usuarios import generar_username_unico
+
+        sin_user = bd.query(_Usuario).filter((_Usuario.username.is_(None)) | (_Usuario.username == "")).all()
+        for u in sin_user:
+            u.username = generar_username_unico(
+                bd, deseado=None, correo=u.correo, nombre=u.nombre, excluir_id=u.id
+            )
+            bd.flush()
         bd.commit()
     finally:
         bd.close()

@@ -145,13 +145,20 @@ class CasoPostventa(Base):
         String(30), default=EstadoCasoPostventa.RECIBIDO.value, nullable=False, index=True
     )
     alerta_garantia: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    numero_nota_entrega: Mapped[str] = mapped_column(String(40), default="", nullable=False, index=True)
+    venta_id: Mapped[int | None] = mapped_column(ForeignKey("ventas.id"), nullable=True)
+    ingresa_apagado: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    recibido_por_id: Mapped[int | None] = mapped_column(ForeignKey("usuarios.id"), nullable=True)
+    cliente_nombre_manual: Mapped[str] = mapped_column(String(160), default="", nullable=False)
+    cliente_telefono_manual: Mapped[str] = mapped_column(String(40), default="", nullable=False)
     fecha_ingreso: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     fecha_cierre: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     sucursal = relationship("Sucursal")
     cliente = relationship("Tercero")
     equipo = relationship("Equipo")
-    tecnico = relationship("Usuario")
+    tecnico = relationship("Usuario", foreign_keys=[tecnico_id])
+    recibido_por = relationship("Usuario", foreign_keys=[recibido_por_id])
     presupuestos = relationship(
         "CasoPresupuesto",
         back_populates="caso",

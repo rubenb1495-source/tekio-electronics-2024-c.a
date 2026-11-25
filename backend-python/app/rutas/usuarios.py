@@ -1,9 +1,13 @@
 from __future__ import annotations
 
+import re
+
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from sqlalchemy import func
 from sqlalchemy.orm import Session, joinedload
 
 from app.base_datos import obtener_bd
+from app.servicios.auditoria_service import registrar_auditoria
 from app.esquemas import (
     SucursalSalida,
     UsuarioActualizarEntrada,
@@ -22,6 +26,33 @@ from app.seguridad import (
 
 
 enrutador = APIRouter(prefix="/api", tags=["Usuarios y Sucursales"])
+
+
+def generar_username_unico(
+    bd: Session,
+    *,
+    deseado: str | None,
+    correo: str | None,
+    nombre: str,
+    excluir_id: int | None = None,
+) -> str:
+    base_raw = (deseado or "").strip().lower()
+    if not base_raw and correo and "@" in correo:
+        base_raw = correo.split("@", 1)[0].strip().lower()
+    if not base_raw:
+        base_raw = nombre.strip().lower()
+    base = re.sub(r"[^a-z0-9._-]+", "", base_raw.replace(" ", "."))[:60] or "usuario"
+
+    candidato = base
+    sufijo = 1
+    while True:
+        q = bd.query(Usuario.id).filter(func.lower(Usuario.username) == candidato)
+        if excluir_id is not None:
+            q = q.filter(Usuario.id != excluir_id)
+        if q.first() is None:
+            return candidato
+        sufijo += 1
+        candidato = f"{base[:54]}{sufijo}"
 
 
 @enrutador.get("/sucursales", response_model=list[SucursalSalida])
@@ -107,8 +138,27 @@ def crear_usuario(
                 detail="La sucursal indicada no existe.",
             )
 
+    if datos.username:
+        u_norm = re.sub(r"[^a-z0-9._-]+", "", datos.username.strip().lower())
+        if len(u_norm) < 3:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="El nombre de usuario debe tener al menos 3 caracteres válidos.",
+            )
+        if bd.query(Usuario.id).filter(func.lower(Usuario.username) == u_norm).first() is not None:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"El nombre de usuario '{u_norm}' ya está en uso.",
+            )
+        username_final = u_norm
+    else:
+        username_final = generar_username_unico(
+            bd, deseado=None, correo=correo_normalizado, nombre=datos.nombre
+        )
+
     nuevo = Usuario(
         nombre=datos.nombre,
+        username=username_final,
         correo=correo_normalizado,
         clave_hash=clave_hash,
         rol=datos.rol.value,
@@ -166,6 +216,28 @@ def actualizar_usuario(
             )
 
     usuario.nombre = datos.nombre
+    if datos.username is not None and datos.username.strip():
+        u_norm = re.sub(r"[^a-z0-9._-]+", "", datos.username.strip().lower())
+        if len(u_norm) < 3:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="El nombre de usuario debe tener al menos 3 caracteres válidos.",
+            )
+        dup_u = (
+            bd.query(Usuario.id)
+            .filter(func.lower(Usuario.username) == u_norm, Usuario.id != usuario_id)
+            .first()
+        )
+        if dup_u is not None:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"El nombre de usuario '{u_norm}' ya está en uso.",
+            )
+        usuario.username = u_norm
+    elif not usuario.username:
+        usuario.username = generar_username_unico(
+            bd, deseado=None, correo=datos.correo, nombre=datos.nombre, excluir_id=usuario_id
+        )
     usuario.rol = datos.rol.value
     usuario.modalidad = datos.modalidad
     usuario.telefono = datos.telefono.strip()
@@ -236,6 +308,41 @@ def cambiar_estado_usuario(
 
     usuario.activo = datos.activo
     usuario.motivo_estado = datos.motivo
+    bd.commit()
+    bd.refresh(usuario)
+    return UsuarioSalida.model_validate(usuario)
+
+
+@enrutador.post("/usuarios/{usuario_id}/desbloquear", response_model=UsuarioSalida)
+def desbloquear_usuario(
+    usuario_id: int,
+    usuario_actual: Usuario = Depends(require_permiso(Permiso.GESTIONAR_USUARIOS)),
+    bd: Session = Depends(obtener_bd),
+) -> UsuarioSalida:
+    usuario = (
+        bd.query(Usuario)
+        .options(joinedload(Usuario.sucursal))
+        .filter(Usuario.id == usuario_id)
+        .first()
+    )
+    if usuario is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Usuario no encontrado.",
+        )
+
+    usuario.intentos_fallidos_login = 0
+    usuario.cuenta_bloqueada = False
+    usuario.bloqueado_hasta = None
+    registrar_auditoria(
+        bd,
+        usuario=usuario_actual,
+        modulo="SEGURIDAD",
+        accion="DESBLOQUEAR_CUENTA",
+        entidad_id=usuario.username or usuario.correo or str(usuario.id),
+        detalle_anterior={"cuenta_bloqueada": True},
+        detalle_nuevo={"cuenta_bloqueada": False, "intentos_fallidos_login": 0},
+    )
     bd.commit()
     bd.refresh(usuario)
     return UsuarioSalida.model_validate(usuario)

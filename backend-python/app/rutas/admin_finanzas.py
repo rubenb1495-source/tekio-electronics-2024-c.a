@@ -110,10 +110,37 @@ class ObligacionEstadoEntrada(BaseModel):
     referencia_pago: str = Field(default="", max_length=100)
 
 
+CATEGORIAS_LABORALES_NOMINA: tuple[str, ...] = (
+    "ASESOR",
+    "LIDER_ENCARGADO",
+    "ADMINISTRADORA",
+    "ACCIONISTA",
+    "CHOFER_MENSAJERO",
+)
+
+CATEGORIAS_GASTOS_DETALLADAS: list[dict[str, str]] = [
+    {"codigo": "ALQUILER_TIENDA", "nombre": "Alquiler de Tienda", "tipo": "FIJO"},
+    {"codigo": "ALQUILER_ALMACEN", "nombre": "Alquiler de Almacén", "tipo": "FIJO"},
+    {"codigo": "CONDOMINIO", "nombre": "Condominio", "tipo": "FIJO"},
+    {"codigo": "COMISIONES_BANCARIAS", "nombre": "Comisiones Bancarias", "tipo": "VARIABLE"},
+    {"codigo": "SERVICIOS", "nombre": "Servicios (Luz, Internet, Agua)", "tipo": "FIJO"},
+    {"codigo": "NOMINA", "nombre": "Nómina", "tipo": "FIJO"},
+    {"codigo": "PUBLICIDAD", "nombre": "Publicidad y Marketing", "tipo": "VARIABLE"},
+    {"codigo": "MANTENIMIENTO", "nombre": "Mantenimiento", "tipo": "VARIABLE"},
+    {"codigo": "IMPUESTOS", "nombre": "Impuestos y Tasas", "tipo": "FIJO"},
+    {"codigo": "LOGISTICA_ENVIOS", "nombre": "Logística / Envíos", "tipo": "VARIABLE"},
+    {"codigo": "OTROS", "nombre": "Otros Gastos", "tipo": "VARIABLE"},
+]
+
+
 class NominaEmpleadoEntrada(BaseModel):
     usuario_id: int
     cedula: str = Field(default="", max_length=40)
     cargo: str = Field(default="", max_length=100)
+    categoria_laboral: str = Field(
+        default="ASESOR",
+        pattern="^(ASESOR|LIDER_ENCARGADO|ADMINISTRADORA|ACCIONISTA|CHOFER_MENSAJERO)$",
+    )
     sucursal_id: int | None = None
     fecha_ingreso: date | None = None
     salario_base_usd: Decimal = Field(ge=0)
@@ -165,6 +192,13 @@ def _tasa_bcv_usdt(bd: Session, fecha_ref: date) -> tuple[Decimal, Decimal]:
 # =====================================================================
 # 1. CONTABILIDAD: GASTOS OPERATIVOS Y ESTADO DE RESULTADOS (P&L)
 # =====================================================================
+
+@enrutador.get("/gastos/categorias")
+def listar_categorias_gastos(
+    _usuario: Usuario = Depends(require_permiso(Permiso.VER_FINANZAS_GLOBALES)),
+) -> list[dict[str, str]]:
+    return CATEGORIAS_GASTOS_DETALLADAS
+
 
 @enrutador.get("/gastos")
 def listar_gastos_operativos(
@@ -859,6 +893,7 @@ def listar_nomina_empleados(
             "usuario_telefono": getattr(e.usuario, "telefono", "") or "" if e.usuario else "",
             "cedula": e.cedula,
             "cargo": e.cargo,
+            "categoria_laboral": getattr(e, "categoria_laboral", "ASESOR") or "ASESOR",
             "sucursal_id": e.sucursal_id,
             "sucursal": e.sucursal.nombre if e.sucursal else "General",
             "fecha_ingreso": e.fecha_ingreso.isoformat() if e.fecha_ingreso else None,
@@ -886,6 +921,7 @@ def guardar_ficha_laboral(
         bd.add(emp)
     emp.cedula = datos.cedula.strip()
     emp.cargo = datos.cargo.strip() or usr.rol
+    emp.categoria_laboral = datos.categoria_laboral.strip().upper()
     emp.sucursal_id = datos.sucursal_id if datos.sucursal_id is not None else usr.sucursal_id
     emp.fecha_ingreso = datos.fecha_ingreso
     emp.salario_base_usd = datos.salario_base_usd
@@ -893,7 +929,41 @@ def guardar_ficha_laboral(
     emp.datos_bancarios = datos.datos_bancarios.strip()
     emp.activo = True
     bd.commit()
-    return {"id": emp.id, "usuario_id": emp.usuario_id, "salario_base_usd": redondear_usd(emp.salario_base_usd)}
+    return {
+        "id": emp.id,
+        "usuario_id": emp.usuario_id,
+        "categoria_laboral": emp.categoria_laboral,
+        "salario_base_usd": redondear_usd(emp.salario_base_usd),
+    }
+
+
+@enrutador.get("/nomina/resumen-categorias")
+def resumen_nomina_por_categoria(
+    _usuario: Usuario = Depends(require_permiso(Permiso.VER_FINANZAS_GLOBALES)),
+    bd: Session = Depends(obtener_bd),
+) -> list[dict[str, Any]]:
+    empleados = bd.query(NominaEmpleado).filter(NominaEmpleado.activo.is_(True)).all()
+    acum: dict[str, dict[str, Any]] = {
+        cat: {"categoria_laboral": cat, "cantidad_empleados": 0, "total_salario_base_usd": Decimal("0"), "total_bonos_usd": Decimal("0")}
+        for cat in CATEGORIAS_LABORALES_NOMINA
+    }
+    for e in empleados:
+        cat = (getattr(e, "categoria_laboral", "ASESOR") or "ASESOR").upper()
+        if cat not in acum:
+            acum[cat] = {"categoria_laboral": cat, "cantidad_empleados": 0, "total_salario_base_usd": Decimal("0"), "total_bonos_usd": Decimal("0")}
+        acum[cat]["cantidad_empleados"] += 1
+        acum[cat]["total_salario_base_usd"] += e.salario_base_usd
+        acum[cat]["total_bonos_usd"] += e.bono_cestaticket_usd
+    return [
+        {
+            "categoria_laboral": v["categoria_laboral"],
+            "cantidad_empleados": v["cantidad_empleados"],
+            "total_salario_base_usd": redondear_usd(v["total_salario_base_usd"]),
+            "total_bonos_usd": redondear_usd(v["total_bonos_usd"]),
+            "total_mensual_usd": redondear_usd(v["total_salario_base_usd"] + v["total_bonos_usd"]),
+        }
+        for v in acum.values()
+    ]
 
 
 @enrutador.get("/nomina/periodos")

@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from decimal import Decimal, ROUND_HALF_UP
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy import extract, func, or_
 from sqlalchemy.orm import Session, joinedload
 
@@ -18,6 +18,7 @@ from app.esquemas_taller import (
     PreparacionCrearEntrada,
     PresupuestoAprobarEntrada,
     PresupuestoCrearEntrada,
+    RecepcionTallerCrearEntrada,
     RepuestoEstadoEntrada,
 )
 from app.modelos import CatalogoArticulo, CatalogoPrecio, RolUsuario, Sucursal, TipoArticulo, Usuario
@@ -1197,3 +1198,319 @@ def obtener_resumen_tecnico(
         ],
         "detalle_servicios": detalle_servicios,
     }
+
+
+# ---------------- Recepción de Garantías y Servicio Técnico (Líder/Encargado -> Técnico) ----------------
+
+ROLES_RECEPCION_TALLER: tuple[str, ...] = (
+    RolUsuario.DIRECCION.value,
+    RolUsuario.ADMINISTRACION.value,
+    RolUsuario.LIDER.value,
+    RolUsuario.ENCARGADO.value,
+    RolUsuario.LOGISTICA.value,
+    RolUsuario.TECNICO.value,
+)
+
+
+def _serializar_recepcion(c: CasoPostventa) -> dict[str, Any]:
+    tipo_salida = "SERVICIO_TECNICO" if c.tipo in (TipoCasoPostventa.SERVICIO.value, "SERVICIO_TECNICO") else "GARANTIA"
+    cliente_nom = c.cliente.nombre if c.cliente else (c.cliente_nombre_manual or "Cliente general")
+    cliente_tel = (c.cliente.telefono if c.cliente else "") or c.cliente_telefono_manual or ""
+    return {
+        "id": c.id,
+        "numero_caso": c.numero_caso,
+        "tipo": tipo_salida,
+        "sucursal_id": c.sucursal_id,
+        "sucursal": c.sucursal.nombre if c.sucursal else "",
+        "numero_nota_entrega": c.numero_nota_entrega,
+        "venta_id": c.venta_id,
+        "cliente_id": c.cliente_id,
+        "cliente_nombre": cliente_nom,
+        "cliente_telefono": cliente_tel,
+        "serial_o_codigo": c.serial_o_codigo,
+        "descripcion_equipo": c.descripcion_equipo,
+        "tipo_marca_color": c.tipo_marca_color,
+        "accesorios_recibidos": c.accesorios_recibidos,
+        "estado_fisico": c.estado_fisico,
+        "clave_equipo": c.clave_equipo,
+        "ingresa_apagado": bool(c.ingresa_apagado),
+        "falla_reportada": c.falla_reportada,
+        "estado": c.estado,
+        "tecnico_id": c.tecnico_id,
+        "tecnico": c.tecnico.nombre if c.tecnico else "Cola general de Taller",
+        "recibido_por": c.recibido_por.nombre if c.recibido_por else "",
+        "fecha_ingreso": c.fecha_ingreso.isoformat() if c.fecha_ingreso else None,
+    }
+
+
+@enrutador.get("/recepciones")
+def listar_recepciones_taller(
+    tipo: str | None = Query(default=None),
+    _usuario: Usuario = Depends(requerir_roles(*ROLES_RECEPCION_TALLER)),
+    bd: Session = Depends(obtener_bd),
+) -> list[dict[str, Any]]:
+    q = (
+        bd.query(CasoPostventa)
+        .options(
+            joinedload(CasoPostventa.sucursal),
+            joinedload(CasoPostventa.cliente),
+            joinedload(CasoPostventa.tecnico),
+            joinedload(CasoPostventa.recibido_por),
+        )
+        .order_by(CasoPostventa.id.desc())
+    )
+    if tipo and tipo.strip():
+        t_norm = tipo.strip().upper()
+        if t_norm == "SERVICIO_TECNICO":
+            q = q.filter(CasoPostventa.tipo.in_([TipoCasoPostventa.SERVICIO.value, "SERVICIO_TECNICO"]))
+        else:
+            q = q.filter(CasoPostventa.tipo == t_norm)
+    return [_serializar_recepcion(c) for c in q.limit(150).all()]
+
+
+@enrutador.post("/recepciones", status_code=status.HTTP_201_CREATED)
+def crear_recepcion_taller(
+    datos: RecepcionTallerCrearEntrada,
+    usuario_actual: Usuario = Depends(requerir_roles(*ROLES_RECEPCION_TALLER)),
+    bd: Session = Depends(obtener_bd),
+) -> dict[str, Any]:
+    from app.modelos_finanzas import Venta
+    from app.servicios.auditoria_service import registrar_auditoria
+
+    suc = bd.query(Sucursal).filter(Sucursal.id == datos.sucursal_id).first()
+    if suc is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Sucursal no encontrada.")
+
+    venta_id: int | None = None
+    cliente_id = datos.cliente_id
+    nota_norm = datos.numero_nota_entrega.strip().upper()
+
+    if datos.tipo == "GARANTIA":
+        if not nota_norm:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Para recepciones por GARANTIA es obligatorio indicar el Nro. de Nota de Entrega (ej. N-0001).",
+            )
+        venta = (
+            bd.query(Venta)
+            .filter(func.upper(Venta.numero_venta) == nota_norm)
+            .first()
+        )
+        if venta is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"La Nota de Entrega '{nota_norm}' no existe en el registro de ventas.",
+            )
+        venta_id = venta.id
+        if cliente_id is None:
+            cliente_id = venta.cliente_id
+
+    tipo_enum = TipoCasoPostventa.GARANTIA if datos.tipo == "GARANTIA" else TipoCasoPostventa.SERVICIO
+    numero_caso = generar_numero_caso(bd, tipo_enum)
+
+    serial_norm = datos.serial_o_codigo.strip().upper()
+    eq_encontrado = (
+        bd.query(Equipo).filter(Equipo.serial == serial_norm).first()
+        if serial_norm
+        else None
+    )
+
+    caso = CasoPostventa(
+        numero_caso=numero_caso,
+        tipo=tipo_enum.value,
+        sucursal_id=datos.sucursal_id,
+        cliente_id=cliente_id,
+        equipo_id=eq_encontrado.id if eq_encontrado else None,
+        serial_o_codigo=serial_norm,
+        descripcion_equipo=datos.descripcion_equipo.strip(),
+        tipo_marca_color=datos.tipo_marca_color.strip(),
+        accesorios_recibidos=datos.accesorios_recibidos.strip(),
+        estado_fisico=datos.estado_fisico.strip(),
+        clave_equipo=datos.clave_equipo.strip(),
+        falla_reportada=datos.falla_reportada.strip(),
+        tecnico_id=datos.tecnico_id,
+        estado=EstadoCasoPostventa.RECIBIDO.value,
+        numero_nota_entrega=nota_norm,
+        venta_id=venta_id,
+        ingresa_apagado=bool(datos.ingresa_apagado) if datos.tipo == "SERVICIO_TECNICO" else False,
+        recibido_por_id=usuario_actual.id,
+        cliente_nombre_manual=datos.cliente_nombre.strip(),
+        cliente_telefono_manual=datos.cliente_telefono.strip(),
+    )
+    bd.add(caso)
+    bd.flush()
+    registrar_auditoria(
+        bd,
+        usuario=usuario_actual,
+        modulo="TALLER",
+        accion="RECEPCION_EQUIPO",
+        entidad_id=caso.numero_caso,
+        detalle_anterior={},
+        detalle_nuevo={
+            "tipo": datos.tipo,
+            "numero_nota_entrega": nota_norm,
+            "ingresa_apagado": caso.ingresa_apagado,
+            "serial": serial_norm,
+        },
+    )
+    bd.commit()
+
+    caso_full = (
+        bd.query(CasoPostventa)
+        .options(
+            joinedload(CasoPostventa.sucursal),
+            joinedload(CasoPostventa.cliente),
+            joinedload(CasoPostventa.tecnico),
+            joinedload(CasoPostventa.recibido_por),
+        )
+        .filter(CasoPostventa.id == caso.id)
+        .first()
+    )
+    return _serializar_recepcion(caso_full)
+
+
+@enrutador.get("/recepciones/{caso_id}/pdf")
+def descargar_pdf_recepcion_taller(
+    caso_id: int,
+    _usuario: Usuario = Depends(requerir_roles(*ROLES_RECEPCION_TALLER)),
+    bd: Session = Depends(obtener_bd),
+) -> Response:
+    import io
+    from zoneinfo import ZoneInfo
+    from reportlab.lib import colors
+    from reportlab.lib.pagesizes import letter
+    from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
+    from reportlab.lib.units import cm
+    from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+    from app.utils.pdf_branding import dibujar_marca_de_agua
+
+    caso = (
+        bd.query(CasoPostventa)
+        .options(
+            joinedload(CasoPostventa.sucursal),
+            joinedload(CasoPostventa.cliente),
+            joinedload(CasoPostventa.tecnico),
+            joinedload(CasoPostventa.recibido_por),
+        )
+        .filter(CasoPostventa.id == caso_id)
+        .first()
+    )
+    if caso is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Recepción no encontrada.")
+
+    es_servicio = caso.tipo in (TipoCasoPostventa.SERVICIO.value, "SERVICIO_TECNICO")
+    titulo_doc = "COMPROBANTE DE RECEPCIÓN · SERVICIO TÉCNICO" if es_servicio else "COMPROBANTE DE RECEPCIÓN · GARANTÍA"
+    cliente_nom = caso.cliente.nombre if caso.cliente else (caso.cliente_nombre_manual or "Cliente general")
+    cliente_tel = (caso.cliente.telefono if caso.cliente else "") or caso.cliente_telefono_manual or "N/D"
+    recibido_por = caso.recibido_por.nombre if caso.recibido_por else "Equipo Tekio"
+    tecnico_nom = caso.tecnico.nombre if caso.tecnico else "Cola de Taller Técnico"
+
+    fecha_caracas = (
+        caso.fecha_ingreso.astimezone(ZoneInfo("America/Caracas")).strftime("%d/%m/%Y %I:%M %p")
+        if caso.fecha_ingreso and caso.fecha_ingreso.tzinfo
+        else obtener_fecha_hoy().strftime("%d/%m/%Y")
+    )
+
+    buf = io.BytesIO()
+    doc = SimpleDocTemplate(
+        buf,
+        pagesize=letter,
+        leftMargin=1.8 * cm,
+        rightMargin=1.8 * cm,
+        topMargin=1.8 * cm,
+        bottomMargin=1.8 * cm,
+    )
+    base = getSampleStyleSheet()
+    st_sub = ParagraphStyle("RecSub", parent=base["Normal"], fontSize=9, textColor=colors.HexColor("#555555"), spaceAfter=4)
+    st_tit = ParagraphStyle("RecTit", parent=base["Heading1"], fontName="Helvetica-Bold", fontSize=14, textColor=colors.HexColor("#191818"), spaceAfter=8)
+    st_clausula = ParagraphStyle("RecCla", parent=base["Normal"], fontSize=8.5, leading=12, textColor=colors.HexColor("#191818"), spaceAfter=6)
+
+    elementos: list[Any] = [
+        Paragraph("TEKIO ELECTRONICS 2024, C.A. · RIF J-50637518-4", st_sub),
+        Paragraph(f"{titulo_doc} ({caso.numero_caso})", st_tit),
+        Paragraph(
+            f"Fecha y hora (America/Caracas): {fecha_caracas} · Sucursal: {caso.sucursal.nombre if caso.sucursal else 'Tekio'}",
+            st_sub,
+        ),
+        Spacer(1, 0.2 * cm),
+    ]
+
+    filas_datos = [
+        ["Campo", "Detalle"],
+        ["Cliente", f"{cliente_nom} (Tel: {cliente_tel})"],
+        ["Tipo de Ingreso", "SERVICIO TÉCNICO" if es_servicio else f"GARANTÍA (Nota: {caso.numero_nota_entrega or 'N/D'})"],
+        ["Equipo / Modelo", f"{caso.descripcion_equipo} {f'({caso.tipo_marca_color})' if caso.tipo_marca_color else ''}"],
+        ["Serial / Código", caso.serial_o_codigo or "Sin serial"],
+        ["Condición al Ingreso", "INGRESA APAGADO (sin verificación de encendido)" if caso.ingresa_apagado else "Ingresa encendido / operativo"],
+        ["Estado Físico", caso.estado_fisico or "Sin observaciones físicas registradas"],
+        ["Accesorios Recibidos", caso.accesorios_recibidos or "Ninguno"],
+        ["Falla Reportada", caso.falla_reportada],
+        ["Recibido Por / Técnico", f"Recibió: {recibido_por} · Asignado a: {tecnico_nom}"],
+    ]
+    tabla = Table(filas_datos, colWidths=[4.8 * cm, 13.0 * cm])
+    tabla.setStyle(
+        TableStyle(
+            [
+                ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#191818")),
+                ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+                ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                ("FONTNAME", (0, 1), (0, -1), "Helvetica-Bold"),
+                ("BACKGROUND", (0, 1), (0, -1), colors.HexColor("#F6F6F6")),
+                ("FONTSIZE", (0, 0), (-1, -1), 9),
+                ("GRID", (0, 0), (-1, -1), 0.35, colors.HexColor("#DDDDDD")),
+                ("TOPPADDING", (0, 0), (-1, -1), 5),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+                ("VALIGN", (0, 0), (-1, -1), "TOP"),
+            ]
+        )
+    )
+    elementos.append(tabla)
+    elementos.append(Spacer(1, 0.4 * cm))
+
+    if es_servicio:
+        elementos.append(
+            Paragraph(
+                "<b>CONDICIONES Y CLÁUSULAS DE SERVICIO TÉCNICO:</b>",
+                ParagraphStyle("RecHdr", parent=base["Normal"], fontSize=9.5, textColor=colors.HexColor("#E85A28"), spaceAfter=4),
+            )
+        )
+        elementos.append(
+            Paragraph(
+                "1. El diagnóstico y revisión técnica tiene un costo de <b>$10 USD</b>, los cuales serán "
+                "<b>100% exonerados</b> en caso de que el cliente apruebe la reparación.",
+                st_clausula,
+            )
+        )
+        elementos.append(
+            Paragraph(
+                "2. Si el equipo ingresa <b>apagado</b> o sin posibilidad de verificación previa de encendido, "
+                "Tekio Electronics <b>no se hace responsable</b> por fallas ocultas, pantalla, teclado, batería "
+                "o componentes internos que no pudieron ser probados al momento de la recepción.",
+                st_clausula,
+            )
+        )
+        elementos.append(Spacer(1, 0.5 * cm))
+
+    firmas = Table(
+        [
+            ["_______________________________", "_______________________________"],
+            [f"Firma del Cliente: {cliente_nom}", f"Recibido por: {recibido_por}"],
+        ],
+        colWidths=[8.9 * cm, 8.9 * cm],
+    )
+    firmas.setStyle(
+        TableStyle(
+            [
+                ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+                ("FONTSIZE", (0, 0), (-1, -1), 8.5),
+                ("TOPPADDING", (0, 0), (-1, -1), 6),
+            ]
+        )
+    )
+    elementos.append(firmas)
+    doc.build(elementos, onFirstPage=dibujar_marca_de_agua, onLaterPages=dibujar_marca_de_agua)
+    return Response(
+        content=buf.getvalue(),
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'inline; filename="recepcion_{caso.numero_caso}.pdf"'},
+    )

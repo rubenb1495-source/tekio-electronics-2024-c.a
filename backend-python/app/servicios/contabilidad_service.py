@@ -39,6 +39,8 @@ CUENTAS_BASE_TEKIO: list[tuple[str, str, TipoCuentaContable]] = [
     ("6.2.02", "Gastos de Nómina", TipoCuentaContable.GASTO),
     ("6.3.01", "Intereses Financieros", TipoCuentaContable.GASTO),
     ("6.3.02", "Pérdida por Diferencial Cambiario", TipoCuentaContable.GASTO),
+    ("6.3.03", "Comisiones Financieras Cashea", TipoCuentaContable.GASTO),
+    ("3.1.03", "Utilidades Distribuidas a Socios", TipoCuentaContable.PATRIMONIO),
 ]
 
 

@@ -242,3 +242,20 @@ class EquipoEstadoMasivoEntrada(ModeloEntradaLimpio):
     nuevo_estado: EstadoEquipo
     motivo: str = Field(default="", max_length=300)
     sucursal_id: int | None = None
+
+
+class CompraTrackingCrearEntrada(ModeloEntradaLimpio):
+    numero_tracking: str = Field(min_length=3, max_length=120)
+    courier: str = Field(default="", max_length=80)
+    estado: Literal["EN_ORIGEN", "EN_TRANSITO", "EN_ADUANA", "RECIBIDO_ALMACEN"] = "EN_ORIGEN"
+    peso_lb: Decimal = Field(default=Decimal("0"), ge=0)
+    fecha_estimada: date | None = None
+    notas: str = Field(default="", max_length=500)
+
+
+class CompraTrackingEstadoEntrada(ModeloEntradaLimpio):
+    estado: Literal["EN_ORIGEN", "EN_TRANSITO", "EN_ADUANA", "RECIBIDO_ALMACEN"]
+    courier: str | None = Field(default=None, max_length=80)
+    peso_lb: Decimal | None = Field(default=None, ge=0)
+    fecha_estimada: date | None = None
+    notas: str | None = Field(default=None, max_length=500)
