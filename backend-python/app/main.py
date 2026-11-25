@@ -92,6 +92,16 @@ def asegurar_columnas_compatibles() -> None:
                     conexion.execute(
                         text(f"ALTER TABLE tasas_diarias ADD COLUMN {nombre_col} {ddl_col}")
                     )
+    if inspector.has_table("cierres_caja"):
+        columnas_cc = {col["name"] for col in inspector.get_columns("cierres_caja")}
+        if "desglose_asesores_json" not in columnas_cc:
+            with motor.begin() as conexion:
+                conexion.execute(
+                    text(
+                        "ALTER TABLE cierres_caja "
+                        "ADD COLUMN desglose_asesores_json TEXT NOT NULL DEFAULT '[]'"
+                    )
+                )
 
 
 @asynccontextmanager

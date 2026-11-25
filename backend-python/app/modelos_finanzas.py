@@ -54,6 +54,7 @@ class TipoDocumentoPago(str, Enum):
     GUIA = "GUIA"
     PARTE_DE_PAGO = "PARTE_DE_PAGO"
     DEVOLUCION = "DEVOLUCION"
+    LIQUIDACION_COMISION = "LIQUIDACION_COMISION"
 
 
 class EstadoVerificacionPago(str, Enum):

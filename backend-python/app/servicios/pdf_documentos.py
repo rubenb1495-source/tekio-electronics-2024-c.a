@@ -845,6 +845,44 @@ def generar_pdf_cierre_caja(cierre: CierreCaja) -> bytes:
         pdf.line(0.50 * inch, y - 0.08 * inch, ancho - 0.50 * inch, y - 0.08 * inch)
         y -= 0.24 * inch
 
+    # Desglose de ventas por asesor
+    try:
+        desglose_as = json.loads(getattr(cierre, "desglose_asesores_json", "[]") or "[]")
+    except Exception:
+        desglose_as = []
+
+    if desglose_as:
+        y -= 0.16 * inch
+        pdf.setFillColorRGB(0.953, 0.957, 0.965)
+        pdf.rect(0.50 * inch, y - 0.22 * inch, ancho - 1.0 * inch, 0.26 * inch, fill=1, stroke=0)
+        pdf.setStrokeColorRGB(0.91, 0.35, 0.16)
+        pdf.setLineWidth(1.0)
+        pdf.line(0.50 * inch, y - 0.22 * inch, ancho - 0.50 * inch, y - 0.22 * inch)
+
+        pdf.setFillColorRGB(0.098, 0.094, 0.094)
+        pdf.setFont("Helvetica-Bold", 8.1)
+        pdf.drawString(0.58 * inch, y - 0.13 * inch, "Ventas por Asesor")
+        pdf.drawCentredString(4.35 * inch, y - 0.13 * inch, "Cant. Ventas")
+        pdf.drawRightString(ancho - 0.56 * inch, y - 0.13 * inch, "Total Promo USD")
+        y -= 0.40 * inch
+
+        for as_row in desglose_as:
+            pdf.setFillColorRGB(0.098, 0.094, 0.094)
+            pdf.setFont("Helvetica-Bold", 8.1)
+            pdf.drawString(0.58 * inch, y, str(as_row.get("asesor") or "Tienda")[:42])
+            pdf.setFont("Helvetica", 8.1)
+            pdf.drawCentredString(4.35 * inch, y, str(int(as_row.get("cantidad_ventas") or 0)))
+            pdf.setFont("Helvetica-Bold", 8.1)
+            pdf.drawRightString(
+                ancho - 0.56 * inch,
+                y,
+                f"${Decimal(str(as_row.get('total_promo_usd') or 0)):,.2f}",
+            )
+            pdf.setStrokeColorRGB(0.91, 0.92, 0.93)
+            pdf.setLineWidth(0.4)
+            pdf.line(0.50 * inch, y - 0.08 * inch, ancho - 0.50 * inch, y - 0.08 * inch)
+            y -= 0.23 * inch
+
     if cierre.observaciones:
         y -= 0.16 * inch
         pdf.setFillColorRGB(0.098, 0.094, 0.094)

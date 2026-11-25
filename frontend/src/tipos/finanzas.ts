@@ -228,6 +228,14 @@ export interface DesgloseInstrumentoCaja {
   cantidad_movimientos: number;
 }
 
+export interface DesgloseAsesorCaja {
+  asesor_id: number | null;
+  asesor: string;
+  cantidad_ventas: number;
+  total_promo_usd: number;
+  total_regular_usd: number;
+}
+
 export interface PreviewCierreCaja {
   fecha: string;
   sucursal_id: number | null;
@@ -243,6 +251,7 @@ export interface PreviewCierreCaja {
   efectivo_esperado_usd: number;
   saldo_neto_esperado_usd: number;
   desglose_instrumentos: DesgloseInstrumentoCaja[];
+  desglose_asesores?: DesgloseAsesorCaja[];
 }
 
 export interface CierreCajaResumen {
@@ -264,6 +273,7 @@ export interface CierreCajaResumen {
   diferencia_usd: number;
   observaciones: string;
   desglose_instrumentos: DesgloseInstrumentoCaja[];
+  desglose_asesores?: DesgloseAsesorCaja[];
   creado_en: string | null;
 }
 

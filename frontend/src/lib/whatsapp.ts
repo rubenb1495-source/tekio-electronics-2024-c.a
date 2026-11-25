@@ -660,6 +660,14 @@ export function formatearWhatsAppCierreCaja(cierre: CierreCajaResumen): string {
       lineas.push(`• ${d.instrumento}: *${montoTxt}*`);
     }
   }
+  if (cierre.desglose_asesores && cierre.desglose_asesores.length > 0) {
+    lineas.push("", "🤝 *Ventas por Asesor (Promo USD):*");
+    for (const a of cierre.desglose_asesores) {
+      lineas.push(
+        `• ${a.asesor} (${a.cantidad_ventas}): *${formatearUsd(a.total_promo_usd)}*`
+      );
+    }
+  }
   if (cierre.observaciones) {
     lineas.push("", `📝 Observaciones: ${cierre.observaciones}`);
   }

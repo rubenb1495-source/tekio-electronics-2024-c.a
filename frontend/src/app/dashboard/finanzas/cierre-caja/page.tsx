@@ -434,6 +434,48 @@ export default function PaginaCierreCajaDiario() {
         </form>
       </div>
 
+      {/* Tabla de Ventas por Asesor */}
+      {preview && preview.desglose_asesores && preview.desglose_asesores.length > 0 && (
+        <div className="bg-white/75 backdrop-blur-md border border-white/60 shadow-[0_8px_30px_rgb(0,0,0,0.04)] rounded-2xl overflow-hidden">
+          <div className="px-5 py-3.5 border-b border-neutral-200/80 font-bold text-sm text-[#191818]">
+            Ventas por Asesor ({fecha})
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm text-left">
+              <thead className="bg-neutral-50/90 border-b border-neutral-200 text-xs uppercase text-neutral-500">
+                <tr>
+                  <th className="px-4 py-2.5">Asesor</th>
+                  <th className="px-4 py-2.5 text-center">Cant. Ventas</th>
+                  <th className="px-4 py-2.5 text-right">Total Promo USD</th>
+                  <th className="px-4 py-2.5 text-right">Total Regular USD</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-neutral-100">
+                {preview.desglose_asesores.map((a, idx) => (
+                  <tr
+                    key={`${a.asesor_id ?? "tienda"}-${idx}`}
+                    className="hover:bg-white/60"
+                  >
+                    <td className="px-4 py-2.5 font-semibold text-[#191818]">
+                      {a.asesor}
+                    </td>
+                    <td className="px-4 py-2.5 text-center tabular-nums font-bold">
+                      {a.cantidad_ventas}
+                    </td>
+                    <td className="px-4 py-2.5 text-right tabular-nums font-black text-emerald-700">
+                      {formatearUsd(a.total_promo_usd)}
+                    </td>
+                    <td className="px-4 py-2.5 text-right tabular-nums text-neutral-600">
+                      {formatearUsd(a.total_regular_usd)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
       {/* Historial de cierres */}
       <div className="bg-white/75 backdrop-blur-md border border-white/60 shadow-[0_8px_30px_rgb(0,0,0,0.04)] rounded-2xl p-5 space-y-4">
         <div className="flex flex-wrap items-center justify-between gap-3">

@@ -175,6 +175,7 @@ class CierreCaja(Base):
     total_egresos_bs: Mapped[Decimal] = mapped_column(Numeric(16, 2), default=Decimal("0"), nullable=False)
     total_cashea_usd: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=Decimal("0"), nullable=False)
     desglose_instrumentos_json: Mapped[str] = mapped_column(Text, default="[]", nullable=False)
+    desglose_asesores_json: Mapped[str] = mapped_column(Text, default="[]", nullable=False)
     efectivo_esperado_usd: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=Decimal("0"), nullable=False)
     efectivo_declarado_usd: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=Decimal("0"), nullable=False)
     diferencia_usd: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=Decimal("0"), nullable=False)

@@ -1058,12 +1058,13 @@ def test_liquidacion_comisiones_egreso_antiduplicados_y_cierre_caja_pdf(cliente:
     assert liq["monto_total_usd"] == 10.0
     assert liq["pago_egreso_id"] is not None
 
-    # Verificar EGRESO real en tabla pagos
+    # Verificar EGRESO real en tabla pagos con tipo LIQUIDACION_COMISION
     bd = cliente.sesion_factory()  # type: ignore[attr-defined]
     try:
         egreso = bd.query(Pago).filter(Pago.id == liq["pago_egreso_id"]).first()
         assert egreso is not None
         assert egreso.tipo_movimiento == "EGRESO"
+        assert egreso.tipo_documento == "LIQUIDACION_COMISION"
         assert float(egreso.usd_nominal) == 10.0
     finally:
         bd.close()
@@ -1089,7 +1090,9 @@ def test_liquidacion_comisiones_egreso_antiduplicados_y_cierre_caja_pdf(cliente:
     assert liq["codigo"] in txt_liq
     assert "COMPROBANTE DE LIQUID" in txt_liq
 
-    # 5. Preview de Cierre de Caja Diario: incluye ventas ($1000), ingresos ($688), Cashea ($432), egreso ($10)
+    # 5. Preview de Cierre de Caja Diario:
+    #    - Incluye ventas ($1000), ingresos ($688), Cashea ($432) y desglose por asesor
+    #    - Excluye automáticamente el egreso LIQUIDACION_COMISION ($10) del cuadre diario
     r_prev = cliente.get(
         f"/api/finanzas/cierre-caja/preview?fecha={hoy_str}&sucursal_id=1",
         headers=h_dir,
@@ -1100,17 +1103,20 @@ def test_liquidacion_comisiones_egreso_antiduplicados_y_cierre_caja_pdf(cliente:
     assert prev["total_ventas_usd"] == 1000.0
     assert prev["total_ingresos_usd"] == 688.0
     assert prev["total_cashea_usd"] == 432.0
-    assert prev["total_egresos_usd"] == 10.0
-    assert prev["efectivo_esperado_usd"] == 678.0  # 400 + 288 - 10
+    assert prev["total_egresos_usd"] == 0.0  # LIQUIDACION_COMISION excluida del cierre diario
+    assert prev["efectivo_esperado_usd"] == 688.0  # 400 + 288
+    assert len(prev["desglose_asesores"]) == 1
+    assert prev["desglose_asesores"][0]["cantidad_ventas"] == 2
+    assert prev["desglose_asesores"][0]["total_promo_usd"] == 1000.0
 
-    # 6. Guardar Cierre de Caja declarando $680 (+$2 sobrante) y descargar PDF
+    # 6. Guardar Cierre de Caja declarando $690 (+$2 sobrante) y descargar PDF
     r_cierre = cliente.post(
         "/api/finanzas/cierre-caja",
         headers=h_dir,
         json={
             "fecha": hoy_str,
             "sucursal_id": 1,
-            "efectivo_declarado_usd": 680.0,
+            "efectivo_declarado_usd": 690.0,
             "observaciones": "Cierre verificado al final de la jornada",
         },
     )
@@ -1123,4 +1129,5 @@ def test_liquidacion_comisiones_egreso_antiduplicados_y_cierre_caja_pdf(cliente:
     assert r_cierre_pdf.headers["content-type"] == "application/pdf"
     txt_cierre = _extraer_texto_pdf(r_cierre_pdf.content)
     assert "CIERRE DE CAJA DIARIO" in txt_cierre
-    assert "$680.00" in txt_cierre
+    assert "Ventas por Asesor" in txt_cierre
+    assert "$690.00" in txt_cierre

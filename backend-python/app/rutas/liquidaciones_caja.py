@@ -171,7 +171,7 @@ def crear_liquidacion_comisiones(
         instrumento_id=instrumento.id,
         fecha=fecha_pago,
         tipo_movimiento=TipoMovimientoPago.EGRESO.value,
-        tipo_documento=TipoDocumentoPago.GASTO.value,
+        tipo_documento=TipoDocumentoPago.LIQUIDACION_COMISION.value,
         monto_moneda_origen=monto_origen,
         moneda=instrumento.moneda,
         tasa_bcv_dia=tasa_bcv,
@@ -275,7 +275,11 @@ def _calcular_preview_cierre_caja(
         if suc:
             sucursal_nombre = suc.nombre
 
-    q_ventas = bd.query(Venta).filter(Venta.fecha == fecha_op)
+    q_ventas = (
+        bd.query(Venta)
+        .options(joinedload(Venta.asesor))
+        .filter(Venta.fecha == fecha_op)
+    )
     if sucursal_id is not None:
         q_ventas = q_ventas.filter(Venta.sucursal_id == sucursal_id)
     ventas_dia = q_ventas.all()
@@ -288,11 +292,43 @@ def _calcular_preview_cierre_caja(
     ]
     total_ventas_usd = sum((v.total_promo_usd for v in ventas_activas), Decimal("0"))
 
-    # Movimientos financieros del día (ingresos de ventas/abonos + egresos de liquidaciones/reembolsos/gastos)
+    # Desglose de ventas activas por asesor
+    por_asesor: dict[str, dict[str, Any]] = {}
+    for v in ventas_activas:
+        clave_as = str(v.asesor_id or "tienda")
+        if clave_as not in por_asesor:
+            por_asesor[clave_as] = {
+                "asesor_id": v.asesor_id,
+                "asesor": v.asesor.nombre if v.asesor else "Tienda (Sin asesor)",
+                "cantidad_ventas": 0,
+                "total_promo_usd": Decimal("0"),
+                "total_regular_usd": Decimal("0"),
+            }
+        por_asesor[clave_as]["cantidad_ventas"] += 1
+        por_asesor[clave_as]["total_promo_usd"] += v.total_promo_usd
+        por_asesor[clave_as]["total_regular_usd"] += v.total_regular_usd
+
+    desglose_asesores = [
+        {
+            "asesor_id": a["asesor_id"],
+            "asesor": a["asesor"],
+            "cantidad_ventas": a["cantidad_ventas"],
+            "total_promo_usd": redondear_usd(a["total_promo_usd"]),
+            "total_regular_usd": redondear_usd(a["total_regular_usd"]),
+        }
+        for a in sorted(por_asesor.values(), key=lambda x: (-x["total_promo_usd"], x["asesor"]))
+    ]
+
+    # Movimientos financieros operativos del día
+    # Excluye automáticamente egresos de tipo LIQUIDACION_COMISION para no distorsionar el cuadre diario
     q_pagos = (
         bd.query(Pago)
         .options(joinedload(Pago.instrumento), joinedload(Pago.venta))
-        .filter(Pago.fecha == fecha_op, Pago.anulado.is_(False))
+        .filter(
+            Pago.fecha == fecha_op,
+            Pago.anulado.is_(False),
+            Pago.tipo_documento != TipoDocumentoPago.LIQUIDACION_COMISION.value,
+        )
     )
     pagos_dia = q_pagos.all()
     if sucursal_id is not None:
@@ -383,6 +419,7 @@ def _calcular_preview_cierre_caja(
         "efectivo_esperado_usd": redondear_usd(max(Decimal("0"), efectivo_esperado_usd)),
         "saldo_neto_esperado_usd": redondear_usd(total_ingresos_usd - total_egresos_usd),
         "desglose_instrumentos": desglose,
+        "desglose_asesores": desglose_asesores,
     }
 
 
@@ -391,6 +428,10 @@ def _serializar_cierre_caja(cierre: CierreCaja) -> dict[str, Any]:
         desglose = json.loads(cierre.desglose_instrumentos_json or "[]")
     except Exception:
         desglose = []
+    try:
+        desglose_as = json.loads(getattr(cierre, "desglose_asesores_json", "[]") or "[]")
+    except Exception:
+        desglose_as = []
     return {
         "id": cierre.id,
         "fecha": cierre.fecha.isoformat(),
@@ -410,6 +451,7 @@ def _serializar_cierre_caja(cierre: CierreCaja) -> dict[str, Any]:
         "diferencia_usd": redondear_usd(cierre.diferencia_usd),
         "observaciones": cierre.observaciones,
         "desglose_instrumentos": desglose,
+        "desglose_asesores": desglose_as,
         "creado_en": cierre.creado_en.isoformat() if cierre.creado_en else None,
     }
 
@@ -467,6 +509,7 @@ def guardar_cierre_caja(
         total_egresos_bs=Decimal(str(preview["total_egresos_bs"])),
         total_cashea_usd=Decimal(str(preview["total_cashea_usd"])),
         desglose_instrumentos_json=json.dumps(preview["desglose_instrumentos"], ensure_ascii=False),
+        desglose_asesores_json=json.dumps(preview["desglose_asesores"], ensure_ascii=False),
         efectivo_esperado_usd=esperado,
         efectivo_declarado_usd=declarado,
         diferencia_usd=diferencia,
