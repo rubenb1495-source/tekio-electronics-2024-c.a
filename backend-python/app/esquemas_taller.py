@@ -3,8 +3,9 @@ from __future__ import annotations
 from decimal import Decimal
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import Field
 
+from app.core.validacion import ModeloEntradaLimpio as BaseModel
 from app.modelos_taller import (
     EstadoCasoPostventa,
     ResultadoPreparacion,

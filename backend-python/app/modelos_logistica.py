@@ -56,8 +56,10 @@ class EstadoGuia(str, Enum):
 class EstadoEquipo(str, Enum):
     EN_TRANSITO = "EN_TRANSITO"
     POR_PREPARAR = "POR_PREPARAR"
+    EN_PREPARACION = "EN_PREPARACION"
     LISTO = "LISTO"
     HOSPITAL = "HOSPITAL"
+    RESERVADO = "RESERVADO"
     CEMENTERIO = "CEMENTERIO"
     VENDIDO = "VENDIDO"
 

@@ -16,6 +16,7 @@ import BarraListaPrecios from "@/components/BarraListaPrecios";
 import PanelImportacionMasiva from "@/components/PanelImportacionMasiva";
 import {
   ErrorApi,
+  extraerMensajeError,
   formatearUsd,
   puedeVerCostos,
   solicitarApi,
@@ -33,10 +34,22 @@ import type {
 const ESTADOS_EQUIPO: EstadoEquipo[] = [
   "EN_TRANSITO",
   "POR_PREPARAR",
+  "EN_PREPARACION",
   "LISTO",
   "HOSPITAL",
+  "RESERVADO",
   "CEMENTERIO",
   "VENDIDO",
+];
+
+const ESTADOS_EDITABLES: EstadoEquipo[] = [
+  "EN_TRANSITO",
+  "POR_PREPARAR",
+  "EN_PREPARACION",
+  "LISTO",
+  "HOSPITAL",
+  "RESERVADO",
+  "CEMENTERIO",
 ];
 
 export default function PaginaInventario() {
@@ -69,16 +82,55 @@ export default function PaginaInventario() {
   );
   const [buscandoTraz, setBuscandoTraz] = useState(false);
 
-  // Selección múltiple para cambio de estado masivo
+  // Selección múltiple y cambio de estado individual/masivo
   const [seleccionadosIds, setSeleccionadosIds] = useState<number[]>([]);
   const [estadoMasivo, setEstadoMasivo] = useState<EstadoEquipo>("LISTO");
   const [motivoMasivo, setMotivoMasivo] = useState("");
   const [aplicandoMasivo, setAplicandoMasivo] = useState(false);
+  const [actualizandoEquipoId, setActualizandoEquipoId] = useState<number | null>(
+    null
+  );
 
   const alternarSeleccion = (id: number) => {
     setSeleccionadosIds((prev) =>
       prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
     );
+  };
+
+  const cambiarEstadoIndividual = async (
+    eq: EquipoInventario,
+    nuevoEstado: EstadoEquipo
+  ) => {
+    if (eq.estado === nuevoEstado) return;
+    setActualizandoEquipoId(eq.id);
+    setError(null);
+    setExito(null);
+    try {
+      await solicitarApi<{ actualizados: number; nuevo_estado: string }>(
+        `/api/inventario/equipos/${eq.id}/estado`,
+        {
+          method: "PATCH",
+          body: JSON.stringify({
+            nuevo_estado: nuevoEstado,
+            motivo: "Cambio individual desde Inventario",
+          }),
+        }
+      );
+      setEquipos((prev) =>
+        prev
+          .map((item) =>
+            item.id === eq.id ? { ...item, estado: nuevoEstado } : item
+          )
+          .filter((item) => !filtroEstado || item.estado === filtroEstado)
+      );
+      setExito(`Equipo ${eq.serial} actualizado a ${nuevoEstado}.`);
+    } catch (err) {
+      setError(
+        extraerMensajeError(err, "No se pudo actualizar el estado del equipo.")
+      );
+    } finally {
+      setActualizandoEquipoId(null);
+    }
   };
 
   const aplicarEstadoMasivo = async () => {
@@ -87,28 +139,34 @@ export default function PaginaInventario() {
     setError(null);
     setExito(null);
     try {
+      const ids = [...seleccionadosIds];
       const res = await solicitarApi<{ actualizados: number; nuevo_estado: string }>(
-        "/api/logistica/equipos/estado-masivo",
+        "/api/inventario/equipos/estado-masivo",
         {
-          method: "POST",
+          method: "PATCH",
           body: JSON.stringify({
-            equipo_ids: seleccionadosIds,
+            equipo_ids: ids,
             nuevo_estado: estadoMasivo,
             motivo: motivoMasivo.trim() || "Cambio masivo desde Inventario",
           }),
         }
+      );
+      const conjunto = new Set(ids);
+      setEquipos((prev) =>
+        prev
+          .map((item) =>
+            conjunto.has(item.id) ? { ...item, estado: estadoMasivo } : item
+          )
+          .filter((item) => !filtroEstado || item.estado === filtroEstado)
       );
       setExito(
         `Se actualizaron ${res.actualizados} equipos a estado ${res.nuevo_estado}.`
       );
       setSeleccionadosIds([]);
       setMotivoMasivo("");
-      await cargarTodo();
     } catch (err) {
       setError(
-        err instanceof ErrorApi
-          ? err.message
-          : "No se pudo actualizar el estado masivo."
+        extraerMensajeError(err, "No se pudo actualizar el estado masivo.")
       );
     } finally {
       setAplicandoMasivo(false);
@@ -360,10 +418,11 @@ export default function PaginaInventario() {
                   onChange={(e) => setEstadoMasivo(e.target.value as EstadoEquipo)}
                   className="px-3 py-1.5 rounded-xl border border-neutral-200 bg-white text-xs font-bold"
                 >
-                  <option value="LISTO">LISTO</option>
-                  <option value="POR_PREPARAR">POR_PREPARAR</option>
-                  <option value="HOSPITAL">HOSPITAL</option>
-                  <option value="CEMENTERIO">CEMENTERIO</option>
+                  {ESTADOS_EDITABLES.map((est) => (
+                    <option key={est} value={est}>
+                      {est}
+                    </option>
+                  ))}
                 </select>
                 <input
                   type="text"
@@ -455,9 +514,30 @@ export default function PaginaInventario() {
                         </td>
                         <td className="px-4 py-3">{eq.ubicacion}</td>
                         <td className="px-4 py-3">
-                          <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-slate-100 text-slate-800">
-                            {eq.estado}
-                          </span>
+                          {eq.estado === "VENDIDO" || usuario?.rol === "ASESORA" ? (
+                            <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-slate-100 text-slate-800">
+                              {eq.estado}
+                            </span>
+                          ) : (
+                            <select
+                              aria-label={`Cambiar estado de ${eq.serial}`}
+                              value={eq.estado}
+                              disabled={actualizandoEquipoId === eq.id}
+                              onChange={(e) =>
+                                void cambiarEstadoIndividual(
+                                  eq,
+                                  e.target.value as EstadoEquipo
+                                )
+                              }
+                              className="px-2.5 py-1 rounded-lg border border-slate-200 bg-white text-xs font-bold text-slate-800 cursor-pointer disabled:opacity-50"
+                            >
+                              {ESTADOS_EDITABLES.map((est) => (
+                                <option key={est} value={est}>
+                                  {est}
+                                </option>
+                              ))}
+                            </select>
+                          )}
                         </td>
                         <td className="px-4 py-3 text-right font-bold text-emerald-700">
                           {formatearUsd(eq.precio_promo_usd)}

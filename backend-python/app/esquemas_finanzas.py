@@ -4,8 +4,9 @@ from datetime import date
 from decimal import Decimal
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import Field
 
+from app.core.validacion import ModeloEntradaLimpio as BaseModel
 from app.modelos_finanzas import EstadoReingresoNC
 
 

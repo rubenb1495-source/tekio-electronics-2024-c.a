@@ -113,7 +113,11 @@ def obtener_cola_taller(
     hoy = obtener_fecha_hoy()
     incluir_costos = puede_ver_costos(usuario_actual.rol)
 
-    estados_cola = [EstadoEquipo.POR_PREPARAR.value, EstadoEquipo.HOSPITAL.value]
+    estados_cola = [
+        EstadoEquipo.POR_PREPARAR.value,
+        EstadoEquipo.EN_PREPARACION.value,
+        EstadoEquipo.HOSPITAL.value,
+    ]
     if estado in estados_cola:
         estados_filtro = [estado]
     else:

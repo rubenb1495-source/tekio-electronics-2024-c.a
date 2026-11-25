@@ -8,11 +8,12 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Response, UploadFile, status
-from pydantic import BaseModel, Field
+from pydantic import Field
 from sqlalchemy.orm import Session, joinedload
 
 from app.base_datos import obtener_bd
 from app.core.permisos import Permiso, require_permiso
+from app.core.validacion import ModeloEntradaLimpio as BaseModel
 from app.modelos import RolUsuario, Sucursal, TasaDiaria, Usuario
 from app.modelos_admin_finanzas import (
     AuditoriaSistema,

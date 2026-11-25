@@ -1,3 +1,5 @@
+import type { EstadoEquipo } from "./logistica";
+
 export type TipoPreparacion = "ESTANDAR" | "ESPECIAL";
 export type ResultadoPreparacion = "LISTO" | "HOSPITAL" | "CEMENTERIO";
 export type EstadoRepuesto = "PENDIENTE" | "COMPRADO" | "RECIBIDO" | "CANCELADO";
@@ -22,7 +24,7 @@ export interface EquipoColaTaller {
   categoria: string;
   ubicacion_id: number;
   ubicacion: string | null;
-  estado: "POR_PREPARAR" | "HOSPITAL";
+  estado: EstadoEquipo;
   dias_en_taller: number;
   repuesto_disponible: boolean;
   repuestos_pendientes: string[];

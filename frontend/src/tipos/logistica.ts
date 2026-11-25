@@ -12,8 +12,10 @@ export type EstadoGuia = "EN_TRANSITO" | "RECIBIDA";
 export type EstadoEquipo =
   | "EN_TRANSITO"
   | "POR_PREPARAR"
+  | "EN_PREPARACION"
   | "LISTO"
   | "HOSPITAL"
+  | "RESERVADO"
   | "CEMENTERIO"
   | "VENDIDO";
 export type EstadoTraslado = "EN_TRANSITO" | "RECIBIDO" | "ANULADO";

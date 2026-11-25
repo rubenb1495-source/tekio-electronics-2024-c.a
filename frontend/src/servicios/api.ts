@@ -1,4 +1,7 @@
+import { extraerMensajeError, limpiarPayloadFormulario } from "@/lib/api";
 import type { RolUsuario } from "@/tipos/dominio";
+
+export { extraerMensajeError, limpiarPayloadFormulario };
 
 const CLAVE_TOKEN = "tekio_admin_token";
 const URL_BASE_API =
@@ -101,10 +104,10 @@ export async function solicitarApi<T>(
     if (respuesta.status === 401) {
       guardarToken(null);
     }
-    const detalle =
-      cuerpo && typeof cuerpo.detail === "string"
-        ? cuerpo.detail
-        : `Error del servidor (HTTP ${respuesta.status}).`;
+    const detalle = extraerMensajeError(
+      cuerpo,
+      `Error del servidor (HTTP ${respuesta.status}).`
+    );
     throw new ErrorApi(detalle, respuesta.status);
   }
 
@@ -138,10 +141,10 @@ export async function subirArchivoApi<T>(
 
   const cuerpo = await respuesta.json().catch(() => null);
   if (!respuesta.ok) {
-    const detalle =
-      cuerpo && typeof cuerpo.detail === "string"
-        ? cuerpo.detail
-        : `Error del servidor (HTTP ${respuesta.status}).`;
+    const detalle = extraerMensajeError(
+      cuerpo,
+      `Error del servidor (HTTP ${respuesta.status}).`
+    );
     throw new ErrorApi(detalle, respuesta.status);
   }
   return cuerpo as T;

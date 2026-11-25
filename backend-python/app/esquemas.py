@@ -7,6 +7,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator, model_validator
 
+from app.core.validacion import ModeloEntradaLimpio
 from app.modelos import EstadoSucursal, OrigenTasa, RolUsuario, TipoArticulo
 
 
@@ -32,7 +33,7 @@ class SucursalSalida(BaseModel):
 
 # ---------------- Autenticación y Usuarios ----------------
 
-class LoginEntrada(BaseModel):
+class LoginEntrada(ModeloEntradaLimpio):
     correo: EmailStr
     clave: str = Field(min_length=1)
 
@@ -59,7 +60,7 @@ class LoginSalida(BaseModel):
     usuario: UsuarioSalida
 
 
-class UsuarioCrearEntrada(BaseModel):
+class UsuarioCrearEntrada(ModeloEntradaLimpio):
     nombre: str = Field(min_length=2, max_length=150)
     rol: RolUsuario
     modalidad: Literal["PRESENCIAL", "ONLINE"] = "PRESENCIAL"
@@ -112,7 +113,7 @@ class UsuarioCrearEntrada(BaseModel):
         return self
 
 
-class UsuarioActualizarEntrada(BaseModel):
+class UsuarioActualizarEntrada(ModeloEntradaLimpio):
     nombre: str = Field(min_length=2, max_length=150)
     rol: RolUsuario
     modalidad: Literal["PRESENCIAL", "ONLINE"] = "PRESENCIAL"
@@ -158,7 +159,7 @@ class UsuarioActualizarEntrada(BaseModel):
         return self
 
 
-class UsuarioEstadoEntrada(BaseModel):
+class UsuarioEstadoEntrada(ModeloEntradaLimpio):
     activo: bool
     motivo: str = Field(min_length=3, max_length=255)
 
@@ -173,7 +174,7 @@ class UsuarioEstadoEntrada(BaseModel):
 
 # ---------------- Tasas Diarias ----------------
 
-class TasaCrearEntrada(BaseModel):
+class TasaCrearEntrada(ModeloEntradaLimpio):
     fecha: date
     tasa_bcv: Decimal = Field(gt=0)
     tasa_usdt: Decimal = Field(gt=0)
@@ -181,7 +182,7 @@ class TasaCrearEntrada(BaseModel):
     nota: str = Field(default="", max_length=500)
 
 
-class TasaActualizarHoyEntrada(BaseModel):
+class TasaActualizarHoyEntrada(ModeloEntradaLimpio):
     tasa_bcv: Decimal | None = Field(default=None, gt=0)
     tasa_usdt: Decimal | None = Field(default=None, gt=0)
     recargo_porcentaje: Decimal | None = Field(default=None, ge=0, le=500)
@@ -223,7 +224,7 @@ class TasasPaginadasSalida(BaseModel):
 
 # ---------------- Catálogo y Precios ----------------
 
-class ArticuloCrearEntrada(BaseModel):
+class ArticuloCrearEntrada(ModeloEntradaLimpio):
     sku: str = Field(min_length=2, max_length=80)
     descripcion: str = Field(min_length=2, max_length=255)
     tipo: TipoArticulo
@@ -244,14 +245,14 @@ class ArticuloCrearEntrada(BaseModel):
         return valor.strip()
 
 
-class PrecioCrearEntrada(BaseModel):
+class PrecioCrearEntrada(ModeloEntradaLimpio):
     precio_promo_usd: Decimal = Field(ge=0)
     precio_regular_fijo_usd: Decimal | None = Field(default=None, ge=0)
     costo_referencia_usd: Decimal | None = Field(default=None, ge=0)
     fecha_vigencia: date
 
 
-class ArticuloEstadoEntrada(BaseModel):
+class ArticuloEstadoEntrada(ModeloEntradaLimpio):
     activo: bool
 
 

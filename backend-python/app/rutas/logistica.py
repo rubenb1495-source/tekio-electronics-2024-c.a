@@ -5,6 +5,7 @@ import io
 from datetime import datetime, timezone
 from decimal import Decimal, ROUND_HALF_UP
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Response, UploadFile, status
 from openpyxl import load_workbook
@@ -17,6 +18,7 @@ from app.esquemas_logistica import (
     AjusteCrearEntrada,
     AjusteRevisarEntrada,
     CompraCrearEntrada,
+    EquipoEstadoIndividualEntrada,
     EquipoEstadoMasivoEntrada,
     FilaValidacionArchivo,
     GuiaCrearEntrada,
@@ -57,11 +59,14 @@ from app.core.permisos import (
 )
 from app.rutas.tasas import obtener_fecha_hoy
 from app.seguridad import obtener_usuario_actual, puede_ver_costos, requerir_roles
+from app.servicios.auditoria_service import registrar_auditoria
 from app.servicios.logistica_masiva import (
     confirmar_importacion_atomica,
     generar_plantilla_xlsx,
     previsualizar_importacion,
 )
+
+enrutador_inventario = APIRouter(prefix="/api/inventario", tags=["Inventario y Estados"])
 
 
 enrutador = APIRouter(prefix="/api/logistica", tags=["Logística e Inventario"])
@@ -1636,44 +1641,60 @@ def revisar_ajuste_inventario(
     }
 
 
-# ---------------- Cambio de Estado Masivo, Plantillas e Importación Atómica ----------------
+# ---------------- Cambio de Estado Individual y Masivo, Plantillas e Importación Atómica ----------------
 
-@enrutador.post("/equipos/estado-masivo")
-def cambiar_estado_equipos_masivo(
-    datos: EquipoEstadoMasivoEntrada,
-    usuario_actual: Usuario = Depends(
-        requerir_roles(
-            RolUsuario.DIRECCION.value,
-            RolUsuario.ADMINISTRACION.value,
-            RolUsuario.LOGISTICA.value,
-            RolUsuario.LIDER.value,
-            RolUsuario.TECNICO.value,
-            RolUsuario.ENCARGADO.value,
-        )
-    ),
-    bd: Session = Depends(obtener_bd),
+ROLES_CAMBIO_ESTADO_EQUIPO: tuple[str, ...] = (
+    RolUsuario.DIRECCION.value,
+    RolUsuario.ADMINISTRACION.value,
+    RolUsuario.LOGISTICA.value,
+    RolUsuario.LIDER.value,
+    RolUsuario.TECNICO.value,
+    RolUsuario.ENCARGADO.value,
+)
+
+
+def _aplicar_cambio_estado_equipos(
+    bd: Session,
+    usuario_actual: Usuario,
+    equipos: list[Equipo],
+    nuevo_estado: EstadoEquipo,
+    motivo: str,
+    sucursal_id: int | None,
+    documento_ref: str,
 ) -> dict[str, Any]:
-    if datos.nuevo_estado in (EstadoEquipo.VENDIDO, EstadoEquipo.EN_TRANSITO):
+    if nuevo_estado == EstadoEquipo.VENDIDO:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="No se puede asignar masivamente el estado VENDIDO o EN_TRANSITO.",
+            detail="No se puede asignar manualmente el estado VENDIDO. Registra la operación desde Ventas/POS.",
         )
 
-    ids_unicos = list(dict.fromkeys(datos.equipo_ids))
-    equipos = bd.query(Equipo).filter(Equipo.id.in_(ids_unicos)).all()
-    if len(equipos) != len(ids_unicos):
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Uno o más equipos seleccionados no existen.",
-        )
+    if sucursal_id is not None:
+        sucursal_dest = bd.query(Sucursal).filter(Sucursal.id == sucursal_id).first()
+        if sucursal_dest is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="La sucursal indicada no existe.",
+            )
+        if (
+            usuario_actual.rol == RolUsuario.ENCARGADO.value
+            and usuario_actual.sucursal_id is not None
+            and sucursal_id != usuario_actual.sucursal_id
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Un Encargado solo puede asignar equipos dentro de su propia sucursal.",
+            )
 
-    motivo_limpio = datos.motivo.strip() or "Actualización masiva de estado"
+    motivo_limpio = motivo.strip() or "Actualización operativa de estado"
+    ahora_caracas = datetime.now(ZoneInfo("America/Caracas")).isoformat()
     seriales_actualizados: list[str] = []
+    equipos_actualizados: list[dict[str, Any]] = []
+
     for eq in equipos:
         if eq.estado == EstadoEquipo.VENDIDO.value:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"El equipo '{eq.serial}' ya está VENDIDO y no puede cambiar de estado.",
+                detail=f"El equipo '{eq.serial}' ya está VENDIDO y solo puede cambiar de estado mediante una devolución/garantía.",
             )
         if (
             usuario_actual.rol == RolUsuario.ENCARGADO.value
@@ -1684,8 +1705,13 @@ def cambiar_estado_equipos_masivo(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail=f"No tienes permisos para modificar el equipo '{eq.serial}' de otra sucursal.",
             )
+
         estado_anterior = eq.estado
-        eq.estado = datos.nuevo_estado.value
+        ubicacion_anterior = eq.ubicacion_id
+        eq.estado = nuevo_estado.value
+        if sucursal_id is not None:
+            eq.ubicacion_id = sucursal_id
+
         bd.add(
             MovimientoInventario(
                 tipo=TipoMovimientoInventario.TALLER.value,
@@ -1694,20 +1720,104 @@ def cambiar_estado_equipos_masivo(
                 sucursal_id=eq.ubicacion_id,
                 cantidad=0,
                 costo_unitario_usd=Decimal("0"),
-                documento_ref="ESTADO-MASIVO",
-                motivo=f"Cambio de estado {estado_anterior} -> {datos.nuevo_estado.value}: {motivo_limpio}",
+                documento_ref=documento_ref,
+                motivo=f"Cambio de estado {estado_anterior} -> {nuevo_estado.value}: {motivo_limpio}",
                 usuario_id=usuario_actual.id,
             )
         )
+        registrar_auditoria(
+            bd,
+            usuario=usuario_actual,
+            modulo="INVENTARIO",
+            accion="CAMBIAR_ESTADO_EQUIPO",
+            entidad_id=eq.serial,
+            detalle_anterior={
+                "equipo_id": eq.id,
+                "serial": eq.serial,
+                "estado": estado_anterior,
+                "ubicacion_id": ubicacion_anterior,
+            },
+            detalle_nuevo={
+                "equipo_id": eq.id,
+                "serial": eq.serial,
+                "estado": nuevo_estado.value,
+                "ubicacion_id": eq.ubicacion_id,
+                "motivo": motivo_limpio,
+                "fecha_hora_caracas": ahora_caracas,
+            },
+        )
         seriales_actualizados.append(eq.serial)
+        equipos_actualizados.append(
+            {
+                "id": eq.id,
+                "serial": eq.serial,
+                "estado_anterior": estado_anterior,
+                "estado": eq.estado,
+                "ubicacion_id": eq.ubicacion_id,
+            }
+        )
 
     bd.commit()
     return {
         "actualizados": len(seriales_actualizados),
-        "nuevo_estado": datos.nuevo_estado.value,
+        "nuevo_estado": nuevo_estado.value,
         "usuario": usuario_actual.nombre,
+        "fecha_hora_caracas": ahora_caracas,
         "seriales": seriales_actualizados,
+        "equipos": equipos_actualizados,
     }
+
+
+@enrutador.patch("/equipos/{equipo_id}/estado")
+@enrutador_inventario.patch("/equipos/{equipo_id}/estado")
+def cambiar_estado_equipo_individual(
+    equipo_id: int,
+    datos: EquipoEstadoIndividualEntrada,
+    usuario_actual: Usuario = Depends(requerir_roles(*ROLES_CAMBIO_ESTADO_EQUIPO)),
+    bd: Session = Depends(obtener_bd),
+) -> dict[str, Any]:
+    eq = bd.query(Equipo).filter(Equipo.id == equipo_id).first()
+    if eq is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="El equipo indicado no existe.",
+        )
+    return _aplicar_cambio_estado_equipos(
+        bd=bd,
+        usuario_actual=usuario_actual,
+        equipos=[eq],
+        nuevo_estado=datos.nuevo_estado,
+        motivo=datos.motivo,
+        sucursal_id=datos.sucursal_id,
+        documento_ref="ESTADO-INDIVIDUAL",
+    )
+
+
+@enrutador.post("/equipos/estado-masivo")
+@enrutador.patch("/equipos/estado-masivo")
+@enrutador_inventario.patch("/equipos/estado-masivo")
+def cambiar_estado_equipos_masivo(
+    datos: EquipoEstadoMasivoEntrada,
+    usuario_actual: Usuario = Depends(requerir_roles(*ROLES_CAMBIO_ESTADO_EQUIPO)),
+    bd: Session = Depends(obtener_bd),
+) -> dict[str, Any]:
+    ids_unicos = list(dict.fromkeys(datos.equipo_ids))
+    equipos = bd.query(Equipo).filter(Equipo.id.in_(ids_unicos)).all()
+    if len(equipos) != len(ids_unicos):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Uno o más equipos seleccionados no existen.",
+        )
+
+    return _aplicar_cambio_estado_equipos(
+        bd=bd,
+        usuario_actual=usuario_actual,
+        equipos=equipos,
+        nuevo_estado=datos.nuevo_estado,
+        motivo=datos.motivo,
+        sucursal_id=datos.sucursal_id,
+        documento_ref="ESTADO-MASIVO",
+    )
 
 
 @enrutador.get("/plantillas/{flujo}")

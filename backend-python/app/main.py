@@ -3,12 +3,15 @@ from __future__ import annotations
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request, status
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from sqlalchemy import inspect, text
 
 from app.base_datos import Base, SesionLocal, motor
 from app.configuracion import configuracion
+from app.core.validacion import formatear_error_validacion_es
 from app import modelos_admin_finanzas as _modelos_admin_finanzas  # noqa: F401
 from app import modelos_finanzas as _modelos_finanzas  # noqa: F401
 from app import modelos_logistica as _modelos_logistica  # noqa: F401
@@ -186,6 +189,18 @@ app.add_middleware(
 )
 
 
+@app.exception_handler(RequestValidationError)
+async def manejar_error_validacion_422(
+    _request: Request,
+    exc: RequestValidationError,
+) -> JSONResponse:
+    resumen, detalles = formatear_error_validacion_es(list(exc.errors()))
+    return JSONResponse(
+        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+        content={"detail": resumen, "errores": detalles},
+    )
+
+
 @app.get("/api/salud", tags=["Sistema"])
 def verificar_salud() -> dict[str, str]:
     return {"estado": "activo", "servicio": "Tekio Electronics API - Fase 1"}
@@ -196,6 +211,7 @@ app.include_router(usuarios.enrutador)
 app.include_router(tasas.enrutador)
 app.include_router(catalogo.enrutador)
 app.include_router(logistica.enrutador)
+app.include_router(logistica.enrutador_inventario)
 app.include_router(taller.enrutador)
 app.include_router(ventas.enrutador)
 app.include_router(finanzas.enrutador)

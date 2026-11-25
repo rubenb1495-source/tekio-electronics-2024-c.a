@@ -7,6 +7,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from app.core.validacion import ModeloEntradaLimpio
 from app.modelos_logistica import (
     EstadoAjusteInventario,
     EstadoCompra,
@@ -39,7 +40,7 @@ def normalizar_documento(valor: str) -> str:
 
 # ---------------- Terceros ----------------
 
-class TerceroCrearEntrada(BaseModel):
+class TerceroCrearEntrada(ModeloEntradaLimpio):
     nombre: str = Field(min_length=2, max_length=160)
     tipo: TipoTercero = TipoTercero.PROVEEDOR
     tipo_persona: TipoPersona = TipoPersona.NATURAL
@@ -50,7 +51,7 @@ class TerceroCrearEntrada(BaseModel):
     direccion: str = Field(default="", max_length=255)
 
 
-class ClienteRapidoCrearEntrada(BaseModel):
+class ClienteRapidoCrearEntrada(ModeloEntradaLimpio):
     tipo_persona: TipoPersona = TipoPersona.NATURAL
     tipo_documento: TipoDocumento
     documento: str = Field(min_length=4, max_length=40)
@@ -84,7 +85,7 @@ class TerceroSalida(BaseModel):
 
 # ---------------- Compras ----------------
 
-class EquipoCompraEntrada(BaseModel):
+class EquipoCompraEntrada(ModeloEntradaLimpio):
     serial: str = Field(min_length=2, max_length=100)
     articulo_id: int | None = None
     modelo: str = Field(default="", max_length=160)
@@ -102,14 +103,14 @@ class EquipoCompraEntrada(BaseModel):
         return normalizar_serial(valor)
 
 
-class ComponenteCompraEntrada(BaseModel):
+class ComponenteCompraEntrada(ModeloEntradaLimpio):
     articulo_id: int
     cantidad: int = Field(gt=0)
     costo_unitario_usd: Decimal | None = Field(default=None, ge=0)
     ubicacion_id: int | None = None
 
 
-class CompraCrearEntrada(BaseModel):
+class CompraCrearEntrada(ModeloEntradaLimpio):
     origen: OrigenCompra
     tipo_compra: str | None = Field(default=None, max_length=20)
     moneda: str = Field(default="USD", max_length=10)
@@ -157,7 +158,7 @@ class ValidacionArchivoSalida(BaseModel):
 
 # ---------------- Guías y Recepción ----------------
 
-class GuiaCrearEntrada(BaseModel):
+class GuiaCrearEntrada(ModeloEntradaLimpio):
     numero_guia: str = Field(min_length=2, max_length=80)
     casillero: str = Field(default="", max_length=100)
     modalidad: ModalidadGuia = ModalidadGuia.AEREO
@@ -174,12 +175,12 @@ class GuiaCrearEntrada(BaseModel):
         return valor.strip().upper()
 
 
-class ComponenteRecibidoEntrada(BaseModel):
+class ComponenteRecibidoEntrada(ModeloEntradaLimpio):
     articulo_id: int
     cantidad: int = Field(gt=0)
 
 
-class GuiaRecibirEntrada(BaseModel):
+class GuiaRecibirEntrada(ModeloEntradaLimpio):
     fecha_llegada_real: date
     verificado_por_id: int
     seriales_recibidos: list[str] = Field(default_factory=list)
@@ -193,12 +194,12 @@ class GuiaRecibirEntrada(BaseModel):
 
 # ---------------- Traslados ----------------
 
-class ComponenteTrasladoEntrada(BaseModel):
+class ComponenteTrasladoEntrada(ModeloEntradaLimpio):
     articulo_id: int
     cantidad: int = Field(gt=0)
 
 
-class TrasladoCrearEntrada(BaseModel):
+class TrasladoCrearEntrada(ModeloEntradaLimpio):
     origen_id: int
     destino_id: int
     equipos_ids: list[int] = Field(default_factory=list)
@@ -206,17 +207,17 @@ class TrasladoCrearEntrada(BaseModel):
     nota: str = Field(default="", max_length=1000)
 
 
-class TrasladoConfirmarEntrada(BaseModel):
+class TrasladoConfirmarEntrada(ModeloEntradaLimpio):
     nota_recepcion: str = Field(default="", max_length=500)
 
 
-class TrasladoAnularEntrada(BaseModel):
+class TrasladoAnularEntrada(ModeloEntradaLimpio):
     motivo: str = Field(min_length=3, max_length=500)
 
 
 # ---------------- Ajustes ----------------
 
-class AjusteCrearEntrada(BaseModel):
+class AjusteCrearEntrada(ModeloEntradaLimpio):
     sucursal_id: int
     tipo: TipoAjusteInventario
     equipo_id: int | None = None
@@ -225,12 +226,19 @@ class AjusteCrearEntrada(BaseModel):
     motivo: str = Field(min_length=3, max_length=255)
 
 
-class AjusteRevisarEntrada(BaseModel):
+class AjusteRevisarEntrada(ModeloEntradaLimpio):
     decision: Literal["APROBADO", "RECHAZADO"]
     comentario: str = Field(default="", max_length=500)
 
 
-class EquipoEstadoMasivoEntrada(BaseModel):
+class EquipoEstadoIndividualEntrada(ModeloEntradaLimpio):
+    nuevo_estado: EstadoEquipo
+    motivo: str = Field(default="", max_length=300)
+    sucursal_id: int | None = None
+
+
+class EquipoEstadoMasivoEntrada(ModeloEntradaLimpio):
     equipo_ids: list[int] = Field(min_length=1)
     nuevo_estado: EstadoEquipo
     motivo: str = Field(default="", max_length=300)
+    sucursal_id: int | None = None

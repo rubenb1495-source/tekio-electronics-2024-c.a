@@ -9,13 +9,33 @@ import {
   Trash2,
   Wrench,
 } from "lucide-react";
-import { ErrorApi, solicitarApi } from "@/servicios/api";
+import {
+  ErrorApi,
+  extraerMensajeError,
+  solicitarApi,
+} from "@/servicios/api";
 import type { ArticuloCatalogo, CatalogoPaginado } from "@/tipos/dominio";
+import type { EstadoEquipo } from "@/tipos/logistica";
 import type {
   EquipoColaTaller,
   ResultadoPreparacion,
   TipoPreparacion,
 } from "@/tipos/taller";
+
+const ESTADOS_TALLER: EstadoEquipo[] = [
+  "POR_PREPARAR",
+  "EN_PREPARACION",
+  "LISTO",
+  "HOSPITAL",
+  "RESERVADO",
+  "CEMENTERIO",
+];
+
+const ESTADOS_EN_COLA = new Set<string>([
+  "POR_PREPARAR",
+  "EN_PREPARACION",
+  "HOSPITAL",
+]);
 
 interface ComponenteFila {
   articulo_id: string;
@@ -51,16 +71,56 @@ export default function PaginaPreparaciones() {
   >([{ descripcion: "", cantidad: "1" }]);
   const [guardando, setGuardando] = useState(false);
 
-  // Cambio de estado masivo en cola
+  // Cambio de estado individual y masivo en cola
   const [seleccionadosIds, setSeleccionadosIds] = useState<number[]>([]);
-  const [estadoMasivo, setEstadoMasivo] = useState<"LISTO" | "HOSPITAL" | "POR_PREPARAR">("LISTO");
+  const [estadoMasivo, setEstadoMasivo] = useState<EstadoEquipo>("LISTO");
   const [motivoMasivo, setMotivoMasivo] = useState("");
   const [aplicandoMasivo, setAplicandoMasivo] = useState(false);
+  const [actualizandoEquipoId, setActualizandoEquipoId] = useState<number | null>(
+    null
+  );
 
   const alternarSeleccion = (id: number) => {
     setSeleccionadosIds((prev) =>
       prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
     );
+  };
+
+  const cambiarEstadoIndividual = async (
+    eq: EquipoColaTaller,
+    nuevoEstado: EstadoEquipo
+  ) => {
+    if (eq.estado === nuevoEstado) return;
+    setActualizandoEquipoId(eq.id);
+    setError(null);
+    setExito(null);
+    try {
+      await solicitarApi<{ actualizados: number; nuevo_estado: string }>(
+        `/api/inventario/equipos/${eq.id}/estado`,
+        {
+          method: "PATCH",
+          body: JSON.stringify({
+            nuevo_estado: nuevoEstado,
+            motivo: "Cambio individual desde Preparaciones",
+          }),
+        }
+      );
+      setCola((prev) =>
+        ESTADOS_EN_COLA.has(nuevoEstado)
+          ? prev.map((item) =>
+              item.id === eq.id ? { ...item, estado: nuevoEstado } : item
+            )
+          : prev.filter((item) => item.id !== eq.id)
+      );
+      setSeleccionadosIds((prev) => prev.filter((id) => id !== eq.id));
+      setExito(`Equipo ${eq.serial} actualizado a ${nuevoEstado}.`);
+    } catch (err) {
+      setError(
+        extraerMensajeError(err, "No se pudo cambiar el estado del equipo.")
+      );
+    } finally {
+      setActualizandoEquipoId(null);
+    }
   };
 
   const aplicarEstadoMasivo = async () => {
@@ -69,28 +129,37 @@ export default function PaginaPreparaciones() {
     setError(null);
     setExito(null);
     try {
+      const ids = [...seleccionadosIds];
       const res = await solicitarApi<{ actualizados: number; nuevo_estado: string }>(
-        "/api/logistica/equipos/estado-masivo",
+        "/api/inventario/equipos/estado-masivo",
         {
-          method: "POST",
+          method: "PATCH",
           body: JSON.stringify({
-            equipo_ids: seleccionadosIds,
+            equipo_ids: ids,
             nuevo_estado: estadoMasivo,
             motivo: motivoMasivo.trim() || "Cambio de estado masivo en Preparaciones",
           }),
         }
+      );
+      const conjunto = new Set(ids);
+      setCola((prev) =>
+        ESTADOS_EN_COLA.has(estadoMasivo)
+          ? prev.map((item) =>
+              conjunto.has(item.id) ? { ...item, estado: estadoMasivo } : item
+            )
+          : prev.filter((item) => !conjunto.has(item.id))
       );
       setExito(
         `Se actualizaron ${res.actualizados} equipo(s) a estado ${res.nuevo_estado}.`
       );
       setSeleccionadosIds([]);
       setMotivoMasivo("");
-      await cargarDatos();
     } catch (err) {
       setError(
-        err instanceof ErrorApi
-          ? err.message
-          : "No se pudo aplicar el cambio de estado masivo."
+        extraerMensajeError(
+          err,
+          "No se pudo aplicar el cambio de estado masivo."
+        )
       );
     } finally {
       setAplicandoMasivo(false);
@@ -504,15 +573,15 @@ export default function PaginaPreparaciones() {
                   <select
                     value={estadoMasivo}
                     onChange={(e) =>
-                      setEstadoMasivo(
-                        e.target.value as "LISTO" | "HOSPITAL" | "POR_PREPARAR"
-                      )
+                      setEstadoMasivo(e.target.value as EstadoEquipo)
                     }
                     className="px-2.5 py-1.5 rounded-lg border border-neutral-200 bg-white text-xs font-bold"
                   >
-                    <option value="LISTO">LISTO</option>
-                    <option value="HOSPITAL">HOSPITAL</option>
-                    <option value="POR_PREPARAR">POR_PREPARAR</option>
+                    {ESTADOS_TALLER.map((est) => (
+                      <option key={est} value={est}>
+                        {est}
+                      </option>
+                    ))}
                   </select>
                   <input
                     type="text"
@@ -566,9 +635,24 @@ export default function PaginaPreparaciones() {
                       </td>
                     <td className="px-4 py-3">{eq.modelo || "—"}</td>
                     <td className="px-4 py-3">
-                      <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-slate-100">
-                        {eq.estado}
-                      </span>
+                      <select
+                        aria-label={`Cambiar estado de ${eq.serial}`}
+                        value={eq.estado}
+                        disabled={actualizandoEquipoId === eq.id}
+                        onChange={(e) =>
+                          void cambiarEstadoIndividual(
+                            eq,
+                            e.target.value as EstadoEquipo
+                          )
+                        }
+                        className="px-2.5 py-1 rounded-lg border border-slate-200 bg-white text-xs font-bold text-slate-800 cursor-pointer disabled:opacity-50"
+                      >
+                        {ESTADOS_TALLER.map((est) => (
+                          <option key={est} value={est}>
+                            {est}
+                          </option>
+                        ))}
+                      </select>
                     </td>
                     <td className="px-4 py-3 font-semibold">
                       {eq.dias_en_taller} días
