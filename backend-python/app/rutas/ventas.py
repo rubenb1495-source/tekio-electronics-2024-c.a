@@ -181,6 +181,11 @@ def evaluar_venta(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="No existe tasa del día registrada. Los cobros en bolívares y Cashea están bloqueados.",
         )
+    if usa_bs_o_cashea and tasa_dia is not None and not getattr(tasa_dia, "recargo_confirmado_hoy", True):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Debes confirmar el porcentaje de recargo del día antes de emitir ventas a Precio Regular (Bs o Cashea).",
+        )
 
     # Evaluar ítems
     detalles_calc: list[dict[str, Any]] = []

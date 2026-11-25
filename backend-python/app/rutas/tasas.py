@@ -216,6 +216,7 @@ def actualizar_tasa_hoy(
         if datos.nota is not None:
             tasa.nota = datos.nota.strip()
         tasa.origen = OrigenTasa.MANUAL.value
+        tasa.recargo_confirmado_hoy = True
         tasa.publicado_por_id = usuario_actual.id
 
     bd.commit()

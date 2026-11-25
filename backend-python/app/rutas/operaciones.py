@@ -995,6 +995,13 @@ def crear_cotizacion(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Sucursal no encontrada.")
 
     fecha_hoy = obtener_fecha_hoy()
+    if datos.modalidad_precio in (ModalidadCotizacion.REGULAR, ModalidadCotizacion.CASHEA):
+        tasa_hoy_obj = bd.query(TasaDiaria).filter(TasaDiaria.fecha == fecha_hoy).first()
+        if tasa_hoy_obj is not None and not getattr(tasa_hoy_obj, "recargo_confirmado_hoy", True):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Debes confirmar el porcentaje de recargo del día antes de emitir cotizaciones a Precio Regular.",
+            )
     tasa_bcv, _, recargo_pct = _obtener_tasa_actual(bd, fecha_hoy)
     numero_cot = generar_correlativo_corto(bd, Cotizacion, Cotizacion.numero_cotizacion, "COT")
 

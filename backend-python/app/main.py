@@ -78,6 +78,20 @@ def asegurar_columnas_compatibles() -> None:
                 conexion.execute(
                     text("ALTER TABLE usuarios ALTER COLUMN clave_hash DROP NOT NULL")
                 )
+    if inspector.has_table("tasas_diarias"):
+        columnas_tasas = {col["name"] for col in inspector.get_columns("tasas_diarias")}
+        tipo_ts = "TIMESTAMPTZ" if motor.dialect.name == "postgresql" else "DATETIME"
+        nuevas_tasas = [
+            ("recargo_confirmado_hoy", "BOOLEAN NOT NULL DEFAULT TRUE"),
+            ("fuente", "VARCHAR(80) NOT NULL DEFAULT 'manual'"),
+            ("ultima_sincronizacion", f"{tipo_ts} NULL"),
+        ]
+        for nombre_col, ddl_col in nuevas_tasas:
+            if nombre_col not in columnas_tasas:
+                with motor.begin() as conexion:
+                    conexion.execute(
+                        text(f"ALTER TABLE tasas_diarias ADD COLUMN {nombre_col} {ddl_col}")
+                    )
 
 
 @asynccontextmanager

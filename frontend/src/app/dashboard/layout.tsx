@@ -34,6 +34,7 @@ import {
   X,
 } from "lucide-react";
 import LogoTekio from "@/components/LogoTekio";
+import ModalRecargoDiario from "@/components/ModalRecargoDiario";
 import { usarSesion } from "@/contexto/SesionContexto";
 import {
   esRolAdministrativo,
@@ -65,7 +66,7 @@ export default function DisenoDashboard({
     tasaHoy,
     cargandoTasa,
     cerrarSesion,
-    recargarTasaHoy,
+    sincronizarTasaHoy,
   } = usarSesion();
   const router = useRouter();
   const rutaActual = usePathname();
@@ -484,11 +485,11 @@ export default function DisenoDashboard({
 
               <button
                 type="button"
-                onClick={() => void recargarTasaHoy()}
+                onClick={() => void sincronizarTasaHoy()}
                 className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-medium text-gray-500 hover:text-[#191818] hover:bg-white/80 transition-colors cursor-pointer"
-                title="Actualizar tasas del día"
+                title="Sincronizar tasas BCV y USDT ahora"
               >
-                <RefreshCw className="w-3.5 h-3.5" />
+                <RefreshCw className={`w-3.5 h-3.5 ${cargandoTasa ? "animate-spin" : ""}`} />
                 <span className="hidden sm:inline">Actualizar</span>
               </button>
             </div>
@@ -518,6 +519,9 @@ export default function DisenoDashboard({
           {children}
         </main>
       </div>
+
+      {/* Modal bloqueante de confirmación de recargo diario */}
+      <ModalRecargoDiario />
     </div>
   );
 }

@@ -1018,3 +1018,121 @@ def cerrar_mes(
         "bloqueado": cierre.bloqueado,
         "cerrado_por": usuario_actual.nombre,
     }
+
+
+# ---------------- Tasas Automáticas y Recargo Diario Obligatorio ----------------
+
+from pydantic import BaseModel as _PydanticBaseModel, Field as _PydanticField
+from app.modelos import OrigenTasa as _OrigenTasa
+from app.rutas.tasas import calcular_brecha_porcentaje as _calcular_brecha_pct
+from app.servicios.tasas_service import sincronizar_tasas_dia as _sincronizar_tasas_dia
+
+
+class RecargoDiarioEntrada(_PydanticBaseModel):
+    porcentaje_recargo: Decimal = _PydanticField(ge=0, le=100)
+    tasa_bcv: Decimal | None = _PydanticField(default=None, gt=0)
+    tasa_usdt: Decimal | None = _PydanticField(default=None, gt=0)
+
+
+def _serializar_tasa_automatica(tasa: TasaDiaria | None, hoy: date) -> dict[str, Any]:
+    if tasa is None:
+        return {
+            "fecha": hoy.isoformat(),
+            "tasa_bcv": None,
+            "tasa_usdt": None,
+            "porcentaje_recargo": None,
+            "recargo_porcentaje": None,
+            "recargo_confirmado_hoy": False,
+            "permite_bolivares": False,
+            "alerta": "Sin tasa del día — Confirma el recargo diario y las tasas",
+            "brecha_porcentaje": None,
+            "fuente": "sin_conexion",
+            "actualizado_en": None,
+        }
+    return {
+        "fecha": tasa.fecha.isoformat(),
+        "tasa_bcv": float(tasa.tasa_bcv),
+        "tasa_usdt": float(tasa.tasa_usdt),
+        "porcentaje_recargo": float(tasa.recargo_porcentaje),
+        "recargo_porcentaje": float(tasa.recargo_porcentaje),
+        "recargo_confirmado_hoy": bool(tasa.recargo_confirmado_hoy),
+        "permite_bolivares": bool(tasa.tasa_bcv and tasa.tasa_bcv > 0),
+        "alerta": (
+            None
+            if tasa.recargo_confirmado_hoy
+            else "Pendiente confirmar porcentaje de recargo del día"
+        ),
+        "brecha_porcentaje": _calcular_brecha_pct(tasa.tasa_bcv, tasa.tasa_usdt),
+        "fuente": getattr(tasa, "fuente", "manual") or "manual",
+        "actualizado_en": tasa.actualizado_en.isoformat() if tasa.actualizado_en else None,
+    }
+
+
+@enrutador.get("/tasas/hoy")
+def obtener_tasa_hoy_automatica(
+    _usuario: Usuario = Depends(obtener_usuario_actual),
+    bd: Session = Depends(obtener_bd),
+) -> dict[str, Any]:
+    hoy = obtener_fecha_hoy()
+    tasa = _sincronizar_tasas_dia(bd, forzar=False)
+    return _serializar_tasa_automatica(tasa, hoy)
+
+
+@enrutador.post("/tasas/sincronizar")
+def sincronizar_tasa_ahora(
+    _usuario: Usuario = Depends(obtener_usuario_actual),
+    bd: Session = Depends(obtener_bd),
+) -> dict[str, Any]:
+    hoy = obtener_fecha_hoy()
+    tasa = _sincronizar_tasas_dia(bd, forzar=True)
+    return _serializar_tasa_automatica(tasa, hoy)
+
+
+@enrutador.post("/tasas/recargo-diario")
+def confirmar_recargo_diario(
+    datos: RecargoDiarioEntrada,
+    usuario_actual: Usuario = Depends(obtener_usuario_actual),
+    bd: Session = Depends(obtener_bd),
+) -> dict[str, Any]:
+    hoy = obtener_fecha_hoy()
+    tasa = _sincronizar_tasas_dia(bd, forzar=False)
+
+    quiere_ajuste_manual = datos.tasa_bcv is not None or datos.tasa_usdt is not None
+    if quiere_ajuste_manual and usuario_actual.rol not in ROLES_ADMINISTRATIVOS:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Solo Dirección o Administración pueden ajustar manualmente las tasas BCV/USDT.",
+        )
+
+    if tasa is None:
+        if datos.tasa_bcv is None or datos.tasa_usdt is None:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="No se pudieron obtener las tasas automáticamente. Dirección o Administración debe ingresar BCV y USDT manualmente.",
+            )
+        tasa = TasaDiaria(
+            fecha=hoy,
+            tasa_bcv=datos.tasa_bcv,
+            tasa_usdt=datos.tasa_usdt,
+            recargo_porcentaje=datos.porcentaje_recargo,
+            recargo_confirmado_hoy=True,
+            origen=_OrigenTasa.MANUAL.value,
+            fuente="manual_emergencia",
+            publicado_por_id=usuario_actual.id,
+            nota="Recargo diario y tasas confirmadas manualmente",
+        )
+        bd.add(tasa)
+    else:
+        tasa.recargo_porcentaje = datos.porcentaje_recargo
+        tasa.recargo_confirmado_hoy = True
+        tasa.publicado_por_id = usuario_actual.id
+        if datos.tasa_bcv is not None:
+            tasa.tasa_bcv = datos.tasa_bcv
+            tasa.fuente = "manual_emergencia"
+        if datos.tasa_usdt is not None:
+            tasa.tasa_usdt = datos.tasa_usdt
+            tasa.fuente = "manual_emergencia"
+
+    bd.commit()
+    bd.refresh(tasa)
+    return _serializar_tasa_automatica(tasa, hoy)

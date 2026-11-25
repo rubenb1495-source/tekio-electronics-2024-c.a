@@ -869,3 +869,118 @@ def test_personal_sin_acceso_pos_comisiones_bloqueo_login_y_validacion(cliente: 
         },
     )
     assert r_422.status_code == 422
+
+
+def test_tasas_automaticas_fallback_bloqueo_y_recargo_diario_en_pos(
+    cliente: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from datetime import timedelta
+    from app.servicios import tasas_service
+
+    ctx = _preparar_escenario_base(cliente)
+    h_dir = ctx["headers_dir"]
+    h_as = ctx["headers_as"]
+
+    # Eliminar la tasa de hoy y dejar solo una tasa de ayer para probar cambio de día + fallback
+    bd = cliente.sesion_factory()  # type: ignore[attr-defined]
+    try:
+        hoy_d = obtener_fecha_hoy()
+        bd.query(TasaDiaria).filter(TasaDiaria.fecha == hoy_d).delete()
+        bd.add(
+            TasaDiaria(
+                fecha=hoy_d - timedelta(days=1),
+                tasa_bcv=Decimal("52.5000"),
+                tasa_usdt=Decimal("63.0000"),
+                recargo_porcentaje=Decimal("18.00"),
+                recargo_confirmado_hoy=True,
+                fuente="ve.dolarapi.com",
+            )
+        )
+        bd.commit()
+    finally:
+        bd.close()
+
+    # 1. Simular caída de red en ve.dolarapi.com -> debe hacer fallback a la última tasa de BD
+    #    y arrancar con recargo_confirmado_hoy = False
+    def _fallo_red(*_args, **_kwargs):
+        raise RuntimeError("Timeout de red simulado")
+
+    monkeypatch.setattr(tasas_service, "consultar_dolarapi_venezuela", _fallo_red)
+    r_fb = cliente.get("/api/finanzas/tasas/hoy", headers=h_as)
+    assert r_fb.status_code == 200, r_fb.text
+    d_fb = r_fb.json()
+    assert d_fb["fuente"] == "fallback_db"
+    assert d_fb["tasa_bcv"] == 52.5
+    assert d_fb["tasa_usdt"] == 63.0
+    assert d_fb["recargo_confirmado_hoy"] is False
+
+    # 2. Mientras recargo_confirmado_hoy == False, venta Regular (Bs) y cotización Regular deben bloquearse con 400
+    insts = cliente.get("/api/finanzas/instrumentos", headers=h_dir).json()
+    inst_bs = next(i for i in insts if i["moneda"] == "BS" and "cashea" not in i["nombre"].lower())
+
+    r_vta_bloq = cliente.post(
+        "/api/ventas",
+        headers=h_as,
+        json={
+            "sucursal_id": 1,
+            "cliente_id": ctx["cliente_id"],
+            "asesor_id": ctx["asesora_id"],
+            "items": [{"equipo_id": ctx["eq_hp_1"], "cantidad": 1}],
+            "pagos": [{"instrumento_id": inst_bs["id"], "monto_moneda_origen": 25000.0}],
+        },
+    )
+    assert r_vta_bloq.status_code == 400
+    assert "recargo del día" in r_vta_bloq.json()["detail"].lower()
+
+    r_cot_bloq = cliente.post(
+        "/api/cotizaciones",
+        headers=h_as,
+        json={
+            "sucursal_id": 1,
+            "cliente_id": ctx["cliente_id"],
+            "modalidad_precio": "REGULAR",
+            "items": [{"equipo_id": ctx["eq_hp_1"], "cantidad": 1}],
+        },
+    )
+    assert r_cot_bloq.status_code == 400
+
+    # 3. Mockear respuesta exitosa de ve.dolarapi.com y forzar sincronización (BCV 60, USDT 72)
+    monkeypatch.setattr(
+        tasas_service,
+        "consultar_dolarapi_venezuela",
+        lambda timeout=5.0: (Decimal("60.0000"), Decimal("72.0000"), "ve.dolarapi.com"),
+    )
+    r_sync = cliente.post("/api/finanzas/tasas/sincronizar", headers=h_as)
+    assert r_sync.status_code == 200, r_sync.text
+    d_sync = r_sync.json()
+    assert d_sync["fuente"] == "ve.dolarapi.com"
+    assert d_sync["tasa_bcv"] == 60.0
+    assert d_sync["tasa_usdt"] == 72.0
+    assert d_sync["recargo_confirmado_hoy"] is False
+
+    # 4. Confirmar recargo diario del 25% -> recargo_confirmado_hoy pasa a True
+    r_conf = cliente.post(
+        "/api/finanzas/tasas/recargo-diario",
+        headers=h_as,
+        json={"porcentaje_recargo": 25.0},
+    )
+    assert r_conf.status_code == 200, r_conf.text
+    d_conf = r_conf.json()
+    assert d_conf["recargo_confirmado_hoy"] is True
+    assert d_conf["porcentaje_recargo"] == 25.0
+
+    # 5. POS calcula Precio Regular USD ($400 * 1.25 = $500) y Bs ($500 * 60 = Bs 30,000) automáticamente
+    r_sim = cliente.post(
+        "/api/ventas/simular",
+        headers=h_as,
+        json={
+            "sucursal_id": 1,
+            "items": [{"equipo_id": ctx["eq_hp_1"], "cantidad": 1}],
+            "pagos": [],
+        },
+    )
+    assert r_sim.status_code == 200, r_sim.text
+    sim = r_sim.json()
+    assert sim["total_promo_usd"] == 400.0
+    assert sim["total_regular_usd"] == 500.0
+    assert sim["falta_bs"] == 30000.0

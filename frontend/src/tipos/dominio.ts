@@ -47,9 +47,12 @@ export interface TasaHoy {
   tasa_bcv: number | null;
   tasa_usdt: number | null;
   recargo_porcentaje: number | null;
+  porcentaje_recargo?: number | null;
+  recargo_confirmado_hoy?: boolean;
   brecha_porcentaje: number | null;
-  origen: OrigenTasa | null;
-  nota: string;
+  origen?: OrigenTasa | null;
+  fuente?: string | null;
+  nota?: string;
   actualizado_en: string | null;
 }
 

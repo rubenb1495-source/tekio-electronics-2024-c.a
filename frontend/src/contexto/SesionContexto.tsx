@@ -12,6 +12,8 @@ interface ValorContextoSesion {
   iniciarSesion: (correo: string, clave: string) => Promise<void>;
   cerrarSesion: () => void;
   recargarTasaHoy: () => Promise<void>;
+  sincronizarTasaHoy: () => Promise<void>;
+  actualizarTasaEnContexto: (nueva: TasaHoy) => void;
 }
 
 const ContextoSesion = createContext<ValorContextoSesion | undefined>(undefined);
@@ -26,13 +28,37 @@ export function ProveedorSesion({ children }: { children: React.ReactNode }) {
     if (!obtenerToken()) return;
     setCargandoTasa(true);
     try {
-      const datos = await solicitarApi<TasaHoy>("/api/tasas/hoy");
+      const datos = await solicitarApi<TasaHoy>("/api/finanzas/tasas/hoy");
       setTasaHoy(datos);
     } catch {
-      setTasaHoy(null);
+      try {
+        const fallback = await solicitarApi<TasaHoy>("/api/tasas/hoy");
+        setTasaHoy(fallback);
+      } catch {
+        setTasaHoy(null);
+      }
     } finally {
       setCargandoTasa(false);
     }
+  }, []);
+
+  const sincronizarTasaHoy = useCallback(async () => {
+    if (!obtenerToken()) return;
+    setCargandoTasa(true);
+    try {
+      const datos = await solicitarApi<TasaHoy>("/api/finanzas/tasas/sincronizar", {
+        method: "POST",
+      });
+      setTasaHoy(datos);
+    } catch {
+      await recargarTasaHoy();
+    } finally {
+      setCargandoTasa(false);
+    }
+  }, [recargarTasaHoy]);
+
+  const actualizarTasaEnContexto = useCallback((nueva: TasaHoy) => {
+    setTasaHoy(nueva);
   }, []);
 
   useEffect(() => {
@@ -85,6 +111,8 @@ export function ProveedorSesion({ children }: { children: React.ReactNode }) {
         iniciarSesion,
         cerrarSesion,
         recargarTasaHoy,
+        sincronizarTasaHoy,
+        actualizarTasaEnContexto,
       }}
     >
       {children}
