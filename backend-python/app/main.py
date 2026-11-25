@@ -18,7 +18,7 @@ from app import modelos_finanzas as _modelos_finanzas  # noqa: F401
 from app import modelos_logistica as _modelos_logistica  # noqa: F401
 from app import modelos_operaciones as _modelos_operaciones  # noqa: F401
 from app import modelos_taller as _modelos_taller  # noqa: F401
-from app.rutas import admin_finanzas, autenticacion, catalogo, contabilidad_prestamos, direccion_tesoreria, finanzas, liquidaciones_caja, logistica, operaciones, taller, tasas, usuarios, ventas
+from app.rutas import admin_finanzas, autenticacion, catalogo, contabilidad_prestamos, direccion_tesoreria, finanzas, liquidaciones_caja, logistica, operaciones, respaldo, taller, tasas, usuarios, ventas
 from app.semilla import ejecutar_semilla
 from app.semilla_finanzas import ejecutar_semilla_finanzas
 from app.servicios.contabilidad_service import asegurar_plan_cuentas
@@ -272,3 +272,4 @@ app.include_router(operaciones.enrutador)
 app.include_router(direccion_tesoreria.enrutador)
 app.include_router(admin_finanzas.enrutador)
 app.include_router(contabilidad_prestamos.enrutador)
+app.include_router(respaldo.enrutador)

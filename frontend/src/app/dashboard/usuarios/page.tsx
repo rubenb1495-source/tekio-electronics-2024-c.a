@@ -14,6 +14,7 @@ import {
   X,
 } from "lucide-react";
 import BuscadorTabla from "@/componentes/BuscadorTabla";
+import TarjetaRespaldoBD from "@/components/TarjetaRespaldoBD";
 import { usarSesion } from "@/contexto/SesionContexto";
 import { ErrorApi, esRolAdministrativo, solicitarApi } from "@/servicios/api";
 import type { RolUsuario, Sucursal, Usuario } from "@/tipos/dominio";
@@ -307,6 +308,9 @@ export default function PaginaPersonalYUsuarios() {
           <span>{exito}</span>
         </div>
       )}
+
+      {/* Respaldo completo de Base de Datos (visible solo para ADMINISTRACION) */}
+      <TarjetaRespaldoBD />
 
       {/* Filtros */}
       <div className="bg-white/75 backdrop-blur-md border border-white/60 shadow-[0_8px_30px_rgb(0,0,0,0.04)] rounded-2xl p-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
