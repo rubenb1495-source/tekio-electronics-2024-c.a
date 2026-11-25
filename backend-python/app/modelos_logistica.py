@@ -30,7 +30,9 @@ class TipoTercero(str, Enum):
 
 class OrigenCompra(str, Enum):
     IMPORTACION = "IMPORTACION"
+    INTERNACIONAL = "INTERNACIONAL"
     NACIONAL = "NACIONAL"
+    CONSIGNACION = "CONSIGNACION"
     INVENTARIO_EXISTENTE = "INVENTARIO_EXISTENTE"
     PARTE_DE_PAGO = "PARTE_DE_PAGO"
 
@@ -132,11 +134,15 @@ class Compra(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     numero_compra: Mapped[str] = mapped_column(String(40), unique=True, index=True, nullable=False)
     origen: Mapped[str] = mapped_column(String(30), nullable=False)
+    tipo_compra: Mapped[str] = mapped_column(String(20), default="NACIONAL", nullable=False)
+    moneda: Mapped[str] = mapped_column(String(10), default="USD", nullable=False)
     proveedor_id: Mapped[int | None] = mapped_column(ForeignKey("terceros.id"), nullable=True)
     fecha: Mapped[date] = mapped_column(Date, nullable=False, index=True)
     factura_orden: Mapped[str] = mapped_column(String(100), default="", nullable=False)
+    numero_guia: Mapped[str] = mapped_column(String(100), default="", nullable=False)
     monto_mercancia_usd: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=Decimal("0"), nullable=False)
     envio_usd: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=Decimal("0"), nullable=False)
+    aduana_usd: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=Decimal("0"), nullable=False)
     otros_gastos_usd: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=Decimal("0"), nullable=False)
     llega_preparada: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     estado: Mapped[str] = mapped_column(String(25), default=EstadoCompra.PENDIENTE.value, nullable=False)
@@ -203,6 +209,8 @@ class Equipo(Base):
     costo_flete_usd: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=Decimal("0"), nullable=False)
     costo_taller_usd: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=Decimal("0"), nullable=False)
     precio_promo_usd: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=Decimal("0"), nullable=False)
+    es_consignacion: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    proveedor_consignacion_id: Mapped[int | None] = mapped_column(ForeignKey("terceros.id"), nullable=True)
     recibido_por_id: Mapped[int | None] = mapped_column(ForeignKey("usuarios.id"), nullable=True)
     verificado_por_id: Mapped[int | None] = mapped_column(ForeignKey("usuarios.id"), nullable=True)
     fecha_recepcion: Mapped[date | None] = mapped_column(Date, nullable=True)
@@ -213,6 +221,7 @@ class Equipo(Base):
     compra = relationship("Compra", back_populates="equipos")
     guia = relationship("GuiaImportacion")
     ubicacion = relationship("Sucursal")
+    proveedor_consignacion = relationship("Tercero", foreign_keys=[proveedor_consignacion_id])
     recibido_por = relationship("Usuario", foreign_keys=[recibido_por_id])
     verificado_por = relationship("Usuario", foreign_keys=[verificado_por_id])
 

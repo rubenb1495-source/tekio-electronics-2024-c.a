@@ -51,6 +51,52 @@ export default function PaginaPreparaciones() {
   >([{ descripcion: "", cantidad: "1" }]);
   const [guardando, setGuardando] = useState(false);
 
+  // Cambio de estado masivo en cola
+  const [seleccionadosIds, setSeleccionadosIds] = useState<number[]>([]);
+  const [estadoMasivo, setEstadoMasivo] = useState<"LISTO" | "HOSPITAL" | "POR_PREPARAR">("LISTO");
+  const [motivoMasivo, setMotivoMasivo] = useState("");
+  const [aplicandoMasivo, setAplicandoMasivo] = useState(false);
+
+  const alternarSeleccion = (id: number) => {
+    setSeleccionadosIds((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+    );
+  };
+
+  const aplicarEstadoMasivo = async () => {
+    if (seleccionadosIds.length === 0) return;
+    setAplicandoMasivo(true);
+    setError(null);
+    setExito(null);
+    try {
+      const res = await solicitarApi<{ actualizados: number; nuevo_estado: string }>(
+        "/api/logistica/equipos/estado-masivo",
+        {
+          method: "POST",
+          body: JSON.stringify({
+            equipo_ids: seleccionadosIds,
+            nuevo_estado: estadoMasivo,
+            motivo: motivoMasivo.trim() || "Cambio de estado masivo en Preparaciones",
+          }),
+        }
+      );
+      setExito(
+        `Se actualizaron ${res.actualizados} equipo(s) a estado ${res.nuevo_estado}.`
+      );
+      setSeleccionadosIds([]);
+      setMotivoMasivo("");
+      await cargarDatos();
+    } catch (err) {
+      setError(
+        err instanceof ErrorApi
+          ? err.message
+          : "No se pudo aplicar el cambio de estado masivo."
+      );
+    } finally {
+      setAplicandoMasivo(false);
+    }
+  };
+
   const cargarDatos = useCallback(async () => {
     setCargando(true);
     setError(null);
@@ -448,28 +494,76 @@ export default function PaginaPreparaciones() {
             No hay equipos pendientes en la cola de taller.
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm text-left">
-              <thead className="bg-slate-50 border-b border-slate-200 text-xs uppercase text-slate-500">
-                <tr>
-                  <th className="px-4 py-3">Serial</th>
-                  <th className="px-4 py-3">Modelo</th>
-                  <th className="px-4 py-3">Estado</th>
-                  <th className="px-4 py-3">Días en taller</th>
-                  <th className="px-4 py-3">Alertas</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {cola.map((eq) => (
-                  <tr
-                    key={eq.id}
-                    className={
-                      eq.repuesto_disponible ? "bg-emerald-50/70" : "hover:bg-slate-50"
+          <div className="space-y-3">
+            {seleccionadosIds.length > 0 && (
+              <div className="mx-4 mt-3 bg-[#FDF0EB] border border-[#E85A28]/30 rounded-xl p-3 flex flex-wrap items-center justify-between gap-2">
+                <span className="text-xs font-bold text-[#191818]">
+                  {seleccionadosIds.length} equipo(s) seleccionado(s)
+                </span>
+                <div className="flex flex-wrap items-center gap-2">
+                  <select
+                    value={estadoMasivo}
+                    onChange={(e) =>
+                      setEstadoMasivo(
+                        e.target.value as "LISTO" | "HOSPITAL" | "POR_PREPARAR"
+                      )
                     }
+                    className="px-2.5 py-1.5 rounded-lg border border-neutral-200 bg-white text-xs font-bold"
                   >
-                    <td className="px-4 py-3 font-mono font-bold">
-                      {eq.serial}
-                    </td>
+                    <option value="LISTO">LISTO</option>
+                    <option value="HOSPITAL">HOSPITAL</option>
+                    <option value="POR_PREPARAR">POR_PREPARAR</option>
+                  </select>
+                  <input
+                    type="text"
+                    value={motivoMasivo}
+                    onChange={(e) => setMotivoMasivo(e.target.value)}
+                    placeholder="Nota / motivo..."
+                    className="px-2.5 py-1.5 rounded-lg border border-neutral-200 bg-white text-xs"
+                  />
+                  <button
+                    type="button"
+                    disabled={aplicandoMasivo}
+                    onClick={() => void aplicarEstadoMasivo()}
+                    className="px-3 py-1.5 rounded-lg bg-[#E85A28] hover:bg-[#D14D1F] text-white text-xs font-bold cursor-pointer disabled:opacity-50"
+                  >
+                    {aplicandoMasivo ? "Aplicando..." : "Cambiar Estado"}
+                  </button>
+                </div>
+              </div>
+            )}
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm text-left">
+                <thead className="bg-slate-50 border-b border-slate-200 text-xs uppercase text-slate-500">
+                  <tr>
+                    <th className="px-3 py-3 w-8">Sel.</th>
+                    <th className="px-4 py-3">Serial</th>
+                    <th className="px-4 py-3">Modelo</th>
+                    <th className="px-4 py-3">Estado</th>
+                    <th className="px-4 py-3">Días en taller</th>
+                    <th className="px-4 py-3">Alertas</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {cola.map((eq) => (
+                    <tr
+                      key={eq.id}
+                      className={
+                        eq.repuesto_disponible ? "bg-emerald-50/70" : "hover:bg-slate-50"
+                      }
+                    >
+                      <td className="px-3 py-3">
+                        <input
+                          type="checkbox"
+                          checked={seleccionadosIds.includes(eq.id)}
+                          onChange={() => alternarSeleccion(eq.id)}
+                          aria-label={`Seleccionar ${eq.serial}`}
+                          className="rounded border-neutral-300"
+                        />
+                      </td>
+                      <td className="px-4 py-3 font-mono font-bold">
+                        {eq.serial}
+                      </td>
                     <td className="px-4 py-3">{eq.modelo || "—"}</td>
                     <td className="px-4 py-3">
                       <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-slate-100">
@@ -496,6 +590,7 @@ export default function PaginaPreparaciones() {
                 ))}
               </tbody>
             </table>
+          </div>
           </div>
         )}
       </div>

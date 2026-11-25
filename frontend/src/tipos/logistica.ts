@@ -1,6 +1,8 @@
 export type OrigenCompra =
   | "IMPORTACION"
+  | "INTERNACIONAL"
   | "NACIONAL"
+  | "CONSIGNACION"
   | "INVENTARIO_EXISTENTE"
   | "PARTE_DE_PAGO";
 
@@ -136,6 +138,9 @@ export interface EquipoInventario {
   ubicacion: string | null;
   estado: EstadoEquipo;
   precio_promo_usd: number;
+  es_consignacion?: boolean;
+  proveedor_consignacion_id?: number | null;
+  proveedor_consignacion?: string | null;
   recibido_por: string | null;
   verificado_por: string | null;
   fecha_recepcion: string | null;

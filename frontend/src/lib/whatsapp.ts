@@ -634,9 +634,18 @@ export function formatearWhatsAppCierreCaja(cierre: CierreCajaResumen): string {
   const estadoCaja =
     dif === 0 ? "✅ CUADRADO" : dif > 0 ? `🟢 SOBRANTE (+${formatearUsd(dif)})` : `🔴 FALTANTE (${formatearUsd(dif)})`;
   const lineas: string[] = [
-    `🏦 *CIERRE DE CAJA DIARIO · TEKIO ELECTRONICS*`,
+    `🏦 *CIERRE DIARIO DE TIENDA · TEKIO ELECTRONICS*`,
     `📅 Fecha: *${formatearFechaLatam(cierre.fecha)}* · 🏪 Sucursal: *${cierre.sucursal}*`,
-    `👤 Responsable: ${cierre.usuario}`,
+    `👤 Líder / Encargado: *${cierre.lider_encargado || cierre.usuario}* · Elaborado por: ${cierre.usuario}`,
+  ];
+
+  if (cierre.tasas_dia) {
+    lineas.push(
+      `💱 Tasas: BCV *${formatearBs(cierre.tasas_dia.tasa_bcv)}* · USDT *${formatearBs(cierre.tasas_dia.tasa_usdt)}* · Recargo *${cierre.tasas_dia.recargo_porcentaje.toFixed(2)}%*`
+    );
+  }
+
+  lineas.push(
     "",
     `🧾 Ventas emitidas: *${cierre.cantidad_ventas}* (Anulaciones/Dev.: ${cierre.cantidad_anulaciones})`,
     `💵 Total Ventas Promo: *${formatearUsd(cierre.total_ventas_usd)}*`,
@@ -647,8 +656,27 @@ export function formatearWhatsAppCierreCaja(cierre: CierreCajaResumen): string {
     `💰 *Cuadre Efectivo USD:*`,
     `• Esperado: ${formatearUsd(cierre.efectivo_esperado_usd)}`,
     `• Declarado: ${formatearUsd(cierre.efectivo_declarado_usd)}`,
-    `• Resultado: *${estadoCaja}*`,
-  ];
+    `• Resultado: *${estadoCaja}*`
+  );
+
+  if (cierre.inventario) {
+    lineas.push(
+      "",
+      `📦 *Inventario y Almacén:*`,
+      `• Recepciones hoy: *${cierre.inventario.recepciones_dia}* · Traslados recibidos: *${cierre.inventario.traslados_recibidos_dia}*`,
+      `• Salientes hoy: *${cierre.inventario.unidades_salientes_dia}* (Ventas: ${cierre.inventario.unidades_vendidas_dia} / Traslados: ${cierre.inventario.traslados_despachados_dia})`,
+      `• Stock disponible (LISTO): *${cierre.inventario.stock_disponible_listo}* equipos`
+    );
+  }
+
+  if (cierre.taller) {
+    lineas.push(
+      "",
+      `🛠️ *Taller y Garantías (GT / ST):*`,
+      `• Recibidos hoy: *${cierre.taller.recibidos_dia}* · Resueltos/Entregados hoy: *${cierre.taller.resueltos_dia}*`,
+      `• Pendientes activos: *${cierre.taller.pendientes_total}* (GT: ${cierre.taller.gt_pendientes} / ST: ${cierre.taller.st_pendientes})`
+    );
+  }
 
   if (cierre.desglose_instrumentos && cierre.desglose_instrumentos.length > 0) {
     lineas.push("", "💳 *Desglose por Instrumento:*");

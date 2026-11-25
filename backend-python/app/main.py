@@ -94,14 +94,58 @@ def asegurar_columnas_compatibles() -> None:
                     )
     if inspector.has_table("cierres_caja"):
         columnas_cc = {col["name"] for col in inspector.get_columns("cierres_caja")}
-        if "desglose_asesores_json" not in columnas_cc:
-            with motor.begin() as conexion:
-                conexion.execute(
-                    text(
-                        "ALTER TABLE cierres_caja "
-                        "ADD COLUMN desglose_asesores_json TEXT NOT NULL DEFAULT '[]'"
+        nuevas_cc = [
+            ("desglose_asesores_json", "TEXT NOT NULL DEFAULT '[]'"),
+            ("resumen_operativo_json", "TEXT NOT NULL DEFAULT '{}'"),
+        ]
+        for nombre_col, ddl_col in nuevas_cc:
+            if nombre_col not in columnas_cc:
+                with motor.begin() as conexion:
+                    conexion.execute(
+                        text(f"ALTER TABLE cierres_caja ADD COLUMN {nombre_col} {ddl_col}")
                     )
-                )
+    if inspector.has_table("compras"):
+        columnas_comp = {col["name"] for col in inspector.get_columns("compras")}
+        nuevas_comp = [
+            ("tipo_compra", "VARCHAR(20) NOT NULL DEFAULT 'NACIONAL'"),
+            ("moneda", "VARCHAR(10) NOT NULL DEFAULT 'USD'"),
+            ("numero_guia", "VARCHAR(100) NOT NULL DEFAULT ''"),
+            ("aduana_usd", "NUMERIC(14, 2) NOT NULL DEFAULT 0"),
+        ]
+        for nombre_col, ddl_col in nuevas_comp:
+            if nombre_col not in columnas_comp:
+                with motor.begin() as conexion:
+                    conexion.execute(
+                        text(f"ALTER TABLE compras ADD COLUMN {nombre_col} {ddl_col}")
+                    )
+    if inspector.has_table("equipos"):
+        columnas_eq = {col["name"] for col in inspector.get_columns("equipos")}
+        nuevas_eq = [
+            ("es_consignacion", "BOOLEAN NOT NULL DEFAULT FALSE"),
+            ("proveedor_consignacion_id", "INTEGER NULL"),
+        ]
+        for nombre_col, ddl_col in nuevas_eq:
+            if nombre_col not in columnas_eq:
+                with motor.begin() as conexion:
+                    conexion.execute(
+                        text(f"ALTER TABLE equipos ADD COLUMN {nombre_col} {ddl_col}")
+                    )
+    if inspector.has_table("liquidaciones_comisiones"):
+        columnas_liq = {col["name"] for col in inspector.get_columns("liquidaciones_comisiones")}
+        tipo_ts = "TIMESTAMPTZ" if motor.dialect.name == "postgresql" else "DATETIME"
+        nuevas_liq = [
+            ("estado", "VARCHAR(20) NOT NULL DEFAULT 'ACTIVA'"),
+            ("anulada_por_id", "INTEGER NULL"),
+            ("fecha_anulacion", f"{tipo_ts} NULL"),
+            ("motivo_anulacion", "TEXT NOT NULL DEFAULT ''"),
+            ("detalle_anulado_json", "TEXT NOT NULL DEFAULT '[]'"),
+        ]
+        for nombre_col, ddl_col in nuevas_liq:
+            if nombre_col not in columnas_liq:
+                with motor.begin() as conexion:
+                    conexion.execute(
+                        text(f"ALTER TABLE liquidaciones_comisiones ADD COLUMN {nombre_col} {ddl_col}")
+                    )
 
 
 @asynccontextmanager

@@ -1080,7 +1080,7 @@ def test_liquidacion_comisiones_egreso_antiduplicados_y_cierre_caja_pdf(cliente:
             "instrumento_id": inst_ef_usd["id"],
         },
     )
-    assert r_liq_dup.status_code == 400
+    assert r_liq_dup.status_code == 409
 
     # PDF de comprobante de liquidación
     r_liq_pdf = cliente.get(f"/api/finanzas/liquidaciones/{liq['id']}/pdf", headers=h_dir)

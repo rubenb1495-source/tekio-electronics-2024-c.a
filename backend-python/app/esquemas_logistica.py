@@ -111,13 +111,18 @@ class ComponenteCompraEntrada(BaseModel):
 
 class CompraCrearEntrada(BaseModel):
     origen: OrigenCompra
+    tipo_compra: str | None = Field(default=None, max_length=20)
+    moneda: str = Field(default="USD", max_length=10)
     proveedor_id: int | None = None
     fecha: date
     factura_orden: str = Field(default="", max_length=100)
+    numero_guia: str = Field(default="", max_length=100)
     monto_mercancia_usd: Decimal = Field(default=Decimal("0"), ge=0)
     envio_usd: Decimal = Field(default=Decimal("0"), ge=0)
+    aduana_usd: Decimal = Field(default=Decimal("0"), ge=0)
     otros_gastos_usd: Decimal = Field(default=Decimal("0"), ge=0)
     llega_preparada: bool = False
+    es_consignacion: bool = False
     nota: str = Field(default="", max_length=1000)
     equipos: list[EquipoCompraEntrada] = Field(default_factory=list)
     componentes: list[ComponenteCompraEntrada] = Field(default_factory=list)
@@ -221,3 +226,9 @@ class AjusteCrearEntrada(BaseModel):
 class AjusteRevisarEntrada(BaseModel):
     decision: Literal["APROBADO", "RECHAZADO"]
     comentario: str = Field(default="", max_length=500)
+
+
+class EquipoEstadoMasivoEntrada(BaseModel):
+    equipo_ids: list[int] = Field(min_length=1)
+    nuevo_estado: EstadoEquipo
+    motivo: str = Field(default="", max_length=300)

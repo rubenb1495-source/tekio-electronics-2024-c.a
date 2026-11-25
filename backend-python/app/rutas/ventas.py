@@ -215,7 +215,11 @@ def evaluar_venta(
                     )
             promo_unit = it.precio_pactado_usd if it.precio_pactado_usd is not None else equipo.precio_promo_usd
             reg_unit = (promo_unit * factor_regular).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
-            costo_total = equipo.costo_compra_usd + equipo.costo_flete_usd + equipo.costo_taller_usd
+            costo_total = (
+                Decimal("0")
+                if getattr(equipo, "es_consignacion", False)
+                else equipo.costo_compra_usd + equipo.costo_flete_usd + equipo.costo_taller_usd
+            )
             detalles_calc.append(
                 {
                     "equipo": equipo,

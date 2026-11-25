@@ -64,3 +64,7 @@ class CierreCajaCrearEntrada(BaseModel):
     sucursal_id: int | None = None
     efectivo_declarado_usd: Decimal = Field(default=Decimal("0"), ge=0)
     observaciones: str = Field(default="", max_length=1000)
+
+
+class LiquidacionAnularEntrada(BaseModel):
+    motivo_anulacion: str = Field(min_length=3, max_length=500)

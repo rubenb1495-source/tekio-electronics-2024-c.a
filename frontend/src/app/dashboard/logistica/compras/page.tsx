@@ -11,6 +11,7 @@ import {
   Upload,
 } from "lucide-react";
 import BuscadorTabla from "@/componentes/BuscadorTabla";
+import PanelImportacionMasiva from "@/components/PanelImportacionMasiva";
 import {
   ErrorApi,
   fechaHoyCaracas,
@@ -29,8 +30,10 @@ import type {
 } from "@/tipos/logistica";
 
 const ORIGENES: OrigenCompra[] = [
-  "IMPORTACION",
   "NACIONAL",
+  "INTERNACIONAL",
+  "CONSIGNACION",
+  "IMPORTACION",
   "INVENTARIO_EXISTENTE",
   "PARTE_DE_PAGO",
 ];
@@ -329,6 +332,11 @@ export default function PaginaCompras() {
           </button>
         </div>
       </div>
+
+      <PanelImportacionMasiva
+        flujoInicial="compras_internacionales"
+        alCompletar={() => void cargarDatos()}
+      />
 
       {error && (
         <div className="flex items-center gap-2.5 p-4 rounded-xl bg-red-50 border border-red-200 text-sm text-red-700">

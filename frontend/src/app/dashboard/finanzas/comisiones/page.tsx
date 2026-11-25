@@ -122,6 +122,39 @@ export default function PaginaComisionesYCierre() {
   const [liquidando, setLiquidando] = useState(false);
   const [liqReciente, setLiqReciente] = useState<LiquidacionComisionResumen | null>(null);
 
+  // Modal anular liquidación
+  const [liqAnular, setLiqAnular] = useState<LiquidacionComisionResumen | null>(null);
+  const [motivoAnulacionLiq, setMotivoAnulacionLiq] = useState("");
+  const [anulandoLiq, setAnulandoLiq] = useState(false);
+
+  const confirmarAnulacionLiq = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    if (!liqAnular || motivoAnulacionLiq.trim().length < 3) return;
+    setAnulandoLiq(true);
+    setError(null);
+    setExito(null);
+    try {
+      await solicitarApi(`/api/finanzas/liquidaciones/${liqAnular.id}/anular`, {
+        method: "POST",
+        body: JSON.stringify({ motivo_anulacion: motivoAnulacionLiq.trim() }),
+      });
+      setExito(
+        `Liquidación ${liqAnular.codigo} anulada. Egreso revertido y comisiones devueltas a PENDIENTE.`
+      );
+      setLiqAnular(null);
+      setMotivoAnulacionLiq("");
+      await cargarDatos();
+    } catch (err) {
+      setError(
+        err instanceof ErrorApi
+          ? err.message
+          : "No se pudo anular la liquidación."
+      );
+    } finally {
+      setAnulandoLiq(false);
+    }
+  };
+
   const [copiadoGeneral, setCopiadoGeneral] = useState(false);
   const [copiadoPersonaId, setCopiadoPersonaId] = useState<number | null>(null);
 
@@ -901,8 +934,24 @@ export default function PaginaComisionesYCierre() {
                 {liquidacionesFiltradas.map((l) => (
                   <tr key={l.id} className="hover:bg-white/60">
                     <td className="px-4 py-3">
-                      <p className="font-mono font-bold text-[#191818]">{l.codigo}</p>
+                      <div className="flex items-center gap-1.5">
+                        <p className="font-mono font-bold text-[#191818]">{l.codigo}</p>
+                        <span
+                          className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                            l.estado === "ANULADA"
+                              ? "bg-red-100 text-red-700"
+                              : "bg-emerald-50 text-emerald-700"
+                          }`}
+                        >
+                          {l.estado || "ACTIVA"}
+                        </span>
+                      </div>
                       <p className="text-xs text-neutral-500">{l.fecha_pago}</p>
+                      {l.estado === "ANULADA" && l.motivo_anulacion && (
+                        <p className="text-[11px] text-red-600 mt-0.5">
+                          Motivo: {l.motivo_anulacion}
+                        </p>
+                      )}
                     </td>
                     <td className="px-4 py-3">
                       <p className="font-semibold text-[#191818]">{l.usuario_nombre}</p>
@@ -946,6 +995,18 @@ export default function PaginaComisionesYCierre() {
                         <ExternalLink className="w-3.5 h-3.5" />
                         WA
                       </a>
+                      {permisos.esAdmin && (l.estado || "ACTIVA") !== "ANULADA" && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setLiqAnular(l);
+                            setMotivoAnulacionLiq("");
+                          }}
+                          className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-red-200 bg-red-50 hover:bg-red-100 text-red-700 text-xs font-bold cursor-pointer"
+                        >
+                          Anular
+                        </button>
+                      )}
                     </td>
                   </tr>
                 ))}
@@ -954,6 +1015,56 @@ export default function PaginaComisionesYCierre() {
           </div>
         )}
       </div>
+      )}
+
+      {/* Modal Anular Liquidación */}
+      {liqAnular && (
+        <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
+          <form
+            onSubmit={confirmarAnulacionLiq}
+            className="bg-white/95 backdrop-blur-md rounded-2xl max-w-md w-full p-6 shadow-xl space-y-4 border border-white/60"
+          >
+            <h3 className="text-lg font-black text-red-700">
+              Anular Liquidación {liqAnular.codigo}
+            </h3>
+            <p className="text-xs text-neutral-600">
+              Esta acción marcará la liquidación de{" "}
+              <strong>{liqAnular.usuario_nombre}</strong> ({formatearUsd(liqAnular.monto_total_usd)})
+              como <strong>ANULADA</strong>, revertirá automáticamente el egreso financiero
+              asociado y devolverá las comisiones a estado <strong>PENDIENTE</strong>.
+            </p>
+            <div>
+              <label className="block text-xs font-bold text-neutral-700 mb-1">
+                Motivo de anulación (obligatorio)
+              </label>
+              <textarea
+                required
+                minLength={3}
+                rows={3}
+                value={motivoAnulacionLiq}
+                onChange={(e) => setMotivoAnulacionLiq(e.target.value)}
+                placeholder="Ej: Error en el método de pago o monto seleccionado..."
+                className="w-full px-3 py-2 rounded-xl border border-neutral-200 text-sm"
+              />
+            </div>
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setLiqAnular(null)}
+                className="px-4 py-2 rounded-xl border border-neutral-200 text-xs font-bold text-neutral-700 cursor-pointer"
+              >
+                Cancelar
+              </button>
+              <button
+                type="submit"
+                disabled={anulandoLiq || motivoAnulacionLiq.trim().length < 3}
+                className="px-4 py-2 rounded-xl bg-red-600 hover:bg-red-700 text-white text-xs font-bold disabled:opacity-50 cursor-pointer"
+              >
+                {anulandoLiq ? "Anulando..." : "Confirmar Anulación"}
+              </button>
+            </div>
+          </form>
+        </div>
       )}
 
       {/* Modal Liquidar Pendientes */}

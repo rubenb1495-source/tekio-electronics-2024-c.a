@@ -196,6 +196,7 @@ export interface OperacionComision {
 export interface LiquidacionComisionResumen {
   id: number;
   codigo: string;
+  estado?: "ACTIVA" | "ANULADA";
   usuario_id: number;
   usuario_nombre: string;
   usuario_rol: string;
@@ -209,10 +210,37 @@ export interface LiquidacionComisionResumen {
   referencia: string;
   pago_egreso_id: number | null;
   autorizado_por: string;
+  anulada_por?: string | null;
+  fecha_anulacion?: string | null;
+  motivo_anulacion?: string;
   notas: string;
   cantidad_operaciones: number;
   notas_liquidadas: string[];
   creado_en: string | null;
+}
+
+export interface TasasDiaCierre {
+  fecha: string;
+  tasa_bcv: number;
+  tasa_usdt: number;
+  recargo_porcentaje: number;
+}
+
+export interface InventarioCierre {
+  recepciones_dia: number;
+  traslados_recibidos_dia: number;
+  unidades_vendidas_dia: number;
+  traslados_despachados_dia: number;
+  unidades_salientes_dia: number;
+  stock_disponible_listo: number;
+}
+
+export interface TallerCierre {
+  recibidos_dia: number;
+  resueltos_dia: number;
+  pendientes_total: number;
+  gt_pendientes: number;
+  st_pendientes: number;
 }
 
 export interface DesgloseInstrumentoCaja {
@@ -240,6 +268,10 @@ export interface PreviewCierreCaja {
   fecha: string;
   sucursal_id: number | null;
   sucursal: string;
+  lider_encargado?: string;
+  tasas_dia?: TasasDiaCierre | null;
+  inventario?: InventarioCierre | null;
+  taller?: TallerCierre | null;
   cantidad_ventas: number;
   cantidad_anulaciones: number;
   total_ventas_usd: number;
@@ -260,6 +292,10 @@ export interface CierreCajaResumen {
   sucursal_id: number | null;
   sucursal: string;
   usuario: string;
+  lider_encargado?: string;
+  tasas_dia?: TasasDiaCierre | null;
+  inventario?: InventarioCierre | null;
+  taller?: TallerCierre | null;
   cantidad_ventas: number;
   cantidad_anulaciones: number;
   total_ventas_usd: number;

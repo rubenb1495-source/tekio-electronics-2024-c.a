@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import { usarSesion } from "@/contexto/SesionContexto";
 import BarraListaPrecios from "@/components/BarraListaPrecios";
+import PanelImportacionMasiva from "@/components/PanelImportacionMasiva";
 import {
   ErrorApi,
   formatearUsd,
@@ -67,6 +68,52 @@ export default function PaginaInventario() {
     null
   );
   const [buscandoTraz, setBuscandoTraz] = useState(false);
+
+  // Selección múltiple para cambio de estado masivo
+  const [seleccionadosIds, setSeleccionadosIds] = useState<number[]>([]);
+  const [estadoMasivo, setEstadoMasivo] = useState<EstadoEquipo>("LISTO");
+  const [motivoMasivo, setMotivoMasivo] = useState("");
+  const [aplicandoMasivo, setAplicandoMasivo] = useState(false);
+
+  const alternarSeleccion = (id: number) => {
+    setSeleccionadosIds((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+    );
+  };
+
+  const aplicarEstadoMasivo = async () => {
+    if (seleccionadosIds.length === 0) return;
+    setAplicandoMasivo(true);
+    setError(null);
+    setExito(null);
+    try {
+      const res = await solicitarApi<{ actualizados: number; nuevo_estado: string }>(
+        "/api/logistica/equipos/estado-masivo",
+        {
+          method: "POST",
+          body: JSON.stringify({
+            equipo_ids: seleccionadosIds,
+            nuevo_estado: estadoMasivo,
+            motivo: motivoMasivo.trim() || "Cambio masivo desde Inventario",
+          }),
+        }
+      );
+      setExito(
+        `Se actualizaron ${res.actualizados} equipos a estado ${res.nuevo_estado}.`
+      );
+      setSeleccionadosIds([]);
+      setMotivoMasivo("");
+      await cargarTodo();
+    } catch (err) {
+      setError(
+        err instanceof ErrorApi
+          ? err.message
+          : "No se pudo actualizar el estado masivo."
+      );
+    } finally {
+      setAplicandoMasivo(false);
+    }
+  };
 
   // Modal ajuste
   const [modalAjuste, setModalAjuste] = useState(false);
@@ -214,6 +261,11 @@ export default function PaginaInventario() {
       {/* Lista de precios exportable (solo LISTO, sin costos) */}
       <BarraListaPrecios sucursalInicialId={filtroSucursal} />
 
+      <PanelImportacionMasiva
+        flujoInicial="cambio_estado"
+        alCompletar={() => void cargarTodo()}
+      />
+
       {/* Pestañas */}
       <div className="flex flex-wrap gap-2 border-b border-slate-200 pb-2">
         {[
@@ -297,6 +349,41 @@ export default function PaginaInventario() {
             </select>
           </div>
 
+          {seleccionadosIds.length > 0 && (
+            <div className="bg-[#FDF0EB] border border-[#E85A28]/30 rounded-2xl p-4 flex flex-wrap items-center justify-between gap-3">
+              <p className="text-xs font-black text-[#191818]">
+                {seleccionadosIds.length} equipo(s) seleccionado(s) para cambio de estado masivo
+              </p>
+              <div className="flex flex-wrap items-center gap-2">
+                <select
+                  value={estadoMasivo}
+                  onChange={(e) => setEstadoMasivo(e.target.value as EstadoEquipo)}
+                  className="px-3 py-1.5 rounded-xl border border-neutral-200 bg-white text-xs font-bold"
+                >
+                  <option value="LISTO">LISTO</option>
+                  <option value="POR_PREPARAR">POR_PREPARAR</option>
+                  <option value="HOSPITAL">HOSPITAL</option>
+                  <option value="CEMENTERIO">CEMENTERIO</option>
+                </select>
+                <input
+                  type="text"
+                  value={motivoMasivo}
+                  onChange={(e) => setMotivoMasivo(e.target.value)}
+                  placeholder="Motivo (opcional)..."
+                  className="px-3 py-1.5 rounded-xl border border-neutral-200 bg-white text-xs"
+                />
+                <button
+                  type="button"
+                  disabled={aplicandoMasivo}
+                  onClick={() => void aplicarEstadoMasivo()}
+                  className="px-3.5 py-1.5 rounded-xl bg-[#E85A28] hover:bg-[#D14D1F] text-white text-xs font-bold cursor-pointer disabled:opacity-50"
+                >
+                  {aplicandoMasivo ? "Aplicando..." : "Aplicar Estado"}
+                </button>
+              </div>
+            </div>
+          )}
+
           <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden">
             {cargando ? (
               <div className="p-6 space-y-3">
@@ -319,6 +406,7 @@ export default function PaginaInventario() {
                 <table className="w-full text-sm text-left">
                   <thead className="bg-slate-50 border-b border-slate-200 text-xs uppercase text-slate-500">
                     <tr>
+                      <th className="px-3 py-3 w-8">Sel.</th>
                       <th className="px-4 py-3">Serial</th>
                       <th className="px-4 py-3">Modelo</th>
                       <th className="px-4 py-3">Ubicación</th>
@@ -337,8 +425,27 @@ export default function PaginaInventario() {
                   <tbody className="divide-y divide-slate-100">
                     {equipos.map((eq) => (
                       <tr key={eq.id} className="hover:bg-slate-50">
+                        <td className="px-3 py-3">
+                          {eq.estado !== "VENDIDO" && (
+                            <input
+                              type="checkbox"
+                              checked={seleccionadosIds.includes(eq.id)}
+                              onChange={() => alternarSeleccion(eq.id)}
+                              aria-label={`Seleccionar ${eq.serial}`}
+                              className="rounded border-neutral-300"
+                            />
+                          )}
+                        </td>
                         <td className="px-4 py-3 font-mono font-bold text-slate-900">
-                          {eq.serial}
+                          <div>{eq.serial}</div>
+                          {eq.es_consignacion && (
+                            <span className="inline-block mt-0.5 px-1.5 py-0.5 rounded bg-violet-100 text-violet-800 text-[10px] font-sans font-bold">
+                              CONSIGNACIÓN
+                              {verCostos && eq.proveedor_consignacion
+                                ? ` · ${eq.proveedor_consignacion}`
+                                : ""}
+                            </span>
+                          )}
                         </td>
                         <td className="px-4 py-3">
                           <p className="font-semibold">{eq.modelo || "—"}</p>

@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from decimal import Decimal, ROUND_HALF_UP
 from typing import Any
 
-from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Response, UploadFile, status
 from openpyxl import load_workbook
 from sqlalchemy import func, or_
 from sqlalchemy.orm import Session, joinedload
@@ -17,6 +17,7 @@ from app.esquemas_logistica import (
     AjusteCrearEntrada,
     AjusteRevisarEntrada,
     CompraCrearEntrada,
+    EquipoEstadoMasivoEntrada,
     FilaValidacionArchivo,
     GuiaCrearEntrada,
     GuiaRecibirEntrada,
@@ -56,6 +57,11 @@ from app.core.permisos import (
 )
 from app.rutas.tasas import obtener_fecha_hoy
 from app.seguridad import obtener_usuario_actual, puede_ver_costos, requerir_roles
+from app.servicios.logistica_masiva import (
+    confirmar_importacion_atomica,
+    generar_plantilla_xlsx,
+    previsualizar_importacion,
+)
 
 
 enrutador = APIRouter(prefix="/api/logistica", tags=["Logística e Inventario"])
@@ -135,6 +141,7 @@ def serializar_equipo(equipo: Equipo, incluir_costos: bool) -> dict[str, Any]:
         "ubicacion": equipo.ubicacion.nombre if equipo.ubicacion else None,
         "estado": equipo.estado,
         "precio_promo_usd": redondear_usd(equipo.precio_promo_usd),
+        "es_consignacion": bool(getattr(equipo, "es_consignacion", False)),
         "recibido_por": equipo.recibido_por.nombre if equipo.recibido_por else None,
         "verificado_por": equipo.verificado_por.nombre if equipo.verificado_por else None,
         "fecha_recepcion": equipo.fecha_recepcion.isoformat() if equipo.fecha_recepcion else None,
@@ -146,6 +153,10 @@ def serializar_equipo(equipo: Equipo, incluir_costos: bool) -> dict[str, Any]:
         datos["costo_flete_usd"] = redondear_usd(equipo.costo_flete_usd)
         datos["costo_taller_usd"] = redondear_usd(equipo.costo_taller_usd)
         datos["costo_total_usd"] = redondear_usd(costo_total)
+        datos["proveedor_consignacion_id"] = equipo.proveedor_consignacion_id
+        datos["proveedor_consignacion"] = (
+            equipo.proveedor_consignacion.nombre if equipo.proveedor_consignacion else None
+        )
     return datos
 
 
@@ -327,16 +338,50 @@ def crear_compra(
     bodega = obtener_bodega(bd)
     es_inmediata = datos.origen != OrigenCompra.IMPORTACION
     estado_compra = EstadoCompra.RECIBIDA.value if es_inmediata else EstadoCompra.PENDIENTE.value
+    tipo_efectivo = (
+        datos.tipo_compra.strip().upper()
+        if datos.tipo_compra and datos.tipo_compra.strip()
+        else (
+            "INTERNACIONAL"
+            if datos.origen in (OrigenCompra.INTERNACIONAL, OrigenCompra.IMPORTACION)
+            else "CONSIGNACION"
+            if (datos.origen == OrigenCompra.CONSIGNACION or datos.es_consignacion)
+            else "NACIONAL"
+        )
+    )
+    es_consignacion = (
+        datos.es_consignacion
+        or datos.origen == OrigenCompra.CONSIGNACION
+        or tipo_efectivo == "CONSIGNACION"
+    )
+
+    # Prorrateo automático de flete + aduana + otros gastos en compras INTERNACIONAL
+    gastos_prorrateo = (
+        datos.envio_usd + datos.aduana_usd + datos.otros_gastos_usd
+        if tipo_efectivo == "INTERNACIONAL"
+        else Decimal("0")
+    )
+    total_unidades_compra = len(datos.equipos) + sum(c.cantidad for c in datos.componentes)
+    total_base_compra = sum(
+        (eq.costo_compra_usd or Decimal("0") for eq in datos.equipos), Decimal("0")
+    ) + sum(
+        ((c.costo_unitario_usd or Decimal("0")) * c.cantidad for c in datos.componentes),
+        Decimal("0"),
+    )
 
     numero_compra = generar_correlativo(bd, Compra, Compra.numero_compra, "CMP")
     compra = Compra(
         numero_compra=numero_compra,
         origen=datos.origen.value,
+        tipo_compra=tipo_efectivo,
+        moneda=(datos.moneda or "USD").strip().upper() or "USD",
         proveedor_id=datos.proveedor_id,
         fecha=datos.fecha,
         factura_orden=datos.factura_orden.strip(),
+        numero_guia=datos.numero_guia.strip(),
         monto_mercancia_usd=datos.monto_mercancia_usd,
         envio_usd=datos.envio_usd,
+        aduana_usd=datos.aduana_usd,
         otros_gastos_usd=datos.otros_gastos_usd,
         llega_preparada=datos.llega_preparada,
         estado=estado_compra,
@@ -358,6 +403,21 @@ def crear_compra(
                 EstadoEquipo.LISTO.value if datos.llega_preparada else EstadoEquipo.POR_PREPARAR.value
             )
 
+        costo_eq = Decimal("0") if es_consignacion else (eq.costo_compra_usd or Decimal("0"))
+        if gastos_prorrateo > Decimal("0") and not es_consignacion:
+            if total_base_compra > Decimal("0"):
+                flete_eq = (gastos_prorrateo * costo_eq / total_base_compra).quantize(
+                    Decimal("0.01"), rounding=ROUND_HALF_UP
+                )
+            elif total_unidades_compra > 0:
+                flete_eq = (gastos_prorrateo / Decimal(total_unidades_compra)).quantize(
+                    Decimal("0.01"), rounding=ROUND_HALF_UP
+                )
+            else:
+                flete_eq = Decimal("0")
+        else:
+            flete_eq = Decimal("0")
+
         nuevo_eq = Equipo(
             serial=eq.serial,
             articulo_id=eq.articulo_id,
@@ -367,10 +427,12 @@ def crear_compra(
             categoria=eq.categoria.strip() or "Laptop",
             ubicacion_id=ubicacion_id,
             estado=estado_eq,
-            costo_compra_usd=eq.costo_compra_usd or Decimal("0"),
-            costo_flete_usd=Decimal("0"),
+            costo_compra_usd=costo_eq,
+            costo_flete_usd=flete_eq,
             costo_taller_usd=Decimal("0"),
             precio_promo_usd=eq.precio_promo_usd,
+            es_consignacion=es_consignacion,
+            proveedor_consignacion_id=datos.proveedor_id if es_consignacion else None,
             recibido_por_id=usuario_actual.id if es_inmediata else None,
             fecha_recepcion=datos.fecha if es_inmediata else None,
             nota=eq.nota.strip(),
@@ -387,7 +449,7 @@ def crear_compra(
                     equipo_id=nuevo_eq.id,
                     sucursal_id=ubicacion_id,
                     cantidad=1,
-                    costo_unitario_usd=nuevo_eq.costo_compra_usd,
+                    costo_unitario_usd=Decimal("0") if es_consignacion else (costo_eq + flete_eq),
                     documento_ref=numero_compra,
                     motivo=f"Ingreso por {datos.origen.value}",
                     usuario_id=usuario_actual.id,
@@ -396,7 +458,21 @@ def crear_compra(
 
     for comp in datos.componentes:
         ubicacion_id = comp.ubicacion_id or bodega.id
-        costo_unit = comp.costo_unitario_usd or Decimal("0")
+        costo_unit = Decimal("0") if es_consignacion else (comp.costo_unitario_usd or Decimal("0"))
+        if gastos_prorrateo > Decimal("0") and not es_consignacion:
+            if total_base_compra > Decimal("0"):
+                flete_comp = (gastos_prorrateo * costo_unit / total_base_compra).quantize(
+                    Decimal("0.01"), rounding=ROUND_HALF_UP
+                )
+            elif total_unidades_compra > 0:
+                flete_comp = (gastos_prorrateo / Decimal(total_unidades_compra)).quantize(
+                    Decimal("0.01"), rounding=ROUND_HALF_UP
+                )
+            else:
+                flete_comp = Decimal("0")
+        else:
+            flete_comp = Decimal("0")
+
         bd.add(
             CompraComponente(
                 compra_id=compra.id,
@@ -404,6 +480,7 @@ def crear_compra(
                 cantidad=comp.cantidad,
                 cantidad_recibida=comp.cantidad if es_inmediata else 0,
                 costo_unitario_usd=costo_unit,
+                costo_flete_unitario_usd=flete_comp,
             )
         )
         if es_inmediata:
@@ -414,7 +491,7 @@ def crear_compra(
                     equipo_id=None,
                     sucursal_id=ubicacion_id,
                     cantidad=comp.cantidad,
-                    costo_unitario_usd=costo_unit,
+                    costo_unitario_usd=costo_unit + flete_comp,
                     documento_ref=numero_compra,
                     motivo=f"Ingreso de componentes ({datos.origen.value})",
                     usuario_id=usuario_actual.id,
@@ -1239,6 +1316,7 @@ def listar_inventario_equipos(
         joinedload(Equipo.compra),
         joinedload(Equipo.guia),
         joinedload(Equipo.ubicacion),
+        joinedload(Equipo.proveedor_consignacion),
         joinedload(Equipo.recibido_por),
         joinedload(Equipo.verificado_por),
     )
@@ -1554,3 +1632,152 @@ def revisar_ajuste_inventario(
         "estado": ajuste.estado,
         "revisado_por": usuario_actual.nombre,
     }
+
+
+# ---------------- Cambio de Estado Masivo, Plantillas e Importación Atómica ----------------
+
+@enrutador.post("/equipos/estado-masivo")
+def cambiar_estado_equipos_masivo(
+    datos: EquipoEstadoMasivoEntrada,
+    usuario_actual: Usuario = Depends(
+        requerir_roles(
+            RolUsuario.DIRECCION.value,
+            RolUsuario.ADMINISTRACION.value,
+            RolUsuario.LOGISTICA.value,
+            RolUsuario.LIDER.value,
+            RolUsuario.TECNICO.value,
+            RolUsuario.ENCARGADO.value,
+        )
+    ),
+    bd: Session = Depends(obtener_bd),
+) -> dict[str, Any]:
+    if datos.nuevo_estado in (EstadoEquipo.VENDIDO, EstadoEquipo.EN_TRANSITO):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No se puede asignar masivamente el estado VENDIDO o EN_TRANSITO.",
+        )
+
+    ids_unicos = list(dict.fromkeys(datos.equipo_ids))
+    equipos = bd.query(Equipo).filter(Equipo.id.in_(ids_unicos)).all()
+    if len(equipos) != len(ids_unicos):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Uno o más equipos seleccionados no existen.",
+        )
+
+    motivo_limpio = datos.motivo.strip() or "Actualización masiva de estado"
+    seriales_actualizados: list[str] = []
+    for eq in equipos:
+        if eq.estado == EstadoEquipo.VENDIDO.value:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"El equipo '{eq.serial}' ya está VENDIDO y no puede cambiar de estado.",
+            )
+        if (
+            usuario_actual.rol == RolUsuario.ENCARGADO.value
+            and usuario_actual.sucursal_id is not None
+            and eq.ubicacion_id != usuario_actual.sucursal_id
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"No tienes permisos para modificar el equipo '{eq.serial}' de otra sucursal.",
+            )
+        estado_anterior = eq.estado
+        eq.estado = datos.nuevo_estado.value
+        bd.add(
+            MovimientoInventario(
+                tipo=TipoMovimientoInventario.TALLER.value,
+                articulo_id=eq.articulo_id,
+                equipo_id=eq.id,
+                sucursal_id=eq.ubicacion_id,
+                cantidad=0,
+                costo_unitario_usd=Decimal("0"),
+                documento_ref="ESTADO-MASIVO",
+                motivo=f"Cambio de estado {estado_anterior} -> {datos.nuevo_estado.value}: {motivo_limpio}",
+                usuario_id=usuario_actual.id,
+            )
+        )
+        seriales_actualizados.append(eq.serial)
+
+    bd.commit()
+    return {
+        "actualizados": len(seriales_actualizados),
+        "nuevo_estado": datos.nuevo_estado.value,
+        "usuario": usuario_actual.nombre,
+        "seriales": seriales_actualizados,
+    }
+
+
+@enrutador.get("/plantillas/{flujo}")
+def descargar_plantilla_logistica(
+    flujo: str,
+    _usuario: Usuario = Depends(obtener_usuario_actual),
+) -> Response:
+    contenido = generar_plantilla_xlsx(flujo)
+    return Response(
+        content=contenido,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={
+            "Content-Disposition": f'attachment; filename="plantilla_tekio_{flujo}.xlsx"'
+        },
+    )
+
+
+@enrutador.post("/importar/preview")
+async def preview_importacion_logistica(
+    flujo: str = Form(...),
+    archivo: UploadFile = File(...),
+    usuario_actual: Usuario = Depends(obtener_usuario_actual),
+    bd: Session = Depends(obtener_bd),
+) -> dict[str, Any]:
+    if flujo in {"compras_nacionales", "compras_internacionales", "consignacion"}:
+        if not tiene_permiso(usuario_actual.rol, Permiso.GESTIONAR_COMPRAS):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="No tienes permisos para importar compras o consignaciones.",
+            )
+    elif flujo == "traslados_universales":
+        if not tiene_permiso(usuario_actual.rol, Permiso.REGISTRAR_TRASLADO):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="No tienes permisos para importar traslados.",
+            )
+
+    contenido = await archivo.read()
+    resultado = previsualizar_importacion(
+        bd,
+        flujo=flujo,
+        contenido=contenido,
+        nombre_archivo=archivo.filename or "archivo.xlsx",
+    )
+    return sanear_respuesta_costos(resultado, usuario_actual.rol)
+
+
+@enrutador.post("/importar/confirmar", status_code=status.HTTP_201_CREATED)
+async def confirmar_importacion_logistica(
+    flujo: str = Form(...),
+    archivo: UploadFile = File(...),
+    usuario_actual: Usuario = Depends(obtener_usuario_actual),
+    bd: Session = Depends(obtener_bd),
+) -> dict[str, Any]:
+    if flujo in {"compras_nacionales", "compras_internacionales", "consignacion"}:
+        if not tiene_permiso(usuario_actual.rol, Permiso.GESTIONAR_COMPRAS):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="No tienes permisos para confirmar compras o consignaciones.",
+            )
+    elif flujo == "traslados_universales":
+        if not tiene_permiso(usuario_actual.rol, Permiso.REGISTRAR_TRASLADO):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="No tienes permisos para confirmar traslados.",
+            )
+
+    contenido = await archivo.read()
+    return confirmar_importacion_atomica(
+        bd,
+        flujo=flujo,
+        contenido=contenido,
+        nombre_archivo=archivo.filename or "archivo.xlsx",
+        usuario=usuario_actual,
+    )

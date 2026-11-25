@@ -252,6 +252,103 @@ export default function PaginaCierreCajaDiario() {
         </div>
       )}
 
+      {/* Encabezado Operativo + Inventario + Taller */}
+      {preview && (
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+          <div className="bg-white/80 backdrop-blur-md p-4 rounded-2xl border border-white/70 shadow-[0_8px_30px_rgb(0,0,0,0.04)] space-y-1.5">
+            <p className="text-[11px] font-bold uppercase tracking-wide text-[#E85A28]">
+              Encabezado Operativo y Tasas
+            </p>
+            <p className="text-sm font-black text-[#191818]">
+              Líder / Encargado: {preview.lider_encargado || "Sin asignar"}
+            </p>
+            {preview.tasas_dia && (
+              <div className="flex flex-wrap gap-2 pt-1 text-xs tabular-nums">
+                <span className="px-2 py-0.5 rounded-lg bg-neutral-100 font-bold text-[#191818]">
+                  BCV: {formatearBs(preview.tasas_dia.tasa_bcv)}
+                </span>
+                <span className="px-2 py-0.5 rounded-lg bg-neutral-100 font-bold text-[#191818]">
+                  USDT: {formatearBs(preview.tasas_dia.tasa_usdt)}
+                </span>
+                <span className="px-2 py-0.5 rounded-lg bg-[#FDF0EB] font-bold text-[#E85A28]">
+                  Recargo: {preview.tasas_dia.recargo_porcentaje.toFixed(2)}%
+                </span>
+              </div>
+            )}
+          </div>
+
+          {preview.inventario && (
+            <div className="bg-white/80 backdrop-blur-md p-4 rounded-2xl border border-white/70 shadow-[0_8px_30px_rgb(0,0,0,0.04)] space-y-1.5">
+              <p className="text-[11px] font-bold uppercase tracking-wide text-blue-700">
+                Inventario y Almacén (Día)
+              </p>
+              <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-xs tabular-nums">
+                <p className="text-neutral-600">
+                  Recepciones:{" "}
+                  <strong className="text-[#191818]">
+                    {preview.inventario.recepciones_dia}
+                  </strong>
+                </p>
+                <p className="text-neutral-600">
+                  Traslados rec.:{" "}
+                  <strong className="text-[#191818]">
+                    {preview.inventario.traslados_recibidos_dia}
+                  </strong>
+                </p>
+                <p className="text-neutral-600">
+                  Salientes:{" "}
+                  <strong className="text-[#191818]">
+                    {preview.inventario.unidades_salientes_dia}
+                  </strong>{" "}
+                  <span className="text-[10px] text-neutral-400">
+                    ({preview.inventario.unidades_vendidas_dia} vta /{" "}
+                    {preview.inventario.traslados_despachados_dia} trs)
+                  </span>
+                </p>
+                <p className="text-neutral-600">
+                  Stock LISTO:{" "}
+                  <strong className="text-emerald-700">
+                    {preview.inventario.stock_disponible_listo}
+                  </strong>
+                </p>
+              </div>
+            </div>
+          )}
+
+          {preview.taller && (
+            <div className="bg-white/80 backdrop-blur-md p-4 rounded-2xl border border-white/70 shadow-[0_8px_30px_rgb(0,0,0,0.04)] space-y-1.5">
+              <p className="text-[11px] font-bold uppercase tracking-wide text-amber-700">
+                Taller y Garantías (GT / ST)
+              </p>
+              <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-xs tabular-nums">
+                <p className="text-neutral-600">
+                  Recibidos hoy:{" "}
+                  <strong className="text-[#191818]">
+                    {preview.taller.recibidos_dia}
+                  </strong>
+                </p>
+                <p className="text-neutral-600">
+                  Resueltos hoy:{" "}
+                  <strong className="text-emerald-700">
+                    {preview.taller.resueltos_dia}
+                  </strong>
+                </p>
+                <p className="text-neutral-600 col-span-2">
+                  Pendientes activos:{" "}
+                  <strong className="text-amber-700">
+                    {preview.taller.pendientes_total}
+                  </strong>{" "}
+                  <span className="text-[11px] text-neutral-500">
+                    (GT: {preview.taller.gt_pendientes} · ST:{" "}
+                    {preview.taller.st_pendientes})
+                  </span>
+                </p>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* KPIs del día */}
       {preview && (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">

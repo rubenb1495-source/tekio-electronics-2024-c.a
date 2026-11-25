@@ -1,17 +1,22 @@
 from __future__ import annotations
 
 import json
-from datetime import date
+from datetime import date, datetime, timezone
 from decimal import Decimal, ROUND_HALF_UP
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import Response
 from sqlalchemy.orm import Session, joinedload
 
 from app.base_datos import obtener_bd
-from app.esquemas_operaciones import CierreCajaCrearEntrada, LiquidacionComisionCrearEntrada
-from app.modelos import Sucursal, TasaDiaria, Usuario
+from app.esquemas_operaciones import (
+    CierreCajaCrearEntrada,
+    LiquidacionAnularEntrada,
+    LiquidacionComisionCrearEntrada,
+)
+from app.modelos import RolUsuario, Sucursal, TasaDiaria, Usuario
 from app.modelos_finanzas import (
     EstadoVenta,
     EstadoVerificacionPago,
@@ -22,10 +27,21 @@ from app.modelos_finanzas import (
     TipoMovimientoPago,
     Venta,
 )
+from app.modelos_logistica import (
+    Equipo,
+    EstadoEquipo,
+    MovimientoInventario,
+    TipoMovimientoInventario,
+)
 from app.modelos_operaciones import (
     CierreCaja,
     LiquidacionComision,
     LiquidacionComisionDetalle,
+)
+from app.modelos_taller import (
+    CasoPostventa,
+    EstadoCasoPostventa,
+    TipoCasoPostventa,
 )
 from app.rutas.finanzas import calcular_reporte_comisiones_rango
 from app.rutas.tasas import obtener_fecha_hoy
@@ -42,9 +58,21 @@ enrutador = APIRouter(prefix="/api/finanzas", tags=["Liquidaciones y Cierre de C
 
 
 def _serializar_liquidacion(liq: LiquidacionComision) -> dict[str, Any]:
+    estado_liq = getattr(liq, "estado", "ACTIVA") or "ACTIVA"
+    if liq.detalles:
+        cant_ops = len(liq.detalles)
+        notas_liq = [d.referencia_origen for d in liq.detalles if d.referencia_origen]
+    else:
+        try:
+            snap = json.loads(getattr(liq, "detalle_anulado_json", "[]") or "[]")
+        except Exception:
+            snap = []
+        cant_ops = len(snap)
+        notas_liq = [str(d.get("referencia_origen") or "") for d in snap if d.get("referencia_origen")]
     return {
         "id": liq.id,
         "codigo": liq.codigo,
+        "estado": estado_liq,
         "usuario_id": liq.usuario_id,
         "usuario_nombre": liq.usuario.nombre if liq.usuario else "Colaborador",
         "usuario_rol": liq.usuario.rol if liq.usuario else "",
@@ -58,9 +86,12 @@ def _serializar_liquidacion(liq: LiquidacionComision) -> dict[str, Any]:
         "referencia": liq.referencia,
         "pago_egreso_id": liq.pago_egreso_id,
         "autorizado_por": liq.autorizado_por.nombre if liq.autorizado_por else "",
+        "anulada_por": liq.anulada_por.nombre if getattr(liq, "anulada_por", None) else None,
+        "fecha_anulacion": liq.fecha_anulacion.isoformat() if getattr(liq, "fecha_anulacion", None) else None,
+        "motivo_anulacion": getattr(liq, "motivo_anulacion", "") or "",
         "notas": liq.notas,
-        "cantidad_operaciones": len(liq.detalles),
-        "notas_liquidadas": [d.referencia_origen for d in liq.detalles if d.referencia_origen],
+        "cantidad_operaciones": cant_ops,
+        "notas_liquidadas": notas_liq,
         "creado_en": liq.creado_en.isoformat() if liq.creado_en else None,
     }
 
@@ -76,6 +107,7 @@ def listar_liquidaciones(
         .options(
             joinedload(LiquidacionComision.usuario),
             joinedload(LiquidacionComision.autorizado_por),
+            joinedload(LiquidacionComision.anulada_por),
             joinedload(LiquidacionComision.instrumento),
             joinedload(LiquidacionComision.detalles),
         )
@@ -84,6 +116,90 @@ def listar_liquidaciones(
     if usuario_id is not None:
         consulta = consulta.filter(LiquidacionComision.usuario_id == usuario_id)
     return [_serializar_liquidacion(liq) for liq in consulta.all()]
+
+
+@enrutador.post("/liquidaciones/{liq_id}/anular")
+def anular_liquidacion_comisiones(
+    liq_id: int,
+    datos: LiquidacionAnularEntrada,
+    usuario_actual: Usuario = Depends(require_permiso(Permiso.LIQUIDAR_COMISIONES)),
+    bd: Session = Depends(obtener_bd),
+) -> dict[str, Any]:
+    liq = (
+        bd.query(LiquidacionComision)
+        .options(
+            joinedload(LiquidacionComision.usuario),
+            joinedload(LiquidacionComision.autorizado_por),
+            joinedload(LiquidacionComision.instrumento),
+            joinedload(LiquidacionComision.detalles),
+            joinedload(LiquidacionComision.pago_egreso),
+        )
+        .filter(LiquidacionComision.id == liq_id)
+        .first()
+    )
+    if liq is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Liquidación de comisiones no encontrada.",
+        )
+    if (liq.estado or "ACTIVA") == "ANULADA":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"La liquidación {liq.codigo} ya se encuentra ANULADA.",
+        )
+
+    motivo = datos.motivo_anulacion.strip()
+    if len(motivo) < 3:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Debes indicar un motivo de anulación válido.",
+        )
+
+    # 1. Guardar snapshot de auditoría de las operaciones liquidadas antes de liberar candado
+    snapshot_detalles = [
+        {
+            "venta_id": d.venta_id,
+            "usuario_id": d.usuario_id,
+            "referencia_origen": d.referencia_origen,
+            "concepto": d.concepto,
+            "base_promo_usd": redondear_usd(d.base_promo_usd),
+            "monto_comision_usd": redondear_usd(d.monto_comision_usd),
+        }
+        for d in liq.detalles
+    ]
+    liq.detalle_anulado_json = json.dumps(snapshot_detalles, ensure_ascii=False)
+
+    # 2. Liberar operaciones de liquidaciones_comisiones_detalle para que vuelvan a PENDIENTE
+    bd.query(LiquidacionComisionDetalle).filter(
+        LiquidacionComisionDetalle.liquidacion_id == liq.id
+    ).delete(synchronize_session=False)
+
+    # 3. Revertir automáticamente el egreso financiero asociado
+    if liq.pago_egreso is not None:
+        liq.pago_egreso.anulado = True
+        nota_prev = (liq.pago_egreso.nota or "").strip()
+        liq.pago_egreso.nota = f"{nota_prev} | ANULADO ({liq.codigo}): {motivo}".strip(" |")
+
+    # 4. Marcar liquidación como ANULADA con trazabilidad de auditoría
+    liq.estado = "ANULADA"
+    liq.anulada_por_id = usuario_actual.id
+    liq.fecha_anulacion = datetime.now(timezone.utc)
+    liq.motivo_anulacion = motivo
+
+    bd.commit()
+    liq_actualizada = (
+        bd.query(LiquidacionComision)
+        .options(
+            joinedload(LiquidacionComision.usuario),
+            joinedload(LiquidacionComision.autorizado_por),
+            joinedload(LiquidacionComision.anulada_por),
+            joinedload(LiquidacionComision.instrumento),
+            joinedload(LiquidacionComision.detalles),
+        )
+        .filter(LiquidacionComision.id == liq.id)
+        .first()
+    )
+    return _serializar_liquidacion(liq_actualizada)
 
 
 @enrutador.post("/liquidaciones", status_code=status.HTTP_201_CREATED)
@@ -124,6 +240,18 @@ def crear_liquidacion_comisiones(
     )
     pendientes = [op for op in operaciones if op.get("estado_comision") == "PENDIENTE"]
     if not pendientes:
+        _, ops_pagadas = calcular_reporte_comisiones_rango(
+            bd,
+            fecha_inicio=f_ini,
+            fecha_fin=f_fin,
+            usuario_id=datos.usuario_id,
+            estado="PAGADA",
+        )
+        if ops_pagadas:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Las comisiones de este colaborador en el período indicado ya fueron liquidadas.",
+            )
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="No existen comisiones pendientes por liquidar para este colaborador en el rango indicado.",
@@ -405,10 +533,121 @@ def _calcular_preview_cierre_caja(
         for d in sorted(por_inst.values(), key=lambda x: x["instrumento"])
     ]
 
+    # Bloque Operativo Ampliado: Líder/Encargado, Tasas del Día, Inventario y Taller
+    tz_caracas = ZoneInfo("America/Caracas")
+
+    def _fecha_local(dt: datetime | None) -> date | None:
+        if dt is None:
+            return None
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt.astimezone(tz_caracas).date()
+
+    # 1. Líder Comercial / Encargado asignado
+    q_lider = bd.query(Usuario).filter(
+        Usuario.activo.is_(True),
+        Usuario.rol.in_([RolUsuario.ENCARGADO.value, RolUsuario.LIDER.value]),
+    )
+    if sucursal_id is not None:
+        q_lider = q_lider.filter(Usuario.sucursal_id == sucursal_id)
+    lider_obj = q_lider.order_by(Usuario.id.asc()).first()
+    lider_encargado = lider_obj.nombre if lider_obj else "Sin asignar"
+
+    # 2. Tasas del día
+    tasa_obj = (
+        bd.query(TasaDiaria)
+        .filter(TasaDiaria.fecha <= fecha_op)
+        .order_by(TasaDiaria.fecha.desc())
+        .first()
+    )
+    tasas_dia = {
+        "fecha": tasa_obj.fecha.isoformat() if tasa_obj else fecha_op.isoformat(),
+        "tasa_bcv": redondear_usd(tasa_obj.tasa_bcv) if tasa_obj else 0.0,
+        "tasa_usdt": redondear_usd(tasa_obj.tasa_usdt) if tasa_obj else 0.0,
+        "recargo_porcentaje": redondear_usd(tasa_obj.recargo_porcentaje) if tasa_obj else 0.0,
+    }
+
+    # 3. Bloque de Inventario y Almacén
+    q_movs = bd.query(MovimientoInventario)
+    if sucursal_id is not None:
+        q_movs = q_movs.filter(MovimientoInventario.sucursal_id == sucursal_id)
+    movs_dia = [m for m in q_movs.all() if _fecha_local(m.fecha) == fecha_op]
+
+    recepciones_dia = sum(
+        max(0, int(m.cantidad or 0))
+        for m in movs_dia
+        if m.tipo == TipoMovimientoInventario.COMPRA.value
+    )
+    traslados_recibidos_dia = sum(
+        max(0, int(m.cantidad or 0))
+        for m in movs_dia
+        if m.tipo == TipoMovimientoInventario.TRASLADO_ENTRADA.value
+    )
+    traslados_despachados_dia = sum(
+        abs(int(m.cantidad or 0))
+        for m in movs_dia
+        if m.tipo == TipoMovimientoInventario.TRASLADO_SALIDA.value
+    )
+    unidades_vendidas_dia = sum(
+        sum(int(det.cantidad or 0) for det in v.detalles) for v in ventas_activas
+    )
+    unidades_salientes_dia = unidades_vendidas_dia + traslados_despachados_dia
+
+    q_stock = bd.query(Equipo).filter(Equipo.estado == EstadoEquipo.LISTO.value)
+    if sucursal_id is not None:
+        q_stock = q_stock.filter(Equipo.ubicacion_id == sucursal_id)
+    stock_disponible_listo = q_stock.count()
+
+    inventario_resumen = {
+        "recepciones_dia": recepciones_dia,
+        "traslados_recibidos_dia": traslados_recibidos_dia,
+        "unidades_vendidas_dia": unidades_vendidas_dia,
+        "traslados_despachados_dia": traslados_despachados_dia,
+        "unidades_salientes_dia": unidades_salientes_dia,
+        "stock_disponible_listo": stock_disponible_listo,
+    }
+
+    # 4. Bloque de Taller / Garantías (GT y ST)
+    q_casos = bd.query(CasoPostventa)
+    if sucursal_id is not None:
+        q_casos = q_casos.filter(CasoPostventa.sucursal_id == sucursal_id)
+    casos_todos = q_casos.all()
+
+    estados_resueltos = {
+        EstadoCasoPostventa.TERMINADO.value,
+        EstadoCasoPostventa.LISTO_PARA_ENTREGAR.value,
+        EstadoCasoPostventa.ENTREGADO.value,
+    }
+    estados_cerrados = {
+        EstadoCasoPostventa.ENTREGADO.value,
+        EstadoCasoPostventa.RECHAZADO.value,
+    }
+    recibidos_taller = sum(1 for c in casos_todos if _fecha_local(c.fecha_ingreso) == fecha_op)
+    resueltos_taller = sum(
+        1
+        for c in casos_todos
+        if c.estado in estados_resueltos and _fecha_local(c.fecha_cierre) == fecha_op
+    )
+    casos_pendientes = [c for c in casos_todos if c.estado not in estados_cerrados]
+    gt_pendientes = sum(1 for c in casos_pendientes if c.tipo == TipoCasoPostventa.GARANTIA.value)
+    st_pendientes = sum(1 for c in casos_pendientes if c.tipo == TipoCasoPostventa.SERVICIO.value)
+
+    taller_resumen = {
+        "recibidos_dia": recibidos_taller,
+        "resueltos_dia": resueltos_taller,
+        "pendientes_total": len(casos_pendientes),
+        "gt_pendientes": gt_pendientes,
+        "st_pendientes": st_pendientes,
+    }
+
     return {
         "fecha": fecha_op.isoformat(),
         "sucursal_id": sucursal_id,
         "sucursal": sucursal_nombre,
+        "lider_encargado": lider_encargado,
+        "tasas_dia": tasas_dia,
+        "inventario": inventario_resumen,
+        "taller": taller_resumen,
         "cantidad_ventas": len(ventas_activas),
         "cantidad_anulaciones": len(anulaciones),
         "total_ventas_usd": redondear_usd(total_ventas_usd),
@@ -433,12 +672,20 @@ def _serializar_cierre_caja(cierre: CierreCaja) -> dict[str, Any]:
         desglose_as = json.loads(getattr(cierre, "desglose_asesores_json", "[]") or "[]")
     except Exception:
         desglose_as = []
+    try:
+        resumen_op = json.loads(getattr(cierre, "resumen_operativo_json", "{}") or "{}")
+    except Exception:
+        resumen_op = {}
     return {
         "id": cierre.id,
         "fecha": cierre.fecha.isoformat(),
         "sucursal_id": cierre.sucursal_id,
         "sucursal": cierre.sucursal.nombre if cierre.sucursal else "Todas las sucursales",
         "usuario": cierre.usuario.nombre if cierre.usuario else "",
+        "lider_encargado": resumen_op.get("lider_encargado", ""),
+        "tasas_dia": resumen_op.get("tasas_dia"),
+        "inventario": resumen_op.get("inventario"),
+        "taller": resumen_op.get("taller"),
         "cantidad_ventas": cierre.cantidad_ventas,
         "cantidad_anulaciones": cierre.cantidad_anulaciones,
         "total_ventas_usd": redondear_usd(cierre.total_ventas_usd),
@@ -526,6 +773,15 @@ def guardar_cierre_caja(
         total_cashea_usd=Decimal(str(preview["total_cashea_usd"])),
         desglose_instrumentos_json=json.dumps(preview["desglose_instrumentos"], ensure_ascii=False),
         desglose_asesores_json=json.dumps(preview["desglose_asesores"], ensure_ascii=False),
+        resumen_operativo_json=json.dumps(
+            {
+                "lider_encargado": preview.get("lider_encargado", ""),
+                "tasas_dia": preview.get("tasas_dia"),
+                "inventario": preview.get("inventario"),
+                "taller": preview.get("taller"),
+            },
+            ensure_ascii=False,
+        ),
         efectivo_esperado_usd=esperado,
         efectivo_declarado_usd=declarado,
         diferencia_usd=diferencia,

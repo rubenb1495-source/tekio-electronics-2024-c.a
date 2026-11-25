@@ -803,6 +803,40 @@ def generar_pdf_cierre_caja(cierre: CierreCaja) -> bytes:
     )
     y -= 1.24 * inch
 
+    # Bloque operativo ampliado: Líder/Encargado, Tasas, Inventario y Taller
+    try:
+        resumen_op = json.loads(getattr(cierre, "resumen_operativo_json", "{}") or "{}")
+    except Exception:
+        resumen_op = {}
+
+    if resumen_op:
+        lider_nom = resumen_op.get("lider_encargado") or "Sin asignar"
+        tasas_op = resumen_op.get("tasas_dia") or {}
+        inv_op = resumen_op.get("inventario") or {}
+        tal_op = resumen_op.get("taller") or {}
+
+        pdf.setFillColorRGB(0.992, 0.941, 0.922)
+        pdf.roundRect(0.50 * inch, y - 0.86 * inch, ancho - 1.0 * inch, 0.90 * inch, 6, fill=1, stroke=0)
+        pdf.setFillColorRGB(0.098, 0.094, 0.094)
+        pdf.setFont("Helvetica-Bold", 8.2)
+        pdf.drawString(
+            0.62 * inch,
+            y - 0.14 * inch,
+            f"Líder / Encargado: {lider_nom}   |   Tasas del día: BCV Bs. {Decimal(str(tasas_op.get('tasa_bcv', 0))):,.2f} · USDT Bs. {Decimal(str(tasas_op.get('tasa_usdt', 0))):,.2f} · Recargo {Decimal(str(tasas_op.get('recargo_porcentaje', 0))):,.2f}%",
+        )
+        pdf.setFont("Helvetica", 8.0)
+        pdf.drawString(
+            0.62 * inch,
+            y - 0.40 * inch,
+            f"Inventario y Almacén: Recepciones hoy: {int(inv_op.get('recepciones_dia', 0))} · Traslados recibidos: {int(inv_op.get('traslados_recibidos_dia', 0))} · Salientes hoy: {int(inv_op.get('unidades_salientes_dia', 0))} (Ventas: {int(inv_op.get('unidades_vendidas_dia', 0))} / Traslados: {int(inv_op.get('traslados_despachados_dia', 0))}) · Stock LISTO: {int(inv_op.get('stock_disponible_listo', 0))}",
+        )
+        pdf.drawString(
+            0.62 * inch,
+            y - 0.66 * inch,
+            f"Taller y Garantías: Recibidos hoy: {int(tal_op.get('recibidos_dia', 0))} · Resueltos/Entregados hoy: {int(tal_op.get('resueltos_dia', 0))} · Pendientes totales: {int(tal_op.get('pendientes_total', 0))} (GT: {int(tal_op.get('gt_pendientes', 0))} / ST: {int(tal_op.get('st_pendientes', 0))})",
+        )
+        y -= 1.08 * inch
+
     # Desglose por instrumento
     pdf.setFillColorRGB(0.953, 0.957, 0.965)
     pdf.rect(0.50 * inch, y - 0.22 * inch, ancho - 1.0 * inch, 0.26 * inch, fill=1, stroke=0)
