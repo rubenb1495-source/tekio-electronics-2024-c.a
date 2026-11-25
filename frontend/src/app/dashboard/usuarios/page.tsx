@@ -20,6 +20,7 @@ import type { RolUsuario, Sucursal, Usuario } from "@/tipos/dominio";
 
 const ROLES_DISPONIBLES: RolUsuario[] = [
   "ASESORA",
+  "ENCARGADO",
   "LIDER",
   "TECNICO",
   "LOGISTICA",

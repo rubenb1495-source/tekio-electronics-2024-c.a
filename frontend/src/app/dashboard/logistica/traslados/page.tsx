@@ -11,13 +11,13 @@ import {
 } from "lucide-react";
 import BuscadorTabla from "@/componentes/BuscadorTabla";
 import { usarSesion } from "@/contexto/SesionContexto";
+import { usePermisos } from "@/lib/permisos";
 import {
   copiarTextoPortapapeles,
   formatearWhatsAppTraslado,
 } from "@/lib/whatsapp";
 import {
   ErrorApi,
-  puedeGestionarCatalogo,
   solicitarApi,
 } from "@/servicios/api";
 import type { Sucursal } from "@/tipos/dominio";
@@ -25,7 +25,8 @@ import type { EquipoInventario, TrasladoResumen } from "@/tipos/logistica";
 
 export default function PaginaTraslados() {
   const { usuario } = usarSesion();
-  const puedeEnviar = usuario ? puedeGestionarCatalogo(usuario.rol) : false;
+  const permisos = usePermisos();
+  const puedeEnviar = permisos.puedeRegistrarTraslados;
 
   const [pestana, setPestana] = useState<"enviados" | "por_recibir">("enviados");
   const [traslados, setTraslados] = useState<TrasladoResumen[]>([]);

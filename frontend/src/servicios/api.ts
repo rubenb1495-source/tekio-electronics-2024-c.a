@@ -61,7 +61,7 @@ export function puedeGestionarCatalogo(rol: RolUsuario): boolean {
 }
 
 export function puedeVerCostos(rol: RolUsuario): boolean {
-  return rol !== "ASESORA" && rol !== "TECNICO";
+  return rol !== "ENCARGADO" && rol !== "ASESORA" && rol !== "TECNICO";
 }
 
 export function normalizarSkuCliente(valor: string): string {

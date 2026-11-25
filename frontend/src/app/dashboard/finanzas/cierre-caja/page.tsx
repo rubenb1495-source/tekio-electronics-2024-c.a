@@ -12,6 +12,7 @@ import {
   Save,
 } from "lucide-react";
 import BuscadorTabla from "@/componentes/BuscadorTabla";
+import { usePermisos } from "@/lib/permisos";
 import {
   copiarTextoPortapapeles,
   formatearWhatsAppCierreCaja,
@@ -28,9 +29,18 @@ import type { Sucursal } from "@/tipos/dominio";
 import type { CierreCajaResumen, PreviewCierreCaja } from "@/tipos/finanzas";
 
 export default function PaginaCierreCajaDiario() {
+  const permisos = usePermisos();
   const [fecha, setFecha] = useState(fechaHoyCaracas());
-  const [sucursalId, setSucursalId] = useState("");
+  const [sucursalId, setSucursalId] = useState(
+    permisos.sucursalRestringidaId ? String(permisos.sucursalRestringidaId) : ""
+  );
   const [sucursales, setSucursales] = useState<Sucursal[]>([]);
+
+  useEffect(() => {
+    if (permisos.sucursalRestringidaId) {
+      setSucursalId(String(permisos.sucursalRestringidaId));
+    }
+  }, [permisos.sucursalRestringidaId]);
 
   const [preview, setPreview] = useState<PreviewCierreCaja | null>(null);
   const [cierres, setCierres] = useState<CierreCajaResumen[]>([]);
@@ -167,9 +177,12 @@ export default function PaginaCierreCajaDiario() {
           <select
             value={sucursalId}
             onChange={(e) => setSucursalId(e.target.value)}
-            className="px-3 py-2 rounded-xl border border-neutral-200 bg-white text-sm text-[#191818]"
+            disabled={permisos.sucursalRestringidaId !== null}
+            className="px-3 py-2 rounded-xl border border-neutral-200 bg-white text-sm text-[#191818] disabled:bg-neutral-100 disabled:text-neutral-500"
           >
-            <option value="">Todas las sucursales</option>
+            {permisos.sucursalRestringidaId === null && (
+              <option value="">Todas las sucursales</option>
+            )}
             {sucursales.map((s) => (
               <option key={s.id} value={String(s.id)}>
                 {s.nombre}

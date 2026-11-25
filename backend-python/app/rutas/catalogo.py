@@ -29,6 +29,7 @@ from app.modelos import (
     TipoArticulo,
     Usuario,
 )
+from app.core.permisos import Permiso, require_permiso, sanear_respuesta_costos
 from app.rutas.tasas import obtener_fecha_hoy
 from app.seguridad import (
     ROLES_ADMINISTRATIVOS,
@@ -178,20 +179,23 @@ def listar_catalogo(
     esquema_respuesta = (
         CatalogoPaginadoConCostoSalida if incluir_costo else CatalogoPaginadoPublicoSalida
     )
-    return esquema_respuesta(
-        elementos=elementos,
-        total=total,
-        pagina=pagina,
-        por_pagina=por_pagina,
-        recargo_aplicado_porcentaje=float(recargo_pct),
-        tasa_bcv_aplicada=float(tasa_bcv_hoy) if tasa_bcv_hoy is not None else None,
-    ).model_dump()
+    return sanear_respuesta_costos(
+        esquema_respuesta(
+            elementos=elementos,
+            total=total,
+            pagina=pagina,
+            por_pagina=por_pagina,
+            recargo_aplicado_porcentaje=float(recargo_pct),
+            tasa_bcv_aplicada=float(tasa_bcv_hoy) if tasa_bcv_hoy is not None else None,
+        ).model_dump(),
+        usuario_actual.rol,
+    )
 
 
 @enrutador.post("", status_code=status.HTTP_201_CREATED)
 def crear_articulo_catalogo(
     datos: ArticuloCrearEntrada,
-    usuario_actual: Usuario = Depends(requerir_roles(*ROLES_GESTION_CATALOGO)),
+    usuario_actual: Usuario = Depends(require_permiso(Permiso.GESTIONAR_CATALOGO)),
     bd: Session = Depends(obtener_bd),
 ) -> dict[str, Any]:
     existente = bd.query(CatalogoArticulo).filter(CatalogoArticulo.sku == datos.sku).first()
@@ -241,7 +245,7 @@ def crear_articulo_catalogo(
 def registrar_nuevo_precio(
     articulo_id: int,
     datos: PrecioCrearEntrada,
-    usuario_actual: Usuario = Depends(requerir_roles(*ROLES_GESTION_CATALOGO)),
+    usuario_actual: Usuario = Depends(require_permiso(Permiso.GESTIONAR_CATALOGO)),
     bd: Session = Depends(obtener_bd),
 ) -> dict[str, Any]:
     articulo = bd.query(CatalogoArticulo).filter(CatalogoArticulo.id == articulo_id).first()
@@ -331,7 +335,7 @@ def obtener_historial_precios(
             resultado.append(PrecioHistorialConCostoSalida(**base).model_dump())
         else:
             resultado.append(PrecioHistorialPublicoSalida(**base).model_dump())
-    return resultado
+    return sanear_respuesta_costos(resultado, usuario_actual.rol)
 
 
 @enrutador.patch("/{articulo_id}/estado")

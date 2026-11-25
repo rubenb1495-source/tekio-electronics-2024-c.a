@@ -48,6 +48,12 @@ from app.modelos_logistica import (
     Traslado,
     TrasladoDetalle,
 )
+from app.core.permisos import (
+    Permiso,
+    require_permiso,
+    sanear_respuesta_costos,
+    tiene_permiso,
+)
 from app.rutas.tasas import obtener_fecha_hoy
 from app.seguridad import obtener_usuario_actual, puede_ver_costos, requerir_roles
 
@@ -148,12 +154,20 @@ def serializar_equipo(equipo: Equipo, incluir_costos: bool) -> dict[str, Any]:
 @enrutador.get("/terceros", response_model=list[TerceroSalida])
 def listar_terceros(
     tipo: str | None = Query(default=None),
-    _usuario: Usuario = Depends(obtener_usuario_actual),
+    usuario_actual: Usuario = Depends(obtener_usuario_actual),
     bd: Session = Depends(obtener_bd),
 ) -> list[TerceroSalida]:
+    puede_proveedores = tiene_permiso(usuario_actual.rol, Permiso.GESTIONAR_PROVEEDORES)
+    if tipo == "PROVEEDOR" and not puede_proveedores:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="No tienes permisos para consultar proveedores.",
+        )
     consulta = bd.query(Tercero).filter(Tercero.activo.is_(True))
     if tipo:
         consulta = consulta.filter(Tercero.tipo == tipo)
+    elif not puede_proveedores:
+        consulta = consulta.filter(Tercero.tipo != "PROVEEDOR")
     filas = consulta.order_by(Tercero.nombre.asc()).all()
     return [TerceroSalida.model_validate(f) for f in filas]
 
@@ -161,7 +175,7 @@ def listar_terceros(
 @enrutador.post("/terceros", response_model=TerceroSalida, status_code=status.HTTP_201_CREATED)
 def crear_tercero(
     datos: TerceroCrearEntrada,
-    _usuario: Usuario = Depends(requerir_roles(*ROLES_LOGISTICA)),
+    _usuario: Usuario = Depends(require_permiso(Permiso.GESTIONAR_PROVEEDORES)),
     bd: Session = Depends(obtener_bd),
 ) -> TerceroSalida:
     nuevo = Tercero(
@@ -922,9 +936,18 @@ def listar_traslados(
 @enrutador.post("/traslados", status_code=status.HTTP_201_CREATED)
 def crear_traslado(
     datos: TrasladoCrearEntrada,
-    usuario_actual: Usuario = Depends(requerir_roles(*ROLES_LOGISTICA)),
+    usuario_actual: Usuario = Depends(require_permiso(Permiso.REGISTRAR_TRASLADO)),
     bd: Session = Depends(obtener_bd),
 ) -> dict[str, Any]:
+    if usuario_actual.rol == RolUsuario.ENCARGADO.value:
+        if usuario_actual.sucursal_id is None or (
+            datos.origen_id != usuario_actual.sucursal_id
+            and datos.destino_id != usuario_actual.sucursal_id
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Como Encargado solo puedes registrar traslados desde o hacia tu sucursal asignada.",
+            )
     if datos.origen_id == datos.destino_id:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -1065,6 +1088,11 @@ def confirmar_traslado(
     )
     if traslado is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Traslado no encontrado.")
+    if usuario_actual.rol == RolUsuario.ENCARGADO.value and traslado.destino_id != usuario_actual.sucursal_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Solo puedes confirmar la recepción de traslados dirigidos a tu sucursal asignada.",
+        )
     if traslado.estado != EstadoTraslado.EN_TRANSITO.value:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -1138,6 +1166,11 @@ def anular_traslado(
     )
     if traslado is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Traslado no encontrado.")
+    if usuario_actual.rol == RolUsuario.ENCARGADO.value and traslado.destino_id != usuario_actual.sucursal_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Solo puedes confirmar la recepción de traslados dirigidos a tu sucursal asignada.",
+        )
     if traslado.estado != EstadoTraslado.EN_TRANSITO.value:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -1224,7 +1257,10 @@ def listar_inventario_equipos(
         )
 
     equipos = consulta.order_by(Equipo.id.desc()).all()
-    return [serializar_equipo(e, incluir_costos) for e in equipos]
+    return sanear_respuesta_costos(
+        [serializar_equipo(e, incluir_costos) for e in equipos],
+        usuario_actual.rol,
+    )
 
 
 @enrutador.get("/inventario/kardex")
@@ -1302,7 +1338,7 @@ def consultar_kardex_componentes(
             item["costo_unitario_usd"] = redondear_usd(m.costo_unitario_usd)
         movimientos.append(item)
 
-    return {"saldos": saldos, "movimientos": movimientos}
+    return sanear_respuesta_costos({"saldos": saldos, "movimientos": movimientos}, usuario_actual.rol)
 
 
 @enrutador.get("/trazabilidad/{serial}")
@@ -1358,10 +1394,13 @@ def obtener_trazabilidad_serial(
             evento["costo_unitario_usd"] = redondear_usd(m.costo_unitario_usd)
         linea_tiempo.append(evento)
 
-    return {
-        "equipo": serializar_equipo(equipo, incluir_costos),
-        "linea_tiempo": linea_tiempo,
-    }
+    return sanear_respuesta_costos(
+        {
+            "equipo": serializar_equipo(equipo, incluir_costos),
+            "linea_tiempo": linea_tiempo,
+        },
+        usuario_actual.rol,
+    )
 
 
 @enrutador.get("/ajustes")

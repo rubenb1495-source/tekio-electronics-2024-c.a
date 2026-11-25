@@ -58,6 +58,7 @@ from app.modelos_logistica import (
 )
 from app.rutas.logistica import calcular_stock_componente, generar_correlativo
 from app.rutas.tasas import obtener_fecha_hoy
+from app.core.permisos import Permiso, require_permiso, sanear_respuesta_costos
 from app.seguridad import obtener_usuario_actual, puede_ver_costos
 from app.servicios.pdf_nota import generar_pdf_nota_entrega
 
@@ -675,7 +676,10 @@ def listar_ventas(
         consulta = consulta.filter(Venta.estado == estado.value)
 
     ventas = consulta.order_by(Venta.id.desc()).limit(100).all()
-    return [serializar_venta(v, incluir_costos) for v in ventas]
+    return sanear_respuesta_costos(
+        [serializar_venta(v, incluir_costos) for v in ventas],
+        usuario_actual.rol,
+    )
 
 
 @enrutador.post("/ventas", status_code=status.HTTP_201_CREATED)
@@ -942,7 +946,10 @@ def crear_venta(
         .filter(Venta.id == venta.id)
         .first()
     )
-    return serializar_venta(venta_completa, puede_ver_costos(usuario_actual.rol))
+    return sanear_respuesta_costos(
+        serializar_venta(venta_completa, puede_ver_costos(usuario_actual.rol)),
+        usuario_actual.rol,
+    )
 
 
 @enrutador.get("/ventas/{venta_id}/nota-pdf")
@@ -980,7 +987,7 @@ def descargar_nota_entrega_pdf(
 def anular_venta(
     venta_id: int,
     datos: VentaAnularEntrada,
-    usuario_actual: Usuario = Depends(obtener_usuario_actual),
+    usuario_actual: Usuario = Depends(require_permiso(Permiso.ANULAR_VENTA)),
     bd: Session = Depends(obtener_bd),
 ) -> dict[str, Any]:
     venta = (
@@ -1090,7 +1097,7 @@ def listar_devoluciones(
 @enrutador.post("/devoluciones", status_code=status.HTTP_201_CREATED)
 def registrar_devolucion(
     datos: DevolucionCrearEntrada,
-    usuario_actual: Usuario = Depends(obtener_usuario_actual),
+    usuario_actual: Usuario = Depends(require_permiso(Permiso.AUTORIZAR_REEMBOLSO)),
     bd: Session = Depends(obtener_bd),
 ) -> dict[str, Any]:
     hoy = obtener_fecha_hoy()

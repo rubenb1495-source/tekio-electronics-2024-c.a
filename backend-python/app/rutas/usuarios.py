@@ -12,6 +12,7 @@ from app.esquemas import (
     UsuarioSalida,
 )
 from app.modelos import RolUsuario, Sucursal, Usuario
+from app.core.permisos import Permiso, require_permiso
 from app.seguridad import (
     ROLES_ADMINISTRATIVOS,
     generar_hash_clave,
@@ -63,7 +64,7 @@ def listar_usuarios(
     rol: RolUsuario | None = Query(default=None),
     activo: bool | None = Query(default=None),
     tiene_acceso: bool | None = Query(default=None),
-    _usuario: Usuario = Depends(requerir_roles(*ROLES_ADMINISTRATIVOS)),
+    _usuario: Usuario = Depends(require_permiso(Permiso.GESTIONAR_USUARIOS)),
     bd: Session = Depends(obtener_bd),
 ) -> list[UsuarioSalida]:
     consulta = bd.query(Usuario).options(joinedload(Usuario.sucursal))
@@ -80,7 +81,7 @@ def listar_usuarios(
 @enrutador.post("/usuarios", response_model=UsuarioSalida, status_code=status.HTTP_201_CREATED)
 def crear_usuario(
     datos: UsuarioCrearEntrada,
-    _usuario: Usuario = Depends(requerir_roles(*ROLES_ADMINISTRATIVOS)),
+    _usuario: Usuario = Depends(require_permiso(Permiso.GESTIONAR_USUARIOS)),
     bd: Session = Depends(obtener_bd),
 ) -> UsuarioSalida:
     acceso = bool(datos.tiene_acceso)
@@ -135,7 +136,7 @@ def crear_usuario(
 def actualizar_usuario(
     usuario_id: int,
     datos: UsuarioActualizarEntrada,
-    usuario_actual: Usuario = Depends(requerir_roles(*ROLES_ADMINISTRATIVOS)),
+    usuario_actual: Usuario = Depends(require_permiso(Permiso.GESTIONAR_USUARIOS)),
     bd: Session = Depends(obtener_bd),
 ) -> UsuarioSalida:
     usuario = (
@@ -212,7 +213,7 @@ def actualizar_usuario(
 def cambiar_estado_usuario(
     usuario_id: int,
     datos: UsuarioEstadoEntrada,
-    usuario_actual: Usuario = Depends(requerir_roles(*ROLES_ADMINISTRATIVOS)),
+    usuario_actual: Usuario = Depends(require_permiso(Permiso.GESTIONAR_USUARIOS)),
     bd: Session = Depends(obtener_bd),
 ) -> UsuarioSalida:
     usuario = (

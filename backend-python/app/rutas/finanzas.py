@@ -44,6 +44,12 @@ from app.modelos_taller import (
 from app.rutas.logistica import _leer_filas_archivo
 from app.rutas.tasas import obtener_fecha_hoy
 from app.rutas.ventas import redondear_usd, verificar_mes_abierto
+from app.core.permisos import (
+    Permiso,
+    es_rol_admin,
+    require_permiso,
+    validar_sucursal_permitida,
+)
 from app.seguridad import ROLES_ADMINISTRATIVOS, obtener_usuario_actual, requerir_roles
 
 
@@ -80,7 +86,7 @@ def listar_instrumentos(
 def listar_pagos(
     estado_verificacion: EstadoVerificacionPago | None = Query(default=None),
     instrumento_id: int | None = Query(default=None),
-    _usuario: Usuario = Depends(obtener_usuario_actual),
+    _usuario: Usuario = Depends(require_permiso(Permiso.VER_FINANZAS_GLOBALES)),
     bd: Session = Depends(obtener_bd),
 ) -> list[dict[str, Any]]:
     consulta = (
@@ -125,7 +131,7 @@ def listar_pagos(
 def confirmar_pago_digital(
     pago_id: int,
     datos: PagoConfirmarEntrada,
-    usuario_actual: Usuario = Depends(requerir_roles(*ROLES_ADMINISTRATIVOS)),
+    usuario_actual: Usuario = Depends(require_permiso(Permiso.VER_FINANZAS_GLOBALES)),
     bd: Session = Depends(obtener_bd),
 ) -> dict[str, Any]:
     pago = bd.query(Pago).filter(Pago.id == pago_id).first()
@@ -157,7 +163,7 @@ def confirmar_pago_digital(
 def listar_cuentas_por_cobrar(
     tipo: TipoCuentaPorCobrar | None = Query(default=None),
     estado: EstadoCuentaPorCobrar | None = Query(default=None),
-    _usuario: Usuario = Depends(obtener_usuario_actual),
+    _usuario: Usuario = Depends(require_permiso(Permiso.VER_FINANZAS_GLOBALES)),
     bd: Session = Depends(obtener_bd),
 ) -> list[dict[str, Any]]:
     consulta = bd.query(CuentaPorCobrar).options(
@@ -191,7 +197,7 @@ def listar_cuentas_por_cobrar(
 def registrar_abono_cxc(
     cxc_id: int,
     datos: AbonoCxcEntrada,
-    _usuario: Usuario = Depends(obtener_usuario_actual),
+    _usuario: Usuario = Depends(require_permiso(Permiso.VER_FINANZAS_GLOBALES)),
     bd: Session = Depends(obtener_bd),
 ) -> dict[str, Any]:
     fecha_op = datos.fecha or obtener_fecha_hoy()
@@ -948,9 +954,21 @@ def obtener_comisiones(
     usuario_id: int | None = Query(default=None),
     sucursal_id: int | None = Query(default=None),
     estado: str = Query(default="TODAS"),
-    _usuario: Usuario = Depends(requerir_roles(*ROLES_ADMINISTRATIVOS)),
+    usuario_actual: Usuario = Depends(require_permiso(Permiso.VER_COMISIONES)),
     bd: Session = Depends(obtener_bd),
 ) -> dict[str, Any]:
+    sucursal_efectiva = sucursal_id
+    usuario_efectivo = usuario_id
+    if not es_rol_admin(usuario_actual.rol):
+        if usuario_actual.sucursal_id is not None:
+            sucursal_efectiva = validar_sucursal_permitida(
+                usuario_actual,
+                sucursal_id,
+                contexto="consultar comisiones de otra sucursal",
+            )
+        else:
+            usuario_efectivo = usuario_actual.id
+
     hoy = obtener_fecha_hoy()
     if fecha_inicio is not None or fecha_fin is not None:
         f_inicio = fecha_inicio or fecha_fin or date(hoy.year, hoy.month, 1)
@@ -970,8 +988,8 @@ def obtener_comisiones(
         bd,
         fecha_inicio=f_inicio,
         fecha_fin=f_fin,
-        sucursal_id=sucursal_id,
-        usuario_id=usuario_id,
+        sucursal_id=sucursal_efectiva,
+        usuario_id=usuario_efectivo,
         estado=estado,
     )
     cierre = (

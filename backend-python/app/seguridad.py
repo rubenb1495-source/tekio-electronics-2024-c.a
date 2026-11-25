@@ -19,6 +19,7 @@ from app.modelos import RolUsuario, Usuario
 esquema_bearer = HTTPBearer(auto_error=False)
 
 ROLES_SIN_COSTOS: frozenset[str] = frozenset({
+    RolUsuario.ENCARGADO.value,
     RolUsuario.ASESORA.value,
     RolUsuario.TECNICO.value,
 })

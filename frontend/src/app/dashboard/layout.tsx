@@ -36,11 +36,10 @@ import {
 import LogoTekio from "@/components/LogoTekio";
 import ModalRecargoDiario from "@/components/ModalRecargoDiario";
 import { usarSesion } from "@/contexto/SesionContexto";
+import { puedeAccederRuta, usePermisos } from "@/lib/permisos";
 import {
-  esRolAdministrativo,
   formatearBs,
   formatearPorcentaje,
-  puedeGestionarCatalogo,
 } from "@/servicios/api";
 
 interface EnlaceNav {
@@ -70,14 +69,31 @@ export default function DisenoDashboard({
   } = usarSesion();
   const router = useRouter();
   const rutaActual = usePathname();
+  const permisos = usePermisos();
   const [menuMovilAbierto, setMenuMovilAbierto] = useState(false);
   const [sidebarColapsado, setSidebarColapsado] = useState(false);
+  const [avisoPermiso, setAvisoPermiso] = useState<string | null>(null);
 
   useEffect(() => {
     if (!cargandoSesion && !usuario) {
       router.replace("/login");
     }
   }, [usuario, cargandoSesion, router]);
+
+  const rutaAutorizada = usuario ? puedeAccederRuta(rutaActual, usuario.rol) : true;
+
+  useEffect(() => {
+    if (!cargandoSesion && usuario && !rutaAutorizada) {
+      setAvisoPermiso("No tienes permisos para acceder a esta sección.");
+      router.replace("/dashboard");
+    }
+  }, [cargandoSesion, usuario, rutaAutorizada, router]);
+
+  useEffect(() => {
+    if (!avisoPermiso) return;
+    const timer = setTimeout(() => setAvisoPermiso(null), 6000);
+    return () => clearTimeout(timer);
+  }, [avisoPermiso]);
 
   if (cargandoSesion || !usuario) {
     return (
@@ -92,9 +108,9 @@ export default function DisenoDashboard({
     );
   }
 
-  const esAdmin = esRolAdministrativo(usuario.rol);
-  const esLogistica = puedeGestionarCatalogo(usuario.rol);
-  const esTallerOAdmin = esLogistica || usuario.rol === "TECNICO";
+  const esAdmin = permisos.esAdmin;
+  const esLogistica = permisos.puedeGestionarCompras;
+  const esTallerOAdmin = permisos.puedeTaller;
 
   const grupos: GrupoNav[] = [
     {
@@ -225,9 +241,9 @@ export default function DisenoDashboard({
         },
         {
           href: "/dashboard/finanzas/comisiones",
-          etiqueta: "Comisiones y Cierre",
+          etiqueta: permisos.puedeLiquidar ? "Comisiones y Cierre" : "Mis Comisiones",
           icono: <BarChart3 className="w-4 h-4 shrink-0" />,
-          visible: esAdmin,
+          visible: permisos.puedeVerComisiones,
         },
         {
           href: "/dashboard/finanzas/cierre-caja",
@@ -522,7 +538,29 @@ export default function DisenoDashboard({
         </header>
 
         <main className="relative z-10 flex-1 p-4 lg:p-6 max-w-7xl w-full mx-auto min-w-0">
-          {children}
+          {avisoPermiso && (
+            <div className="mb-4 flex items-center justify-between gap-3 rounded-2xl border border-amber-200 bg-amber-50/90 backdrop-blur-md px-4 py-3 text-xs font-semibold text-amber-900 shadow-sm">
+              <div className="flex items-center gap-2">
+                <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+                <span>{avisoPermiso}</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setAvisoPermiso(null)}
+                className="p-1 rounded-lg hover:bg-amber-100 text-amber-700 cursor-pointer"
+                aria-label="Cerrar aviso"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          )}
+          {rutaAutorizada ? (
+            children
+          ) : (
+            <div className="p-8 text-center text-sm text-gray-500">
+              Redirigiendo...
+            </div>
+          )}
         </main>
       </div>
 

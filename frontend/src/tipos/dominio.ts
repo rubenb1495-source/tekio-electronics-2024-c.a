@@ -2,6 +2,7 @@ export type RolUsuario =
   | "DIRECCION"
   | "ADMINISTRACION"
   | "LOGISTICA"
+  | "ENCARGADO"
   | "LIDER"
   | "ASESORA"
   | "TECNICO";

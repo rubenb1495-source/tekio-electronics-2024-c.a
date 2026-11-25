@@ -30,6 +30,7 @@ from app.modelos_operaciones import (
 from app.rutas.finanzas import calcular_reporte_comisiones_rango
 from app.rutas.tasas import obtener_fecha_hoy
 from app.rutas.ventas import generar_correlativo_corto, redondear_usd, verificar_mes_abierto
+from app.core.permisos import Permiso, require_permiso, validar_sucursal_permitida
 from app.seguridad import ROLES_ADMINISTRATIVOS, obtener_usuario_actual, requerir_roles
 from app.servicios.pdf_documentos import (
     generar_pdf_cierre_caja,
@@ -67,7 +68,7 @@ def _serializar_liquidacion(liq: LiquidacionComision) -> dict[str, Any]:
 @enrutador.get("/liquidaciones")
 def listar_liquidaciones(
     usuario_id: int | None = Query(default=None),
-    _usuario: Usuario = Depends(requerir_roles(*ROLES_ADMINISTRATIVOS)),
+    _usuario: Usuario = Depends(require_permiso(Permiso.LIQUIDAR_COMISIONES)),
     bd: Session = Depends(obtener_bd),
 ) -> list[dict[str, Any]]:
     consulta = (
@@ -88,7 +89,7 @@ def listar_liquidaciones(
 @enrutador.post("/liquidaciones", status_code=status.HTTP_201_CREATED)
 def crear_liquidacion_comisiones(
     datos: LiquidacionComisionCrearEntrada,
-    usuario_actual: Usuario = Depends(requerir_roles(*ROLES_ADMINISTRATIVOS)),
+    usuario_actual: Usuario = Depends(require_permiso(Permiso.LIQUIDAR_COMISIONES)),
     bd: Session = Depends(obtener_bd),
 ) -> dict[str, Any]:
     fecha_pago = obtener_fecha_hoy()
@@ -234,7 +235,7 @@ def crear_liquidacion_comisiones(
 @enrutador.get("/liquidaciones/{liq_id}/pdf")
 def descargar_pdf_liquidacion(
     liq_id: int,
-    _usuario: Usuario = Depends(requerir_roles(*ROLES_ADMINISTRATIVOS)),
+    _usuario: Usuario = Depends(require_permiso(Permiso.LIQUIDAR_COMISIONES)),
     bd: Session = Depends(obtener_bd),
 ) -> Response:
     liq = (
@@ -460,37 +461,52 @@ def _serializar_cierre_caja(cierre: CierreCaja) -> dict[str, Any]:
 def preview_cierre_caja(
     fecha: date | None = Query(default=None),
     sucursal_id: int | None = Query(default=None),
-    _usuario: Usuario = Depends(obtener_usuario_actual),
+    usuario_actual: Usuario = Depends(require_permiso(Permiso.CIERRE_CAJA)),
     bd: Session = Depends(obtener_bd),
 ) -> dict[str, Any]:
     fecha_op = fecha or obtener_fecha_hoy()
-    return _calcular_preview_cierre_caja(bd, fecha_op=fecha_op, sucursal_id=sucursal_id)
+    sucursal_efectiva = validar_sucursal_permitida(
+        usuario_actual,
+        sucursal_id,
+        contexto="consultar el cierre de caja",
+    )
+    return _calcular_preview_cierre_caja(bd, fecha_op=fecha_op, sucursal_id=sucursal_efectiva)
 
 
 @enrutador.get("/cierre-caja")
 def listar_cierres_caja(
     sucursal_id: int | None = Query(default=None),
-    _usuario: Usuario = Depends(obtener_usuario_actual),
+    usuario_actual: Usuario = Depends(require_permiso(Permiso.CIERRE_CAJA)),
     bd: Session = Depends(obtener_bd),
 ) -> list[dict[str, Any]]:
+    sucursal_efectiva = validar_sucursal_permitida(
+        usuario_actual,
+        sucursal_id,
+        contexto="consultar el historial de cierres de caja",
+    )
     consulta = (
         bd.query(CierreCaja)
         .options(joinedload(CierreCaja.sucursal), joinedload(CierreCaja.usuario))
         .order_by(CierreCaja.fecha.desc(), CierreCaja.id.desc())
     )
-    if sucursal_id is not None:
-        consulta = consulta.filter(CierreCaja.sucursal_id == sucursal_id)
+    if sucursal_efectiva is not None:
+        consulta = consulta.filter(CierreCaja.sucursal_id == sucursal_efectiva)
     return [_serializar_cierre_caja(c) for c in consulta.all()]
 
 
 @enrutador.post("/cierre-caja", status_code=status.HTTP_201_CREATED)
 def guardar_cierre_caja(
     datos: CierreCajaCrearEntrada,
-    usuario_actual: Usuario = Depends(obtener_usuario_actual),
+    usuario_actual: Usuario = Depends(require_permiso(Permiso.CIERRE_CAJA)),
     bd: Session = Depends(obtener_bd),
 ) -> dict[str, Any]:
     fecha_op = datos.fecha or obtener_fecha_hoy()
-    preview = _calcular_preview_cierre_caja(bd, fecha_op=fecha_op, sucursal_id=datos.sucursal_id)
+    sucursal_efectiva = validar_sucursal_permitida(
+        usuario_actual,
+        datos.sucursal_id,
+        contexto="guardar el cierre de caja",
+    )
+    preview = _calcular_preview_cierre_caja(bd, fecha_op=fecha_op, sucursal_id=sucursal_efectiva)
 
     esperado = Decimal(str(preview["efectivo_esperado_usd"]))
     declarado = datos.efectivo_declarado_usd.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
@@ -498,7 +514,7 @@ def guardar_cierre_caja(
 
     cierre = CierreCaja(
         fecha=fecha_op,
-        sucursal_id=datos.sucursal_id,
+        sucursal_id=sucursal_efectiva,
         usuario_id=usuario_actual.id,
         cantidad_ventas=preview["cantidad_ventas"],
         cantidad_anulaciones=preview["cantidad_anulaciones"],
@@ -530,7 +546,7 @@ def guardar_cierre_caja(
 @enrutador.get("/cierre-caja/{cierre_id}/pdf")
 def descargar_pdf_cierre_caja(
     cierre_id: int,
-    _usuario: Usuario = Depends(obtener_usuario_actual),
+    usuario_actual: Usuario = Depends(require_permiso(Permiso.CIERRE_CAJA)),
     bd: Session = Depends(obtener_bd),
 ) -> Response:
     cierre = (
@@ -541,6 +557,12 @@ def descargar_pdf_cierre_caja(
     )
     if cierre is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Cierre de caja no encontrado.")
+
+    validar_sucursal_permitida(
+        usuario_actual,
+        cierre.sucursal_id,
+        contexto="descargar el PDF de cierre de caja",
+    )
 
     pdf_bytes = generar_pdf_cierre_caja(cierre)
     return Response(

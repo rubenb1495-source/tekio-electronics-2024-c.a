@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import BuscadorTabla from "@/componentes/BuscadorTabla";
 import { usarSesion } from "@/contexto/SesionContexto";
+import { usePermisos } from "@/lib/permisos";
 import {
   construirUrlWhatsApp,
   copiarTextoPortapapeles,
@@ -87,13 +88,16 @@ function rangoQuincenaAnterior(): { inicio: string; fin: string } {
 
 export default function PaginaComisionesYCierre() {
   const { usuario } = usarSesion();
-  const esDireccion = usuario?.rol === "DIRECCION";
+  const permisos = usePermisos();
+  const esDireccion = permisos.esDireccion;
 
   const inicial = useMemo(() => rangoEstaQuincena(), []);
   const [fechaInicio, setFechaInicio] = useState(inicial.inicio);
   const [fechaFin, setFechaFin] = useState(inicial.fin);
   const [usuarioFiltroId, setUsuarioFiltroId] = useState("");
-  const [sucursalFiltroId, setSucursalFiltroId] = useState("");
+  const [sucursalFiltroId, setSucursalFiltroId] = useState(
+    permisos.sucursalRestringidaId ? String(permisos.sucursalRestringidaId) : ""
+  );
   const [estadoFiltro, setEstadoFiltro] = useState<"TODAS" | "PENDIENTE" | "PAGADA">("TODAS");
   const [incluirNotasWa, setIncluirNotasWa] = useState(true);
   const [busqueda, setBusqueda] = useState("");
@@ -157,12 +161,16 @@ export default function PaginaComisionesYCierre() {
         solicitarApi<ReporteComisiones>(
           `/api/finanzas/comisiones?${paramsCom.toString()}`
         ),
-        solicitarApi<TableroFinanciero>(
-          `/api/finanzas/tablero?${paramsTab.toString()}`
-        ),
-        solicitarApi<LiquidacionComisionResumen[]>("/api/finanzas/liquidaciones").catch(
-          () => []
-        ),
+        permisos.puedeVerFinanzasGlobales
+          ? solicitarApi<TableroFinanciero>(
+              `/api/finanzas/tablero?${paramsTab.toString()}`
+            ).catch(() => null)
+          : Promise.resolve(null),
+        permisos.puedeLiquidar
+          ? solicitarApi<LiquidacionComisionResumen[]>(
+              "/api/finanzas/liquidaciones"
+            ).catch(() => [])
+          : Promise.resolve([]),
       ]);
       setReporte(respCom);
       setTablero(respTab);
@@ -176,7 +184,15 @@ export default function PaginaComisionesYCierre() {
     } finally {
       setCargando(false);
     }
-  }, [fechaInicio, fechaFin, usuarioFiltroId, sucursalFiltroId, estadoFiltro]);
+  }, [
+    fechaInicio,
+    fechaFin,
+    usuarioFiltroId,
+    sucursalFiltroId,
+    estadoFiltro,
+    permisos.puedeVerFinanzasGlobales,
+    permisos.puedeLiquidar,
+  ]);
 
   useEffect(() => {
     void cargarDatos();
@@ -726,7 +742,7 @@ export default function PaginaComisionesYCierre() {
                     </td>
                     <td className="px-4 py-3 text-right whitespace-nowrap">
                       <div className="inline-flex items-center gap-1.5">
-                        {pendiente > 0 && (
+                        {permisos.puedeLiquidar && pendiente > 0 && (
                           <button
                             type="button"
                             onClick={() => abrirModalLiquidar(c)}
@@ -849,6 +865,7 @@ export default function PaginaComisionesYCierre() {
       </div>
 
       {/* Historial de Liquidaciones */}
+      {permisos.puedeLiquidar && (
       <div className="bg-white/75 backdrop-blur-md rounded-2xl border border-white/60 shadow-[0_8px_30px_rgb(0,0,0,0.04)] p-5 space-y-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <h3 className="text-base font-bold text-[#191818]">
@@ -937,6 +954,7 @@ export default function PaginaComisionesYCierre() {
           </div>
         )}
       </div>
+      )}
 
       {/* Modal Liquidar Pendientes */}
       {personaLiquidar && (

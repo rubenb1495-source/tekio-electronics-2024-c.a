@@ -17,6 +17,7 @@ from app.esquemas import (
     TasasPaginadasSalida,
 )
 from app.modelos import OrigenTasa, TasaDiaria, Usuario
+from app.core.permisos import Permiso, require_permiso
 from app.seguridad import ROLES_ADMINISTRATIVOS, obtener_usuario_actual, requerir_roles
 
 
@@ -120,7 +121,7 @@ def listar_tasas(
 @enrutador.post("", response_model=TasaSalida, status_code=status.HTTP_201_CREATED)
 def crear_tasa(
     datos: TasaCrearEntrada,
-    usuario_actual: Usuario = Depends(requerir_roles(*ROLES_ADMINISTRATIVOS)),
+    usuario_actual: Usuario = Depends(require_permiso(Permiso.EDITAR_TASAS_MANUAL)),
     bd: Session = Depends(obtener_bd),
 ) -> TasaSalida:
     hoy = obtener_fecha_hoy()
@@ -171,7 +172,7 @@ def crear_tasa(
 @enrutador.put("/hoy", response_model=TasaSalida)
 def actualizar_tasa_hoy(
     datos: TasaActualizarHoyEntrada,
-    usuario_actual: Usuario = Depends(requerir_roles(*ROLES_ADMINISTRATIVOS)),
+    usuario_actual: Usuario = Depends(require_permiso(Permiso.EDITAR_TASAS_MANUAL)),
     bd: Session = Depends(obtener_bd),
 ) -> TasaSalida:
     hoy = obtener_fecha_hoy()

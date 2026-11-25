@@ -51,6 +51,7 @@ from app.rutas.ventas import (
     redondear_usd,
     verificar_mes_abierto,
 )
+from app.core.permisos import Permiso, sanear_respuesta_costos, tiene_permiso
 from app.seguridad import obtener_usuario_actual, puede_ver_costos
 from app.servicios.pdf_documentos import (
     generar_pdf_cotizacion,
@@ -159,7 +160,10 @@ def listar_devoluciones_garantias(
         consulta = consulta.filter(DevolucionGarantia.tipo_resolucion == tipo_resolucion)
 
     incluir_costos = puede_ver_costos(usuario_actual.rol)
-    return [_serializar_devolucion(d, incluir_costos) for d in consulta.all()]
+    return sanear_respuesta_costos(
+        [_serializar_devolucion(d, incluir_costos) for d in consulta.all()],
+        usuario_actual.rol,
+    )
 
 
 @enrutador.post("/devoluciones-garantias", status_code=status.HTTP_201_CREATED)
@@ -192,7 +196,8 @@ def crear_devolucion_garantia(
 
     tipo = datos.tipo_resolucion
     # Restricción estricta de roles para reembolsos de dinero
-    if tipo == TipoResolucionDevolucion.REEMBOLSO_TOTAL and usuario_actual.rol not in ROLES_REEMBOLSO:
+    puede_reembolsar = tiene_permiso(usuario_actual.rol, Permiso.AUTORIZAR_REEMBOLSO)
+    if tipo == TipoResolucionDevolucion.REEMBOLSO_TOTAL and not puede_reembolsar:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Solo Administración o Dirección pueden autorizar un Reembolso Total.",
@@ -200,7 +205,7 @@ def crear_devolucion_garantia(
     if (
         tipo == TipoResolucionDevolucion.CAMBIO_DOWNGRADE
         and not datos.dejar_saldo_favor
-        and usuario_actual.rol not in ROLES_REEMBOLSO
+        and not puede_reembolsar
     ):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -678,7 +683,10 @@ def crear_devolucion_garantia(
         .filter(DevolucionGarantia.id == registro.id)
         .first()
     )
-    return _serializar_devolucion(dev_completa, puede_ver_costos(usuario_actual.rol))
+    return sanear_respuesta_costos(
+        _serializar_devolucion(dev_completa, puede_ver_costos(usuario_actual.rol)),
+        usuario_actual.rol,
+    )
 
 
 @enrutador.get("/devoluciones-garantias/{dev_id}/pdf")
