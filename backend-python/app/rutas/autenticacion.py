@@ -22,10 +22,16 @@ def iniciar_sesion(datos: LoginEntrada, bd: Session = Depends(obtener_bd)) -> Lo
         .first()
     )
 
-    if usuario is None or not verificar_clave(datos.clave, usuario.clave_hash):
+    if usuario is None or not usuario.clave_hash or not verificar_clave(datos.clave, usuario.clave_hash):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Correo o clave incorrectos.",
+        )
+
+    if not usuario.tiene_acceso:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Este colaborador no tiene acceso habilitado al sistema.",
         )
 
     if not usuario.activo:

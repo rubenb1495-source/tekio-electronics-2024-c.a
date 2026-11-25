@@ -23,8 +23,12 @@ export interface Sucursal {
 export interface Usuario {
   id: number;
   nombre: string;
-  correo: string;
+  correo: string | null;
   rol: RolUsuario;
+  modalidad?: "PRESENCIAL" | "ONLINE";
+  telefono?: string;
+  cedula?: string;
+  tiene_acceso?: boolean;
   activo: boolean;
   motivo_estado: string | null;
   creado_en: string;

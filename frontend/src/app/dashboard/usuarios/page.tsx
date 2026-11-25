@@ -3,11 +3,15 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   AlertCircle,
+  CheckCircle2,
+  KeyRound,
+  Pencil,
   Plus,
   ShieldAlert,
   UserCheck,
   UserX,
   Users,
+  X,
 } from "lucide-react";
 import BuscadorTabla from "@/componentes/BuscadorTabla";
 import { usarSesion } from "@/contexto/SesionContexto";
@@ -15,36 +19,45 @@ import { ErrorApi, esRolAdministrativo, solicitarApi } from "@/servicios/api";
 import type { RolUsuario, Sucursal, Usuario } from "@/tipos/dominio";
 
 const ROLES_DISPONIBLES: RolUsuario[] = [
-  "DIRECCION",
-  "ADMINISTRACION",
-  "LOGISTICA",
-  "LIDER",
   "ASESORA",
+  "LIDER",
   "TECNICO",
+  "LOGISTICA",
+  "ADMINISTRACION",
+  "DIRECCION",
 ];
 
-export default function PaginaUsuarios() {
+export default function PaginaPersonalYUsuarios() {
   const { usuario } = usarSesion();
   const [usuarios, setUsuarios] = useState<Usuario[]>([]);
   const [sucursales, setSucursales] = useState<Sucursal[]>([]);
   const [cargando, setCargando] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [exito, setExito] = useState<string | null>(null);
 
+  // Filtros
   const [filtroRol, setFiltroRol] = useState<string>("");
+  const [filtroAcceso, setFiltroAcceso] = useState<string>("");
   const [filtroActivo, setFiltroActivo] = useState<string>("");
   const [busqueda, setBusqueda] = useState<string>("");
 
-  // Modal crear usuario
-  const [modalCrear, setModalCrear] = useState(false);
+  // Modal Crear / Editar Personal
+  const [modalAbierto, setModalAbierto] = useState(false);
+  const [editandoId, setEditandoId] = useState<number | null>(null);
+  const [teniaAccesoAntes, setTeniaAccesoAntes] = useState(false);
   const [nombre, setNombre] = useState("");
+  const [rolForm, setRolForm] = useState<RolUsuario>("ASESORA");
+  const [modalidad, setModalidad] = useState<"PRESENCIAL" | "ONLINE">("PRESENCIAL");
+  const [telefono, setTelefono] = useState("");
+  const [cedula, setCedula] = useState("");
+  const [sucursalId, setSucursalId] = useState<string>("");
+  const [tieneAcceso, setTieneAcceso] = useState(false);
   const [correo, setCorreo] = useState("");
   const [clave, setClave] = useState("");
-  const [rolNuevo, setRolNuevo] = useState<RolUsuario>("ASESORA");
-  const [sucursalId, setSucursalId] = useState<string>("");
   const [guardando, setGuardando] = useState(false);
   const [errorModal, setErrorModal] = useState<string | null>(null);
 
-  // Modal cambio de estado (borrado lógico)
+  // Modal cambio de estado (activar/desactivar sin borrar historial)
   const [usuarioEstado, setUsuarioEstado] = useState<Usuario | null>(null);
   const [motivoEstado, setMotivoEstado] = useState("");
 
@@ -58,10 +71,11 @@ export default function PaginaUsuarios() {
     setCargando(true);
     setError(null);
     try {
-      const parametros = new URLSearchParams();
-      if (filtroRol) parametros.set("rol", filtroRol);
-      if (filtroActivo) parametros.set("activo", filtroActivo);
-      const qs = parametros.toString() ? `?${parametros.toString()}` : "";
+      const params = new URLSearchParams();
+      if (filtroRol) params.set("rol", filtroRol);
+      if (filtroAcceso) params.set("tiene_acceso", filtroAcceso);
+      if (filtroActivo) params.set("activo", filtroActivo);
+      const qs = params.toString() ? `?${params.toString()}` : "";
 
       const [listaUsuarios, listaSucursales] = await Promise.all([
         solicitarApi<Usuario[]>(`/api/usuarios${qs}`),
@@ -73,12 +87,12 @@ export default function PaginaUsuarios() {
       setError(
         err instanceof ErrorApi
           ? err.message
-          : "No se pudieron cargar los usuarios."
+          : "No se pudo cargar el listado de personal y usuarios."
       );
     } finally {
       setCargando(false);
     }
-  }, [permitido, filtroRol, filtroActivo]);
+  }, [permitido, filtroRol, filtroAcceso, filtroActivo]);
 
   useEffect(() => {
     void cargarDatos();
@@ -88,70 +102,131 @@ export default function PaginaUsuarios() {
     const q = busqueda.trim().toLowerCase();
     if (!q) return usuarios;
     return usuarios.filter((u) =>
-      [u.nombre, u.correo, u.rol, u.sucursal?.nombre || ""]
+      [
+        u.nombre,
+        u.correo || "",
+        u.telefono || "",
+        u.cedula || "",
+        u.rol,
+        u.modalidad || "",
+        u.sucursal?.nombre || "",
+      ]
         .join(" ")
         .toLowerCase()
         .includes(q)
     );
   }, [usuarios, busqueda]);
 
-  if (!permitido) {
-    return (
-      <div className="bg-white rounded-2xl border border-red-200 p-8 text-center max-w-lg mx-auto mt-10">
-        <ShieldAlert className="w-10 h-10 text-red-600 mx-auto mb-3" />
-        <h2 className="text-lg font-bold text-slate-900">Acceso restringido</h2>
-        <p className="text-sm text-slate-600 mt-1">
-          Solo los roles <strong>DIRECCION</strong> y{" "}
-          <strong>ADMINISTRACION</strong> pueden gestionar usuarios y sucursales.
-        </p>
-      </div>
-    );
-  }
+  const abrirModalCrear = () => {
+    setEditandoId(null);
+    setTeniaAccesoAntes(false);
+    setNombre("");
+    setRolForm("ASESORA");
+    setModalidad("PRESENCIAL");
+    setTelefono("");
+    setCedula("");
+    setSucursalId(sucursales[0] ? String(sucursales[0].id) : "");
+    setTieneAcceso(false); // Desactivado por defecto para registrar personal sin acceso rápidamente
+    setCorreo("");
+    setClave("");
+    setErrorModal(null);
+    setModalAbierto(true);
+  };
 
-  const manejarCrearUsuario = async (e: React.FormEvent<HTMLFormElement>) => {
+  const abrirModalEditar = (u: Usuario) => {
+    setEditandoId(u.id);
+    const accesoActual = u.tiene_acceso !== false;
+    setTeniaAccesoAntes(accesoActual);
+    setNombre(u.nombre);
+    setRolForm(u.rol);
+    setModalidad(u.modalidad === "ONLINE" ? "ONLINE" : "PRESENCIAL");
+    setTelefono(u.telefono || "");
+    setCedula(u.cedula || "");
+    setSucursalId(u.sucursal ? String(u.sucursal.id) : "");
+    setTieneAcceso(accesoActual);
+    setCorreo(u.correo || "");
+    setClave("");
+    setErrorModal(null);
+    setModalAbierto(true);
+  };
+
+  const guardarPersonal = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setErrorModal(null);
-    if (clave.length < 6) {
-      setErrorModal("La clave debe tener al menos 6 caracteres.");
+    setExito(null);
+
+    if (nombre.trim().length < 2) {
+      setErrorModal("Ingresa el nombre completo (mínimo 2 caracteres).");
       return;
+    }
+    if (tieneAcceso) {
+      if (!correo.trim()) {
+        setErrorModal("El correo electrónico es obligatorio para dar acceso al sistema.");
+        return;
+      }
+      if ((!editandoId || !teniaAccesoAntes) && clave.trim().length < 6) {
+        setErrorModal("Asigna una contraseña de al menos 6 caracteres.");
+        return;
+      }
+      if (clave.trim() && clave.trim().length < 6) {
+        setErrorModal("La nueva contraseña debe tener al menos 6 caracteres.");
+        return;
+      }
     }
 
     setGuardando(true);
     try {
-      await solicitarApi<Usuario>("/api/usuarios", {
-        method: "POST",
-        body: JSON.stringify({
-          nombre: nombre.trim(),
-          correo: correo.trim(),
-          clave,
-          rol: rolNuevo,
-          sucursal_id: sucursalId ? Number(sucursalId) : null,
-        }),
-      });
-      setModalCrear(false);
-      setNombre("");
-      setCorreo("");
-      setClave("");
-      setSucursalId("");
+      const payload: Record<string, unknown> = {
+        nombre: nombre.trim(),
+        rol: rolForm,
+        modalidad,
+        telefono: telefono.trim(),
+        cedula: cedula.trim(),
+        sucursal_id: sucursalId ? Number(sucursalId) : null,
+        tiene_acceso: tieneAcceso,
+      };
+      if (tieneAcceso) {
+        payload.correo = correo.trim().toLowerCase();
+        if (clave.trim()) {
+          payload.clave = clave.trim();
+        }
+      }
+
+      if (editandoId) {
+        await solicitarApi<Usuario>(`/api/usuarios/${editandoId}`, {
+          method: "PUT",
+          body: JSON.stringify(payload),
+        });
+        setExito(`Colaborador "${nombre.trim()}" actualizado correctamente.`);
+      } else {
+        await solicitarApi<Usuario>("/api/usuarios", {
+          method: "POST",
+          body: JSON.stringify(payload),
+        });
+        setExito(
+          `Colaborador "${nombre.trim()}" registrado correctamente${
+            tieneAcceso ? " con acceso al sistema" : " (sin acceso al sistema)"
+          }.`
+        );
+      }
+
+      setModalAbierto(false);
       await cargarDatos();
     } catch (err) {
       setErrorModal(
-        err instanceof ErrorApi ? err.message : "Error al crear usuario."
+        err instanceof ErrorApi
+          ? err.message
+          : "No se pudo guardar el colaborador."
       );
     } finally {
       setGuardando(false);
     }
   };
 
-  const manejarCambioEstado = async (e: React.FormEvent<HTMLFormElement>) => {
+  const confirmarCambioEstado = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (!usuarioEstado) return;
     setErrorModal(null);
-    if (motivoEstado.trim().length < 3) {
-      setErrorModal("Indica un motivo obligatorio de al menos 3 caracteres.");
-      return;
-    }
-
     setGuardando(true);
     try {
       await solicitarApi<Usuario>(`/api/usuarios/${usuarioEstado.id}/estado`, {
@@ -163,55 +238,84 @@ export default function PaginaUsuarios() {
       });
       setUsuarioEstado(null);
       setMotivoEstado("");
+      setExito("Estado del colaborador actualizado (historial preservado).");
       await cargarDatos();
     } catch (err) {
       setErrorModal(
-        err instanceof ErrorApi ? err.message : "Error al actualizar estado."
+        err instanceof ErrorApi
+          ? err.message
+          : "No se pudo cambiar el estado."
       );
     } finally {
       setGuardando(false);
     }
   };
 
+  if (!permitido) {
+    return (
+      <div className="bg-white/80 backdrop-blur-md rounded-2xl border border-red-200 p-8 text-center max-w-lg mx-auto mt-10">
+        <ShieldAlert className="w-10 h-10 text-red-600 mx-auto mb-3" />
+        <h2 className="text-lg font-bold text-[#191818]">Acceso restringido</h2>
+        <p className="text-sm text-neutral-600 mt-1">
+          Solo los roles <strong>DIRECCION</strong> y{" "}
+          <strong>ADMINISTRACION</strong> pueden gestionar personal y usuarios.
+        </p>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
+      {/* Cabecera */}
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
-          <h2 className="text-2xl font-black text-slate-900">
-            Usuarios, Roles y Sucursales
+          <h2 className="text-2xl font-black text-[#191818] flex items-center gap-2">
+            <Users className="w-6 h-6 text-[#E85A28]" />
+            Personal y Usuarios
           </h2>
-          <p className="text-sm text-slate-500">
-            Control de acceso RBAC. Las asesoras y técnicos no reciben campos de
-            costos desde el servidor.
+          <p className="text-sm text-neutral-500">
+            Registra asesores online, líderes, técnicos y equipo con o sin acceso al sistema para el POS y comisiones.
           </p>
         </div>
 
         <button
           type="button"
-          onClick={() => {
-            setErrorModal(null);
-            setModalCrear(true);
-          }}
-          className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-[#E85A28] hover:bg-[#C9461A] text-white text-sm font-bold cursor-pointer"
+          onClick={abrirModalCrear}
+          className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-[#E85A28] hover:bg-[#D14D1F] text-white text-sm font-bold cursor-pointer transition-colors"
         >
           <Plus className="w-4 h-4" />
-          Nuevo usuario
+          Nuevo colaborador
         </button>
       </div>
 
+      {error && (
+        <div className="flex items-center gap-2.5 p-4 rounded-2xl bg-red-50/90 border border-red-200 text-sm text-red-700">
+          <AlertCircle className="w-4 h-4 shrink-0" />
+          <span>{error}</span>
+        </div>
+      )}
+      {exito && (
+        <div className="flex items-center gap-2.5 p-4 rounded-2xl bg-emerald-50/90 border border-emerald-200 text-sm text-emerald-800">
+          <CheckCircle2 className="w-4 h-4 shrink-0" />
+          <span>{exito}</span>
+        </div>
+      )}
+
       {/* Filtros */}
-      <div className="bg-white p-4 rounded-2xl border border-slate-200 flex flex-wrap gap-3 items-center">
-        <BuscadorTabla
-          valor={busqueda}
-          alCambiar={setBusqueda}
-          placeholder="Buscar por nombre, correo, rol o sucursal..."
-          totalRegistros={usuarios.length}
-          totalFiltrados={usuariosFiltrados.length}
-        />
+      <div className="bg-white/75 backdrop-blur-md border border-white/60 shadow-[0_8px_30px_rgb(0,0,0,0.04)] rounded-2xl p-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
+        <div className="lg:col-span-2">
+          <BuscadorTabla
+            valor={busqueda}
+            alCambiar={setBusqueda}
+            placeholder="Buscar por nombre, teléfono, cédula o correo..."
+            totalRegistros={usuarios.length}
+            totalFiltrados={usuariosFiltrados.length}
+          />
+        </div>
         <select
           value={filtroRol}
           onChange={(e) => setFiltroRol(e.target.value)}
-          className="px-3 py-2 rounded-xl border border-slate-300 text-sm bg-white"
+          className="px-3 py-2 rounded-xl border border-neutral-200 bg-white text-sm text-[#191818]"
         >
           <option value="">Todos los roles</option>
           {ROLES_DISPONIBLES.map((r) => (
@@ -220,211 +324,197 @@ export default function PaginaUsuarios() {
             </option>
           ))}
         </select>
-
+        <select
+          value={filtroAcceso}
+          onChange={(e) => setFiltroAcceso(e.target.value)}
+          className="px-3 py-2 rounded-xl border border-neutral-200 bg-white text-sm text-[#191818]"
+        >
+          <option value="">Acceso: Todos</option>
+          <option value="true">Con acceso al sistema</option>
+          <option value="false">Sin acceso al sistema</option>
+        </select>
         <select
           value={filtroActivo}
           onChange={(e) => setFiltroActivo(e.target.value)}
-          className="px-3 py-2 rounded-xl border border-slate-300 text-sm bg-white"
+          className="px-3 py-2 rounded-xl border border-neutral-200 bg-white text-sm text-[#191818]"
         >
-          <option value="">Todos los estados</option>
+          <option value="">Estado: Todos</option>
           <option value="true">Activos</option>
           <option value="false">Inactivos</option>
         </select>
       </div>
 
-      {error && (
-        <div className="flex items-center gap-2.5 p-4 rounded-xl bg-red-50 border border-red-200 text-sm text-red-700">
-          <AlertCircle className="w-4 h-4 shrink-0" />
-          <span>{error}</span>
-        </div>
-      )}
-
-      {/* Tabla de usuarios */}
-      <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden">
+      {/* Tabla de personal */}
+      <div className="bg-white/75 backdrop-blur-md border border-white/60 shadow-[0_8px_30px_rgb(0,0,0,0.04)] rounded-2xl overflow-hidden">
         {cargando ? (
-          <div className="p-6 space-y-3">
-            {[1, 2, 3].map((i) => (
-              <div
-                key={i}
-                className="h-12 rounded-xl bg-slate-100 animate-pulse"
-              />
-            ))}
+          <div className="p-8 text-center text-sm text-neutral-500">
+            Cargando personal...
           </div>
         ) : usuariosFiltrados.length === 0 ? (
-          <div className="p-10 text-center">
-            <Users className="w-10 h-10 text-slate-300 mx-auto mb-2" />
-            <p className="text-sm font-semibold text-slate-600">
-              No hay usuarios que coincidan con los filtros.
-            </p>
+          <div className="p-8 text-center text-sm text-neutral-500">
+            No se encontraron colaboradores con esos filtros.
           </div>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm text-left">
-              <thead className="bg-slate-50 border-b border-slate-200 text-xs uppercase text-slate-500">
+              <thead className="bg-neutral-50/90 border-b border-neutral-200 text-xs uppercase text-neutral-500">
                 <tr>
                   <th className="px-4 py-3">Nombre</th>
-                  <th className="px-4 py-3">Correo</th>
                   <th className="px-4 py-3">Rol</th>
-                  <th className="px-4 py-3">Sucursal</th>
+                  <th className="px-4 py-3">Modalidad</th>
+                  <th className="px-4 py-3">Teléfono</th>
+                  <th className="px-4 py-3">Acceso</th>
                   <th className="px-4 py-3">Estado</th>
                   <th className="px-4 py-3 text-right">Acciones</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100">
-                {usuariosFiltrados.map((u) => (
-                  <tr key={u.id} className="hover:bg-slate-50">
-                    <td className="px-4 py-3 font-semibold text-slate-900">
-                      {u.nombre}
-                    </td>
-                    <td className="px-4 py-3 text-slate-600">{u.correo}</td>
-                    <td className="px-4 py-3">
-                      <span className="px-2 py-0.5 rounded-md bg-orange-50 text-[#C9461A] font-bold text-xs">
-                        {u.rol}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 text-slate-600">
-                      {u.sucursal ? u.sucursal.nombre : "Sin asignar"}
-                    </td>
-                    <td className="px-4 py-3">
-                      <span
-                        className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-bold ${
-                          u.activo
-                            ? "bg-emerald-50 text-emerald-700"
-                            : "bg-slate-200 text-slate-600"
-                        }`}
-                      >
-                        {u.activo ? "Activo" : "Inactivo"}
-                      </span>
-                      {u.motivo_estado && (
-                        <p className="text-[11px] text-slate-400 mt-0.5">
-                          {u.motivo_estado}
+              <tbody className="divide-y divide-neutral-100">
+                {usuariosFiltrados.map((u) => {
+                  const conAcceso = u.tiene_acceso !== false;
+                  const esOnline = u.modalidad === "ONLINE";
+                  return (
+                    <tr key={u.id} className="hover:bg-white/60">
+                      <td className="px-4 py-3">
+                        <p className="font-bold text-[#191818]">{u.nombre}</p>
+                        <p className="text-xs text-neutral-500">
+                          {u.correo || "Sin correo"}
+                          {u.cedula ? ` · C.I.: ${u.cedula}` : ""}
+                          {u.sucursal ? ` · ${u.sucursal.nombre}` : ""}
                         </p>
-                      )}
-                    </td>
-                    <td className="px-4 py-3 text-right">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setErrorModal(null);
-                          setMotivoEstado("");
-                          setUsuarioEstado(u);
-                        }}
-                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-300 text-xs font-semibold hover:bg-slate-100 cursor-pointer"
-                      >
-                        {u.activo ? (
-                          <>
-                            <UserX className="w-3.5 h-3.5 text-red-600" />
-                            Desactivar
-                          </>
-                        ) : (
-                          <>
-                            <UserCheck className="w-3.5 h-3.5 text-emerald-600" />
-                            Reactivar
-                          </>
-                        )}
-                      </button>
-                    </td>
-                  </tr>
-                ))}
+                      </td>
+                      <td className="px-4 py-3">
+                        <span className="inline-flex px-2.5 py-0.5 rounded-full text-xs font-bold bg-[#FDF0EB] text-[#E85A28]">
+                          {u.rol}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3">
+                        <span
+                          className={`inline-flex px-2.5 py-0.5 rounded-full text-xs font-semibold border ${
+                            esOnline
+                              ? "bg-indigo-50 text-indigo-700 border-indigo-200"
+                              : "bg-neutral-100 text-neutral-700 border-neutral-200"
+                          }`}
+                        >
+                          {esOnline ? "Online" : "Presencial"}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-xs text-neutral-700 font-mono">
+                        {u.telefono || "—"}
+                      </td>
+                      <td className="px-4 py-3">
+                        <span
+                          className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold border ${
+                            conAcceso
+                              ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+                              : "bg-amber-50 text-amber-800 border-amber-200"
+                          }`}
+                        >
+                          {conAcceso ? "Con acceso" : "Sin acceso"}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3">
+                        <span
+                          className={`inline-flex px-2.5 py-0.5 rounded-full text-xs font-bold ${
+                            u.activo
+                              ? "bg-emerald-50 text-emerald-700"
+                              : "bg-red-50 text-red-700"
+                          }`}
+                        >
+                          {u.activo ? "Activo" : "Inactivo"}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-right whitespace-nowrap space-x-1.5">
+                        <button
+                          type="button"
+                          onClick={() => abrirModalEditar(u)}
+                          className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-neutral-200 bg-white hover:bg-neutral-50 text-xs font-bold text-[#191818] cursor-pointer"
+                        >
+                          <Pencil className="w-3.5 h-3.5 text-[#E85A28]" />
+                          Editar
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setErrorModal(null);
+                            setMotivoEstado("");
+                            setUsuarioEstado(u);
+                          }}
+                          className={`inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border text-xs font-bold cursor-pointer ${
+                            u.activo
+                              ? "border-red-200 bg-red-50 text-red-700 hover:bg-red-100"
+                              : "border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
+                          }`}
+                        >
+                          {u.activo ? (
+                            <>
+                              <UserX className="w-3.5 h-3.5" />
+                              Desactivar
+                            </>
+                          ) : (
+                            <>
+                              <UserCheck className="w-3.5 h-3.5" />
+                              Activar
+                            </>
+                          )}
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
         )}
       </div>
 
-      {/* Sucursales precargadas */}
-      <div className="bg-white rounded-2xl border border-slate-200 p-5">
-        <h3 className="text-sm font-bold text-slate-800 uppercase tracking-wide mb-3">
-          Sucursales registradas ({sucursales.length})
-        </h3>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-          {sucursales.map((s) => (
-            <div
-              key={s.id}
-              className="p-3 rounded-xl border border-slate-200 bg-slate-50 text-xs"
-            >
-              <div className="flex items-center justify-between gap-2">
-                <span className="font-bold text-slate-900">{s.nombre}</span>
-                <span
-                  className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                    s.estado === "ACTIVA"
-                      ? "bg-emerald-100 text-emerald-800"
-                      : "bg-slate-200 text-slate-600"
-                  }`}
-                >
-                  {s.estado}
-                </span>
-              </div>
-              <p className="text-slate-600 mt-1">{s.direccion}</p>
-              {s.fecha_cierre && (
-                <p className="text-[11px] text-red-600 font-medium mt-1">
-                  Cerrada desde: {s.fecha_cierre}
-                </p>
-              )}
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {/* Modal crear usuario */}
-      {modalCrear && (
+      {/* Modal Crear / Editar Personal */}
+      {modalAbierto && (
         <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-xl space-y-4">
-            <h3 className="text-lg font-black text-slate-900">
-              Crear nuevo usuario
-            </h3>
+          <div className="bg-white/95 backdrop-blur-md border border-white/60 rounded-2xl max-w-lg w-full p-6 shadow-xl space-y-4 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between">
+              <h3 className="text-lg font-black text-[#191818]">
+                {editandoId ? "Editar colaborador" : "Nuevo colaborador"}
+              </h3>
+              <button
+                type="button"
+                onClick={() => setModalAbierto(false)}
+                className="text-neutral-400 hover:text-neutral-700 cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
             {errorModal && (
               <div className="p-3 rounded-xl bg-red-50 border border-red-200 text-xs text-red-700">
                 {errorModal}
               </div>
             )}
-            <form onSubmit={manejarCrearUsuario} className="space-y-3">
+
+            <form onSubmit={guardarPersonal} className="space-y-3.5">
               <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">
-                  Nombre completo
+                <label className="block text-xs font-bold text-neutral-700 mb-1">
+                  Nombre completo *
                 </label>
                 <input
                   type="text"
                   required
+                  minLength={2}
                   value={nombre}
                   onChange={(e) => setNombre(e.target.value)}
-                  className="w-full px-3 py-2 rounded-xl border border-slate-300 text-sm"
+                  placeholder="Ej. María Gómez"
+                  className="w-full px-3 py-2 rounded-xl border border-neutral-300 text-sm"
                 />
               </div>
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">
-                  Correo electrónico
-                </label>
-                <input
-                  type="email"
-                  required
-                  value={correo}
-                  onChange={(e) => setCorreo(e.target.value)}
-                  className="w-full px-3 py-2 rounded-xl border border-slate-300 text-sm"
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">
-                  Clave inicial (mín. 6 caracteres)
-                </label>
-                <input
-                  type="password"
-                  required
-                  minLength={6}
-                  value={clave}
-                  onChange={(e) => setClave(e.target.value)}
-                  className="w-full px-3 py-2 rounded-xl border border-slate-300 text-sm"
-                />
-              </div>
-              <div className="grid grid-cols-2 gap-3">
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">
-                    Rol
+                  <label className="block text-xs font-bold text-neutral-700 mb-1">
+                    Rol *
                   </label>
                   <select
-                    value={rolNuevo}
-                    onChange={(e) => setRolNuevo(e.target.value as RolUsuario)}
-                    className="w-full px-3 py-2 rounded-xl border border-slate-300 text-sm bg-white"
+                    value={rolForm}
+                    onChange={(e) => setRolForm(e.target.value as RolUsuario)}
+                    className="w-full px-3 py-2 rounded-xl border border-neutral-300 text-sm bg-white"
                   >
                     {ROLES_DISPONIBLES.map((r) => (
                       <option key={r} value={r}>
@@ -433,40 +523,146 @@ export default function PaginaUsuarios() {
                     ))}
                   </select>
                 </div>
+
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">
-                    Sucursal
+                  <label className="block text-xs font-bold text-neutral-700 mb-1">
+                    Modalidad
                   </label>
                   <select
-                    value={sucursalId}
-                    onChange={(e) => setSucursalId(e.target.value)}
-                    className="w-full px-3 py-2 rounded-xl border border-slate-300 text-sm bg-white"
+                    value={modalidad}
+                    onChange={(e) =>
+                      setModalidad(e.target.value as "PRESENCIAL" | "ONLINE")
+                    }
+                    className="w-full px-3 py-2 rounded-xl border border-neutral-300 text-sm bg-white"
                   >
-                    <option value="">Sin asignar</option>
-                    {sucursales
-                      .filter((s) => s.estado === "ACTIVA")
-                      .map((s) => (
-                        <option key={s.id} value={s.id}>
-                          {s.nombre}
-                        </option>
-                      ))}
+                    <option value="PRESENCIAL">Presencial (Tienda)</option>
+                    <option value="ONLINE">Online (Asesor Remoto)</option>
                   </select>
                 </div>
               </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-neutral-700 mb-1">
+                    Teléfono / WhatsApp (opcional)
+                  </label>
+                  <input
+                    type="text"
+                    value={telefono}
+                    onChange={(e) => setTelefono(e.target.value)}
+                    placeholder="Ej. 0414-1234567"
+                    className="w-full px-3 py-2 rounded-xl border border-neutral-300 text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-neutral-700 mb-1">
+                    Cédula (opcional)
+                  </label>
+                  <input
+                    type="text"
+                    value={cedula}
+                    onChange={(e) => setCedula(e.target.value)}
+                    placeholder="Ej. V-24567890"
+                    className="w-full px-3 py-2 rounded-xl border border-neutral-300 text-sm"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-neutral-700 mb-1">
+                  Sucursal asignada (opcional)
+                </label>
+                <select
+                  value={sucursalId}
+                  onChange={(e) => setSucursalId(e.target.value)}
+                  className="w-full px-3 py-2 rounded-xl border border-neutral-300 text-sm bg-white"
+                >
+                  <option value="">Multi-tienda / Sin sede fija</option>
+                  {sucursales.map((s) => (
+                    <option key={s.id} value={String(s.id)}>
+                      {s.nombre}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Switch / Toggle Dar acceso al sistema */}
+              <div className="rounded-xl border border-neutral-200 bg-neutral-50/80 p-3.5 space-y-3">
+                <label className="flex items-center justify-between gap-3 cursor-pointer">
+                  <div className="flex items-center gap-2">
+                    <KeyRound className="w-4 h-4 text-[#E85A28]" />
+                    <div>
+                      <p className="text-xs font-bold text-[#191818]">
+                        Dar acceso al sistema
+                      </p>
+                      <p className="text-[11px] text-neutral-500">
+                        {tieneAcceso
+                          ? "Podrá iniciar sesión con correo y contraseña."
+                          : "Sin acceso: aparecerá en POS y comisiones sin necesidad de correo."}
+                      </p>
+                    </div>
+                  </div>
+                  <input
+                    type="checkbox"
+                    checked={tieneAcceso}
+                    onChange={(e) => setTieneAcceso(e.target.checked)}
+                    className="w-4 h-4 accent-[#E85A28]"
+                  />
+                </label>
+
+                {tieneAcceso && (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2 border-t border-neutral-200">
+                    <div>
+                      <label className="block text-xs font-bold text-neutral-700 mb-1">
+                        Correo electrónico *
+                      </label>
+                      <input
+                        type="email"
+                        required
+                        value={correo}
+                        onChange={(e) => setCorreo(e.target.value)}
+                        placeholder="usuario@tekioelectronics.com"
+                        className="w-full px-3 py-2 rounded-xl border border-neutral-300 text-sm bg-white"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold text-neutral-700 mb-1">
+                        {editandoId && teniaAccesoAntes
+                          ? "Nueva contraseña (opcional)"
+                          : "Contraseña *"}
+                      </label>
+                      <input
+                        type="password"
+                        required={!editandoId || !teniaAccesoAntes}
+                        minLength={6}
+                        value={clave}
+                        onChange={(e) => setClave(e.target.value)}
+                        placeholder="Mínimo 6 caracteres"
+                        className="w-full px-3 py-2 rounded-xl border border-neutral-300 text-sm bg-white"
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
+
               <div className="flex justify-end gap-2 pt-2">
                 <button
                   type="button"
-                  onClick={() => setModalCrear(false)}
-                  className="px-4 py-2 rounded-xl border border-slate-300 text-sm font-semibold cursor-pointer"
+                  onClick={() => setModalAbierto(false)}
+                  className="px-4 py-2 rounded-xl border border-neutral-300 text-xs font-bold cursor-pointer"
                 >
                   Cancelar
                 </button>
                 <button
                   type="submit"
                   disabled={guardando}
-                  className="px-4 py-2 rounded-xl bg-[#E85A28] hover:bg-[#C9461A] text-white text-sm font-bold disabled:opacity-60 cursor-pointer"
+                  className="px-4 py-2 rounded-xl bg-[#E85A28] hover:bg-[#D14D1F] disabled:opacity-50 text-white text-xs font-bold cursor-pointer"
                 >
-                  {guardando ? "Guardando..." : "Crear usuario"}
+                  {guardando
+                    ? "Guardando..."
+                    : editandoId
+                    ? "Guardar cambios"
+                    : "Registrar colaborador"}
                 </button>
               </div>
             </form>
@@ -474,51 +670,47 @@ export default function PaginaUsuarios() {
         </div>
       )}
 
-      {/* Modal cambio de estado */}
+      {/* Modal Activar / Desactivar */}
       {usuarioEstado && (
         <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-xl space-y-4">
-            <h3 className="text-lg font-black text-slate-900">
-              {usuarioEstado.activo ? "Desactivar" : "Reactivar"} usuario
+          <div className="bg-white/95 backdrop-blur-md border border-white/60 rounded-2xl max-w-md w-full p-6 shadow-xl space-y-4">
+            <h3 className="text-lg font-black text-[#191818]">
+              {usuarioEstado.activo
+                ? `Desactivar a ${usuarioEstado.nombre}`
+                : `Reactivar a ${usuarioEstado.nombre}`}
             </h3>
-            <p className="text-sm text-slate-600">
-              Usuario: <strong>{usuarioEstado.nombre}</strong> (
-              {usuarioEstado.correo})
+            <p className="text-xs text-neutral-600">
+              Su historial de ventas y comisiones se conservará intacto.
             </p>
             {errorModal && (
               <div className="p-3 rounded-xl bg-red-50 border border-red-200 text-xs text-red-700">
                 {errorModal}
               </div>
             )}
-            <form onSubmit={manejarCambioEstado} className="space-y-3">
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">
-                  Motivo obligatorio
-                </label>
-                <input
-                  type="text"
-                  required
-                  minLength={3}
-                  value={motivoEstado}
-                  onChange={(e) => setMotivoEstado(e.target.value)}
-                  placeholder="Ej: Cambio de cargo o fin de relación laboral"
-                  className="w-full px-3 py-2 rounded-xl border border-slate-300 text-sm"
-                />
-              </div>
-              <div className="flex justify-end gap-2 pt-2">
+            <form onSubmit={confirmarCambioEstado} className="space-y-3">
+              <input
+                type="text"
+                required
+                minLength={3}
+                value={motivoEstado}
+                onChange={(e) => setMotivoEstado(e.target.value)}
+                placeholder="Motivo del cambio de estado..."
+                className="w-full px-3 py-2 rounded-xl border border-neutral-300 text-sm"
+              />
+              <div className="flex justify-end gap-2">
                 <button
                   type="button"
                   onClick={() => setUsuarioEstado(null)}
-                  className="px-4 py-2 rounded-xl border border-slate-300 text-sm font-semibold cursor-pointer"
+                  className="px-4 py-2 rounded-xl border border-neutral-300 text-xs font-bold cursor-pointer"
                 >
                   Cancelar
                 </button>
                 <button
                   type="submit"
                   disabled={guardando}
-                  className="px-4 py-2 rounded-xl bg-[#E85A28] hover:bg-[#C9461A] text-white text-sm font-bold disabled:opacity-60 cursor-pointer"
+                  className="px-4 py-2 rounded-xl bg-[#191818] text-white text-xs font-bold cursor-pointer"
                 >
-                  {guardando ? "Actualizando..." : "Confirmar"}
+                  Confirmar
                 </button>
               </div>
             </form>

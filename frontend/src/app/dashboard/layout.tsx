@@ -235,7 +235,7 @@ export default function DisenoDashboard({
       enlaces: [
         {
           href: "/dashboard/usuarios",
-          etiqueta: "Usuarios y Sedes",
+          etiqueta: "Personal y Usuarios",
           icono: <Users className="w-4 h-4 shrink-0" />,
           visible: esAdmin,
         },

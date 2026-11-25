@@ -484,7 +484,7 @@ def test_servicio_tecnico_combinado_con_repuesto_tecnico_obligatorio_y_comisione
     ops = resp_ops.json()
     assert any(u["id"] == tecnico_u["id"] and u["rol"] == "TECNICO" for u in ops)
     assert any(u["id"] == lider_u["id"] and u["es_lider"] is True for u in ops)
-    assert set(ops[0].keys()) == {"id", "nombre", "rol", "es_lider", "sucursal_id"}
+    assert set(ops[0].keys()) == {"id", "nombre", "rol", "es_lider", "sucursal_id", "modalidad", "tiene_acceso"}
 
     # 2. Tasa del día: BCV = 60, USDT = 72, Recargo = 30%
     cliente.post(

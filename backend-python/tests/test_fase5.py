@@ -743,3 +743,129 @@ def test_comisiones_filtros_rango_usuario_lider_multitienda_y_tecnico(cliente: T
     assert resp_vacio.status_code == 200
     assert resp_vacio.json()["comisiones"][0]["total_comision_usd"] == 0.0
     assert len(resp_vacio.json()["operaciones"]) == 0
+
+
+def test_personal_sin_acceso_pos_comisiones_bloqueo_login_y_validacion(cliente: TestClient) -> None:
+    ctx = _preparar_escenario_base(cliente)
+    h_dir = ctx["headers_dir"]
+    h_as = ctx["headers_as"]
+
+    # 1. Crear asesora ONLINE sin correo ni contraseña (tiene_acceso = False)
+    r_crear = cliente.post(
+        "/api/usuarios",
+        headers=h_dir,
+        json={
+            "nombre": "Sofía Online",
+            "rol": "ASESORA",
+            "modalidad": "ONLINE",
+            "telefono": "0412-9998877",
+            "cedula": "V-27111222",
+            "tiene_acceso": False,
+            "sucursal_id": 1,
+        },
+    )
+    assert r_crear.status_code == 201, r_crear.text
+    sofia = r_crear.json()
+    assert sofia["tiene_acceso"] is False
+    assert sofia["correo"] is None
+    assert sofia["modalidad"] == "ONLINE"
+    assert sofia["telefono"] == "0412-9998877"
+
+    # Crear una segunda asesora sin correo para verificar múltiples NULL en columna unique
+    r_crear2 = cliente.post(
+        "/api/usuarios",
+        headers=h_dir,
+        json={
+            "nombre": "Andrea Online",
+            "rol": "ASESORA",
+            "modalidad": "ONLINE",
+            "tiene_acceso": False,
+        },
+    )
+    assert r_crear2.status_code == 201, r_crear2.text
+
+    # 2. Verificar que aparece en /api/usuarios/operativos (selector POS) y genera comisión 1%
+    ops = cliente.get("/api/usuarios/operativos", headers=h_as).json()
+    sofia_op = next((u for u in ops if u["id"] == sofia["id"]), None)
+    assert sofia_op is not None
+    assert sofia_op["tiene_acceso"] is False
+    assert sofia_op["modalidad"] == "ONLINE"
+
+    r_vta = cliente.post(
+        "/api/ventas",
+        headers=h_as,
+        json={
+            "sucursal_id": 1,
+            "cliente_id": ctx["cliente_id"],
+            "asesor_id": sofia["id"],
+            "items": [{"equipo_id": ctx["eq_hp_1"], "cantidad": 1}],
+            "pagos": [{"instrumento_id": ctx["inst_usd_id"], "monto_moneda_origen": 400.0}],
+        },
+    )
+    assert r_vta.status_code == 201, r_vta.text
+
+    hoy_str = obtener_fecha_hoy().isoformat()
+    rep = cliente.get(
+        f"/api/finanzas/comisiones?fecha_inicio={hoy_str}&fecha_fin={hoy_str}&usuario_id={sofia['id']}",
+        headers=h_dir,
+    )
+    assert rep.status_code == 200, rep.text
+    fila_sofia = rep.json()["comisiones"][0]
+    assert fila_sofia["ventas_promo_usd"] == 400.0
+    assert fila_sofia["comision_ventas_1_usd"] == 4.0
+    assert fila_sofia["telefono"] == "0412-9998877"
+
+    # 3. Confirmar que un colaborador sin acceso NO puede iniciar sesión en /api/auth/login
+    r_login_fail = cliente.post(
+        "/api/auth/login",
+        json={"correo": "sofia@tekio.com", "clave": "Password123!"},
+    )
+    assert r_login_fail.status_code == 401
+
+    # Incluso si se le asignara acceso y luego se desactiva tiene_acceso, el login es rechazado
+    r_con_acc = cliente.put(
+        f"/api/usuarios/{sofia['id']}",
+        headers=h_dir,
+        json={
+            "nombre": "Sofía Online",
+            "rol": "ASESORA",
+            "modalidad": "ONLINE",
+            "telefono": "0412-9998877",
+            "tiene_acceso": True,
+            "correo": "sofia.online@tekio.com",
+            "clave": "Password123!",
+            "sucursal_id": 1,
+        },
+    )
+    assert r_con_acc.status_code == 200, r_con_acc.text
+    r_revocar = cliente.put(
+        f"/api/usuarios/{sofia['id']}",
+        headers=h_dir,
+        json={
+            "nombre": "Sofía Online",
+            "rol": "ASESORA",
+            "modalidad": "ONLINE",
+            "telefono": "0412-9998877",
+            "tiene_acceso": False,
+            "sucursal_id": 1,
+        },
+    )
+    assert r_revocar.status_code == 200
+    r_login_rev = cliente.post(
+        "/api/auth/login",
+        json={"correo": "sofia.online@tekio.com", "clave": "Password123!"},
+    )
+    assert r_login_rev.status_code in (401, 403)
+
+    # 4. Si tiene_acceso = True sin correo -> 422 de validación
+    r_422 = cliente.post(
+        "/api/usuarios",
+        headers=h_dir,
+        json={
+            "nombre": "Sin Correo Con Acceso",
+            "rol": "ASESORA",
+            "tiene_acceso": True,
+            "clave": "Password123!",
+        },
+    )
+    assert r_422.status_code == 422
