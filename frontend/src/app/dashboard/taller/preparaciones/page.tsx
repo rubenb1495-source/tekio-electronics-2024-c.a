@@ -80,6 +80,60 @@ export default function PaginaPreparaciones() {
     null
   );
 
+  // Instalación directa de componente en equipo (sin mostrar costos al técnico)
+  const [compEquipoId, setCompEquipoId] = useState("");
+  const [compArticuloId, setCompArticuloId] = useState("");
+  const [compCantidad, setCompCantidad] = useState("1");
+  const [compNota, setCompNota] = useState("");
+  const [instalandoComp, setInstalandoComp] = useState(false);
+
+  const instalarComponenteEnEquipo = async (
+    e: React.FormEvent<HTMLFormElement>
+  ) => {
+    e.preventDefault();
+    if (!compEquipoId || !compArticuloId) return;
+    setInstalandoComp(true);
+    setError(null);
+    setExito(null);
+    try {
+      const res = await solicitarApi<{
+        serial: string;
+        descripcion: string;
+        cantidad: number;
+        configuracion_actualizada: string;
+      }>(`/api/taller/preparaciones/${compEquipoId}/componentes`, {
+        method: "POST",
+        body: JSON.stringify({
+          articulo_id: Number(compArticuloId),
+          cantidad: Number(compCantidad || 1),
+          nota: compNota.trim(),
+        }),
+      });
+      setCola((prev) =>
+        prev.map((item) =>
+          item.id === Number(compEquipoId)
+            ? { ...item, configuracion: res.configuracion_actualizada }
+            : item
+        )
+      );
+      setExito(
+        `Componente ${res.cantidad}x ${res.descripcion} instalado en ${res.serial} y descontado del inventario.`
+      );
+      setCompArticuloId("");
+      setCompCantidad("1");
+      setCompNota("");
+    } catch (err) {
+      setError(
+        extraerMensajeError(
+          err,
+          "No se pudo instalar el componente en el equipo."
+        )
+      );
+    } finally {
+      setInstalandoComp(false);
+    }
+  };
+
   const alternarSeleccion = (id: number) => {
     setSeleccionadosIds((prev) =>
       prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
@@ -549,6 +603,75 @@ export default function PaginaPreparaciones() {
           </div>
         </form>
       </div>
+
+      {/* Instalación directa de componente (RAM, SSD, cargador, batería) */}
+      <form
+        onSubmit={instalarComponenteEnEquipo}
+        className="bg-white/80 backdrop-blur-md rounded-2xl border border-slate-200 p-5 space-y-3"
+      >
+        <div className="flex items-center justify-between">
+          <h3 className="text-sm font-black text-slate-900 flex items-center gap-2">
+            <Plus className="w-4 h-4 text-[#E85A28]" />
+            Agregar componente de inventario a equipo en preparación
+          </h3>
+          <span className="text-[11px] text-slate-500">
+            Descuenta del stock y actualiza especificaciones del equipo
+          </span>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+          <select
+            required
+            value={compEquipoId}
+            onChange={(e) => setCompEquipoId(e.target.value)}
+            className="px-3 py-2 rounded-xl border border-slate-300 bg-white text-xs font-semibold"
+          >
+            <option value="">Seleccionar equipo en cola...</option>
+            {cola.map((eq) => (
+              <option key={eq.id} value={eq.id}>
+                {eq.serial} — {eq.modelo || "Equipo"} ({eq.estado})
+              </option>
+            ))}
+          </select>
+          <select
+            required
+            value={compArticuloId}
+            onChange={(e) => setCompArticuloId(e.target.value)}
+            className="px-3 py-2 rounded-xl border border-slate-300 bg-white text-xs font-semibold"
+          >
+            <option value="">Componente (RAM, SSD, Batería...)...</option>
+            {componentesCatalogo.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.sku} · {c.descripcion}
+              </option>
+            ))}
+          </select>
+          <div className="flex gap-2">
+            <input
+              type="number"
+              min="1"
+              required
+              value={compCantidad}
+              onChange={(e) => setCompCantidad(e.target.value)}
+              className="w-20 px-3 py-2 rounded-xl border border-slate-300 bg-white text-xs tabular-nums"
+              placeholder="Cant."
+            />
+            <input
+              type="text"
+              value={compNota}
+              onChange={(e) => setCompNota(e.target.value)}
+              placeholder="Nota (opcional)..."
+              className="flex-1 px-3 py-2 rounded-xl border border-slate-300 bg-white text-xs"
+            />
+          </div>
+          <button
+            type="submit"
+            disabled={instalandoComp}
+            className="px-4 py-2 rounded-xl bg-[#191818] hover:bg-[#333] text-white text-xs font-bold cursor-pointer disabled:opacity-50"
+          >
+            {instalandoComp ? "Instalando..." : "Instalar Componente"}
+          </button>
+        </div>
+      </form>
 
       {/* Cola actual */}
       <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden">

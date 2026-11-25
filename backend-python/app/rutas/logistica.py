@@ -60,6 +60,7 @@ from app.core.permisos import (
 from app.rutas.tasas import obtener_fecha_hoy
 from app.seguridad import obtener_usuario_actual, puede_ver_costos, requerir_roles
 from app.servicios.auditoria_service import registrar_auditoria
+from app.servicios.contabilidad_service import registrar_asiento
 from app.servicios.logistica_masiva import (
     confirmar_importacion_atomica,
     generar_plantilla_xlsx,
@@ -504,6 +505,47 @@ def crear_compra(
                     usuario_id=usuario_actual.id,
                 )
             )
+
+    # Asiento automático por partida doble (Compras)
+    costo_eq_total = sum(
+        (e.costo_compra_usd + e.costo_flete_usd for e in equipos_creados if not e.es_consignacion),
+        Decimal("0.00"),
+    ).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    costo_comp_total = sum(
+        ((c.costo_unitario_usd or Decimal("0")) * c.cantidad for c in datos.componentes),
+        Decimal("0.00"),
+    ).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    total_inv_compra = (costo_eq_total + costo_comp_total).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    if total_inv_compra > Decimal("0.00") and not es_consignacion:
+        lineas_compra: list[dict[str, Any]] = []
+        if costo_eq_total > Decimal("0.00"):
+            lineas_compra.append(
+                {"codigo_cuenta": "1.1.04", "debe_usd": costo_eq_total, "descripcion": f"Ingreso equipos {numero_compra}"}
+            )
+        if costo_comp_total > Decimal("0.00"):
+            lineas_compra.append(
+                {"codigo_cuenta": "1.1.05", "debe_usd": costo_comp_total, "descripcion": f"Ingreso componentes {numero_compra}"}
+            )
+        saldo_cxp = min(total_inv_compra, (datos.saldo_pendiente_usd or Decimal("0.00")).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
+        pagado_contado = (total_inv_compra - saldo_cxp).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        if saldo_cxp > Decimal("0.00"):
+            lineas_compra.append(
+                {"codigo_cuenta": "2.1.01", "haber_usd": saldo_cxp, "descripcion": f"CxP proveedor {numero_compra}"}
+            )
+        if pagado_contado > Decimal("0.00"):
+            lineas_compra.append(
+                {"codigo_cuenta": "1.1.01", "haber_usd": pagado_contado, "descripcion": f"Desembolso compra {numero_compra}"}
+            )
+        registrar_asiento(
+            bd,
+            fecha=datos.fecha,
+            referencia=numero_compra,
+            modulo_origen="COMPRAS",
+            entidad_id=compra.id,
+            descripcion=f"Registro de compra {numero_compra} ({datos.origen.value})",
+            lineas=lineas_compra,
+            creado_por_id=usuario_actual.id,
+        )
 
     bd.commit()
     return {

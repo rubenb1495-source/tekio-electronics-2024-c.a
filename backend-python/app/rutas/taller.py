@@ -14,6 +14,7 @@ from app.esquemas_logistica import normalizar_serial
 from app.esquemas_taller import (
     CasoActualizarEntrada,
     CasoCrearEntrada,
+    ComponentePreparacionAgregarEntrada,
     PreparacionCrearEntrada,
     PresupuestoAprobarEntrada,
     PresupuestoCrearEntrada,
@@ -102,6 +103,254 @@ def generar_numero_caso(bd: Session, tipo: TipoCasoPostventa) -> str:
 
 
 # ---------------- Cola de Taller y Preparaciones ----------------
+
+
+@enrutador.get("/preparaciones/{equipo_id}/componentes")
+def listar_componentes_equipo_preparacion(
+    equipo_id: int,
+    usuario_actual: Usuario = Depends(obtener_usuario_actual),
+    bd: Session = Depends(obtener_bd),
+) -> list[dict[str, Any]]:
+    from app.core.permisos import sanear_respuesta_costos
+    from app.modelos_contabilidad import ComponenteInstaladoEquipo
+
+    eq = bd.query(Equipo).filter(Equipo.id == equipo_id).first()
+    if eq is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Equipo no encontrado.",
+        )
+    filas = (
+        bd.query(ComponenteInstaladoEquipo)
+        .options(
+            joinedload(ComponenteInstaladoEquipo.articulo),
+            joinedload(ComponenteInstaladoEquipo.instalado_por),
+        )
+        .filter(ComponenteInstaladoEquipo.equipo_id == equipo_id)
+        .order_by(ComponenteInstaladoEquipo.id.desc())
+        .all()
+    )
+    incluir_costos = puede_ver_costos(usuario_actual.rol)
+    respuesta: list[dict[str, Any]] = []
+    for f in filas:
+        item: dict[str, Any] = {
+            "id": f.id,
+            "equipo_id": f.equipo_id,
+            "articulo_id": f.articulo_id,
+            "sku": f.articulo.sku if f.articulo else "",
+            "descripcion": f.articulo.descripcion if f.articulo else "",
+            "cantidad": f.cantidad,
+            "nota": f.nota,
+            "instalado_por": f.instalado_por.nombre if f.instalado_por else "",
+            "creado_en": f.creado_en.isoformat() if f.creado_en else None,
+        }
+        if incluir_costos:
+            item["costo_unitario_usd"] = redondear_usd(f.costo_unitario_usd)
+            item["costo_total_usd"] = redondear_usd(f.costo_total_usd)
+        respuesta.append(item)
+    return sanear_respuesta_costos(respuesta, usuario_actual.rol)
+
+
+@enrutador.post("/preparaciones/{equipo_id}/componentes", status_code=status.HTTP_201_CREATED)
+def agregar_componente_a_equipo_preparacion(
+    equipo_id: int,
+    datos: ComponentePreparacionAgregarEntrada,
+    usuario_actual: Usuario = Depends(
+        requerir_roles(
+            RolUsuario.DIRECCION.value,
+            RolUsuario.ADMINISTRACION.value,
+            RolUsuario.LOGISTICA.value,
+            RolUsuario.LIDER.value,
+            RolUsuario.TECNICO.value,
+            RolUsuario.ENCARGADO.value,
+        )
+    ),
+    bd: Session = Depends(obtener_bd),
+) -> dict[str, Any]:
+    """
+    Agrega un componente del inventario (RAM, SSD, cargador, batería, etc.) a un equipo en preparación:
+    - Descuenta del inventario de componentes.
+    - Registra el componente instalado en la ficha del equipo y actualiza su configuración.
+    - Suma el costo del componente al `costo_taller_usd` (impactando directamente `costo_total_usd`).
+    - Genera asiento de reclasificación contable: Debe Inventario Equipos (1.1.04) / Haber Inventario Componentes (1.1.05).
+    - RBAC: El técnico jamás recibe campos de costo en USD.
+    """
+    from app.core.permisos import sanear_respuesta_costos
+    from app.modelos_contabilidad import ComponenteInstaladoEquipo
+    from app.servicios.auditoria_service import registrar_auditoria
+    from app.servicios.contabilidad_service import registrar_asiento
+
+    eq = bd.query(Equipo).filter(Equipo.id == equipo_id).first()
+    if eq is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Equipo no encontrado.",
+        )
+    if eq.estado == EstadoEquipo.VENDIDO.value:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No se pueden instalar componentes a un equipo que ya está VENDIDO.",
+        )
+
+    art = bd.query(CatalogoArticulo).filter(CatalogoArticulo.id == datos.articulo_id).first()
+    if art is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Componente no encontrado en el catálogo.",
+        )
+
+    # Verificar stock disponible del componente en el inventario (sucursal del equipo o global)
+    stock_sucursal = int(
+        bd.query(func.coalesce(func.sum(MovimientoInventario.cantidad), 0))
+        .filter(
+            MovimientoInventario.articulo_id == art.id,
+            MovimientoInventario.sucursal_id == eq.ubicacion_id,
+        )
+        .scalar()
+        or 0
+    )
+    sucursal_descuento = eq.ubicacion_id
+    if stock_sucursal < datos.cantidad:
+        # Buscar si hay stock en otra sucursal (ej. Bodega)
+        stock_global = int(
+            bd.query(func.coalesce(func.sum(MovimientoInventario.cantidad), 0))
+            .filter(MovimientoInventario.articulo_id == art.id)
+            .scalar()
+            or 0
+        )
+        if stock_global < datos.cantidad:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Stock insuficiente del componente '{art.descripcion}' (disponible: {stock_global}, requerido: {datos.cantidad}).",
+            )
+        # Ubicar sucursal con saldo positivo
+        filas_suc = (
+            bd.query(
+                MovimientoInventario.sucursal_id,
+                func.sum(MovimientoInventario.cantidad).label("saldo"),
+            )
+            .filter(MovimientoInventario.articulo_id == art.id)
+            .group_by(MovimientoInventario.sucursal_id)
+            .all()
+        )
+        for sid, saldo in filas_suc:
+            if int(saldo or 0) >= datos.cantidad:
+                sucursal_descuento = sid
+                break
+
+    # Determinar costo unitario del componente (último ingreso de inventario o costo referencia)
+    ultimo_ing = (
+        bd.query(MovimientoInventario)
+        .filter(
+            MovimientoInventario.articulo_id == art.id,
+            MovimientoInventario.cantidad > 0,
+            MovimientoInventario.costo_unitario_usd > Decimal("0"),
+        )
+        .order_by(MovimientoInventario.id.desc())
+        .first()
+    )
+    costo_unit = (
+        ultimo_ing.costo_unitario_usd
+        if ultimo_ing is not None
+        else obtener_costo_referencia_articulo(bd, art.id)
+    )
+    costo_unit = Decimal(str(costo_unit)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    costo_total_comp = (costo_unit * datos.cantidad).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
+    hoy = obtener_fecha_hoy()
+    bd.add(
+        MovimientoInventario(
+            tipo=TipoMovimientoInventario.TALLER.value,
+            articulo_id=art.id,
+            equipo_id=eq.id,
+            sucursal_id=sucursal_descuento,
+            cantidad=-datos.cantidad,
+            costo_unitario_usd=costo_unit,
+            documento_ref=f"PREP-COMP-{eq.serial}",
+            motivo=f"Componente instalado en preparación ({eq.serial}): {datos.cantidad}x {art.descripcion}",
+            usuario_id=usuario_actual.id,
+        )
+    )
+
+    instalado = ComponenteInstaladoEquipo(
+        equipo_id=eq.id,
+        articulo_id=art.id,
+        cantidad=datos.cantidad,
+        costo_unitario_usd=costo_unit,
+        costo_total_usd=costo_total_comp,
+        nota=datos.nota.strip(),
+        instalado_por_id=usuario_actual.id,
+    )
+    bd.add(instalado)
+    bd.flush()
+
+    costo_anterior = eq.costo_compra_usd + eq.costo_flete_usd + eq.costo_taller_usd
+    eq.costo_taller_usd = (eq.costo_taller_usd + costo_total_comp).quantize(
+        Decimal("0.01"), rounding=ROUND_HALF_UP
+    )
+    costo_nuevo = eq.costo_compra_usd + eq.costo_flete_usd + eq.costo_taller_usd
+
+    etiqueta_comp = f"+ {datos.cantidad}x {art.descripcion}"
+    if etiqueta_comp not in (eq.configuracion or ""):
+        eq.configuracion = (
+            f"{eq.configuracion} | {etiqueta_comp}".strip(" |")[:255]
+        )
+
+    if costo_total_comp > Decimal("0.00"):
+        registrar_asiento(
+            bd,
+            fecha=hoy,
+            referencia=f"PREP-COMP-{eq.serial}",
+            modulo_origen="TALLER_COMPONENTES",
+            entidad_id=instalado.id,
+            descripcion=f"Instalación de {datos.cantidad}x {art.descripcion} en equipo {eq.serial}",
+            lineas=[
+                {
+                    "codigo_cuenta": "1.1.04",
+                    "debe_usd": costo_total_comp,
+                    "descripcion": f"Aumento costo equipo {eq.serial}",
+                },
+                {
+                    "codigo_cuenta": "1.1.05",
+                    "haber_usd": costo_total_comp,
+                    "descripcion": f"Descarga componente {art.sku}",
+                },
+            ],
+            creado_por_id=usuario_actual.id,
+        )
+
+    registrar_auditoria(
+        bd,
+        usuario=usuario_actual,
+        modulo="TALLER",
+        accion="INSTALAR_COMPONENTE_EQUIPO",
+        entidad_id=eq.serial,
+        detalle_anterior={"costo_total_usd": float(costo_anterior)},
+        detalle_nuevo={
+            "articulo": art.descripcion,
+            "cantidad": datos.cantidad,
+            "costo_componente_usd": float(costo_total_comp),
+            "costo_total_usd": float(costo_nuevo),
+        },
+    )
+    bd.commit()
+
+    payload: dict[str, Any] = {
+        "id": instalado.id,
+        "equipo_id": eq.id,
+        "serial": eq.serial,
+        "articulo_id": art.id,
+        "sku": art.sku,
+        "descripcion": art.descripcion,
+        "cantidad": datos.cantidad,
+        "configuracion_actualizada": eq.configuracion,
+        "nota": instalado.nota,
+    }
+    if puede_ver_costos(usuario_actual.rol):
+        payload["costo_unitario_usd"] = redondear_usd(costo_unit)
+        payload["costo_total_componente_usd"] = redondear_usd(costo_total_comp)
+        payload["costo_total_equipo_usd"] = redondear_usd(costo_nuevo)
+    return sanear_respuesta_costos(payload, usuario_actual.rol)
 
 @enrutador.get("/cola")
 def obtener_cola_taller(

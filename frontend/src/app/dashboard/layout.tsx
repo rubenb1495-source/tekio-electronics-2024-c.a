@@ -242,6 +242,18 @@ export default function DisenoDashboard({
           visible: esAdmin,
         },
         {
+          href: "/dashboard/finanzas/estados-financieros",
+          etiqueta: "Estados Financieros",
+          icono: <BarChart3 className="w-4 h-4 shrink-0" />,
+          visible: esAdmin,
+        },
+        {
+          href: "/dashboard/finanzas/prestamos",
+          etiqueta: "Préstamos",
+          icono: <CreditCard className="w-4 h-4 shrink-0" />,
+          visible: esAdmin,
+        },
+        {
           href: "/dashboard/finanzas/fiscal",
           etiqueta: "Fiscal · SENIAT",
           icono: <Receipt className="w-4 h-4 shrink-0" />,

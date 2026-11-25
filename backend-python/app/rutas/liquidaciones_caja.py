@@ -354,6 +354,23 @@ def crear_liquidacion_comisiones(
             )
         )
 
+    if liq.monto_total_usd > Decimal("0.00"):
+        from app.servicios.contabilidad_service import registrar_asiento
+
+        registrar_asiento(
+            bd,
+            fecha=fecha_pago,
+            referencia=liq.codigo,
+            modulo_origen="COMISIONES",
+            entidad_id=liq.id,
+            descripcion=f"Liquidación de comisiones {liq.codigo} a {colaborador.nombre}",
+            lineas=[
+                {"codigo_cuenta": "6.1.01", "debe_usd": liq.monto_total_usd, "descripcion": f"Comisiones {colaborador.nombre}"},
+                {"codigo_cuenta": "1.1.01", "haber_usd": liq.monto_total_usd, "descripcion": f"Pago por {instrumento.nombre}"},
+            ],
+            creado_por_id=usuario_actual.id,
+        )
+
     bd.commit()
 
     liq_completa = (

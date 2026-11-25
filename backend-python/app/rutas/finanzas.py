@@ -261,6 +261,24 @@ def registrar_abono_cxc(
         if venta and venta.estado == EstadoVenta.CON_SALDO.value:
             venta.estado = EstadoVenta.CUADRADA.value
 
+    if usd_nominal > Decimal("0.00"):
+        from app.servicios.contabilidad_service import registrar_asiento
+
+        cta_cxc = "1.1.03" if cxc.tipo == TipoCuentaPorCobrar.CASHEA.value else "1.1.02"
+        registrar_asiento(
+            bd,
+            fecha=fecha_op,
+            referencia=datos.referencia.strip() or f"CXC-{cxc.id}",
+            modulo_origen="COBROS",
+            entidad_id=cxc.id,
+            descripcion=f"Abono a cuenta por cobrar #{cxc.id} ({cxc.tipo})",
+            lineas=[
+                {"codigo_cuenta": "1.1.01", "debe_usd": usd_nominal, "descripcion": f"Ingreso por {inst.nombre}"},
+                {"codigo_cuenta": cta_cxc, "haber_usd": usd_nominal, "descripcion": f"Cancelación CxC #{cxc.id}"},
+            ],
+            creado_por_id=_usuario.id,
+        )
+
     bd.commit()
     return {
         "id": cxc.id,

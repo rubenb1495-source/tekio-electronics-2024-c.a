@@ -289,6 +289,22 @@ def crear_gasto_operativo(
         {},
         {"categoria": gasto.categoria, "monto_usd": float(monto_usd), "instrumento": inst.nombre},
     )
+    if monto_usd > Decimal("0.00"):
+        from app.servicios.contabilidad_service import registrar_asiento
+
+        registrar_asiento(
+            bd,
+            fecha=fecha_op,
+            referencia=codigo,
+            modulo_origen="GASTOS",
+            entidad_id=gasto.id,
+            descripcion=f"Gasto operativo {codigo} · {gasto.categoria}",
+            lineas=[
+                {"codigo_cuenta": "6.2.01", "debe_usd": monto_usd, "descripcion": f"Gasto {gasto.categoria}"},
+                {"codigo_cuenta": "1.1.01", "haber_usd": monto_usd, "descripcion": f"Egreso desde {inst.nombre}"},
+            ],
+            creado_por_id=usuario_actual.id,
+        )
     bd.commit()
     return {
         "id": gasto.id,
@@ -1106,6 +1122,22 @@ def aprobar_y_pagar_nomina(
         {"estado": "BORRADOR"},
         {"estado": "PAGADA", "total_neto_usd": float(periodo.total_neto_usd), "pago_egreso_id": pago.id},
     )
+    if periodo.total_neto_usd > Decimal("0.00"):
+        from app.servicios.contabilidad_service import registrar_asiento
+
+        registrar_asiento(
+            bd,
+            fecha=hoy,
+            referencia=periodo.codigo,
+            modulo_origen="NOMINA",
+            entidad_id=periodo.id,
+            descripcion=f"Pago de nómina {periodo.codigo} ({periodo.fecha_inicio} al {periodo.fecha_fin})",
+            lineas=[
+                {"codigo_cuenta": "6.2.02", "debe_usd": periodo.total_neto_usd, "descripcion": f"Gasto nómina {periodo.codigo}"},
+                {"codigo_cuenta": "1.1.01", "haber_usd": periodo.total_neto_usd, "descripcion": f"Desembolso {inst.nombre}"},
+            ],
+            creado_por_id=usuario_actual.id,
+        )
     bd.commit()
     return {
         "id": periodo.id,

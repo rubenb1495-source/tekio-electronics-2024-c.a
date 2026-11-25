@@ -526,7 +526,41 @@ def serializar_venta(venta: Venta, incluir_costos: bool) -> dict[str, Any]:
     if incluir_costos:
         total_costo = sum((d.costo_total_snapshot_usd for d in venta.detalles), Decimal("0"))
         total_real = sum((p.usd_real for p in venta.pagos if not p.anulado), Decimal("0"))
+
+        base_comercial = Decimal("0")
+        base_servicios = Decimal("0")
+        for d in venta.detalles:
+            sub = (d.precio_promo_usd * d.cantidad).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+            if d.articulo is not None and d.articulo.tipo == TipoArticulo.SERVICIO.value:
+                base_servicios += sub
+            else:
+                base_comercial += sub
+
+        com_asesor = (
+            (base_comercial * Decimal("0.01")).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+            if venta.asesor_id is not None
+            else Decimal("0.00")
+        )
+        com_lider = (base_comercial * Decimal("0.005")).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        com_tecnico = (
+            (base_servicios * Decimal("0.50")).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+            if venta.tecnico_id is not None
+            else Decimal("0.00")
+        )
+        comision_total = (com_asesor + com_lider + com_tecnico).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        precio_neto = venta.total_promo_usd
+        margen_neto_real = (precio_neto - total_costo - comision_total).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        margen_pct = (
+            float((margen_neto_real / precio_neto * Decimal("100")).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
+            if precio_neto > Decimal("0")
+            else 0.0
+        )
+
         datos["costo_total_usd"] = redondear_usd(total_costo)
+        datos["costo_equipo_final_usd"] = redondear_usd(total_costo)
+        datos["comision_total_venta_usd"] = redondear_usd(comision_total)
+        datos["margen_neto_real_usd"] = redondear_usd(margen_neto_real)
+        datos["margen_neto_real_pct"] = margen_pct
         datos["utilidad_real_usd"] = redondear_usd(total_real - total_costo)
     return datos
 
@@ -934,6 +968,82 @@ def crear_venta(
         if cot_origen is not None:
             cot_origen.estado = EstadoCotizacion.CONVERTIDA.value
             cot_origen.venta_id = venta.id
+
+    # Asientos automáticos por partida doble (Venta POS: Ingreso + Costo de Ventas)
+    from app.servicios.contabilidad_service import registrar_asiento
+
+    ing_equipos_comp = Decimal("0.00")
+    ing_servicios = Decimal("0.00")
+    cogs_equipos = Decimal("0.00")
+    cogs_componentes = Decimal("0.00")
+    for det in calc["detalles"]:
+        es_serv = det["articulo"] is not None and det["articulo"].tipo == TipoArticulo.SERVICIO.value
+        sub_ing = (det["precio_promo_usd"] * det["cantidad"]).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        if es_serv:
+            ing_servicios += sub_ing
+        else:
+            ing_equipos_comp += sub_ing
+            if det["equipo"] is not None:
+                cogs_equipos += det["costo_total_snapshot_usd"].quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+            elif det["articulo"] is not None:
+                cogs_componentes += (
+                    det.get("costo_unitario_kardex_usd", det["costo_total_snapshot_usd"]) * det["cantidad"]
+                ).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
+    total_ing_asiento = (ing_equipos_comp + ing_servicios).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    if total_ing_asiento > Decimal("0.00"):
+        cashea_asiento = min(total_ing_asiento, calc["total_cashea_usd"].quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
+        cxc_asiento = (
+            min(
+                (total_ing_asiento - cashea_asiento).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP),
+                calc["falta_usd_promo"].quantize(Decimal("0.01"), rounding=ROUND_HALF_UP),
+            )
+            if calc["estado"] == EstadoVenta.CON_SALDO.value and calc["falta_usd_promo"] > 0
+            else Decimal("0.00")
+        )
+        caja_asiento = (total_ing_asiento - cashea_asiento - cxc_asiento).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        lineas_vta: list[dict[str, Any]] = []
+        if caja_asiento > Decimal("0.00"):
+            lineas_vta.append({"codigo_cuenta": "1.1.01", "debe_usd": caja_asiento, "descripcion": f"Cobro POS {numero_venta}"})
+        if cashea_asiento > Decimal("0.00"):
+            lineas_vta.append({"codigo_cuenta": "1.1.03", "debe_usd": cashea_asiento, "descripcion": f"Cashea por cobrar {numero_venta}"})
+        if cxc_asiento > Decimal("0.00"):
+            lineas_vta.append({"codigo_cuenta": "1.1.02", "debe_usd": cxc_asiento, "descripcion": f"CxC cliente {numero_venta}"})
+        if ing_equipos_comp > Decimal("0.00"):
+            lineas_vta.append({"codigo_cuenta": "4.1.01", "haber_usd": ing_equipos_comp, "descripcion": f"Ingreso equipos/comp {numero_venta}"})
+        if ing_servicios > Decimal("0.00"):
+            lineas_vta.append({"codigo_cuenta": "4.1.02", "haber_usd": ing_servicios, "descripcion": f"Ingreso servicios {numero_venta}"})
+        if len(lineas_vta) >= 2:
+            registrar_asiento(
+                bd,
+                fecha=fecha_op,
+                referencia=numero_venta,
+                modulo_origen="VENTAS",
+                entidad_id=venta.id,
+                descripcion=f"Venta POS {numero_venta}",
+                lineas=lineas_vta,
+                creado_por_id=usuario_actual.id,
+            )
+
+    total_cogs = (cogs_equipos + cogs_componentes).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    if total_cogs > Decimal("0.00"):
+        lineas_cogs: list[dict[str, Any]] = [
+            {"codigo_cuenta": "5.1.01", "debe_usd": total_cogs, "descripcion": f"Costo de ventas {numero_venta}"}
+        ]
+        if cogs_equipos > Decimal("0.00"):
+            lineas_cogs.append({"codigo_cuenta": "1.1.04", "haber_usd": cogs_equipos, "descripcion": f"Descarga equipos {numero_venta}"})
+        if cogs_componentes > Decimal("0.00"):
+            lineas_cogs.append({"codigo_cuenta": "1.1.05", "haber_usd": cogs_componentes, "descripcion": f"Descarga componentes {numero_venta}"})
+        registrar_asiento(
+            bd,
+            fecha=fecha_op,
+            referencia=numero_venta,
+            modulo_origen="VENTAS_COGS",
+            entidad_id=venta.id,
+            descripcion=f"Descarga de inventario a costo de ventas {numero_venta}",
+            lineas=lineas_cogs,
+            creado_por_id=usuario_actual.id,
+        )
 
     bd.commit()
 

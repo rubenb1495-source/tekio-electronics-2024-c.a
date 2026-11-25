@@ -178,6 +178,37 @@ def _calcular_alertas_internas(bd: Session, hoy: date) -> dict[str, Any]:
             }
         )
 
+    # 4. Cuotas de Préstamos vencidas o por vencer en <= 7 días
+    from app.modelos_contabilidad import Prestamo, PrestamoCuota
+
+    cuotas_prestamo = (
+        bd.query(PrestamoCuota)
+        .options(joinedload(PrestamoCuota.prestamo))
+        .join(Prestamo, Prestamo.id == PrestamoCuota.prestamo_id)
+        .filter(
+            Prestamo.estado == "ACTIVO",
+            PrestamoCuota.estado == "PENDIENTE",
+            PrestamoCuota.fecha_vencimiento <= limite_7d,
+        )
+        .order_by(PrestamoCuota.fecha_vencimiento.asc())
+        .all()
+    )
+    for cuota in cuotas_prestamo:
+        dias_rest = (cuota.fecha_vencimiento - hoy).days
+        cxp_alertas.append(
+            {
+                "compra_id": 200000 + cuota.id,
+                "numero_compra": f"PREST-{cuota.prestamo_id}-C{cuota.nro_cuota}",
+                "factura_orden": f"Cuota #{cuota.nro_cuota} · {cuota.prestamo.acreedor}",
+                "proveedor": cuota.prestamo.acreedor,
+                "origen": "PRESTAMO",
+                "fecha_vencimiento": cuota.fecha_vencimiento.isoformat(),
+                "dias_restantes": dias_rest,
+                "saldo_pendiente_usd": redondear_usd(cuota.cuota_total_usd),
+                "estado": "VENCIDA" if dias_rest < 0 else "POR_VENCER",
+            }
+        )
+
     return {
         "fecha_corte": hoy.isoformat(),
         "total_alertas": len(stock_bajo) + len(cxp_alertas),
@@ -698,6 +729,31 @@ def registrar_movimiento_tesoreria(
             "diferencia_usd": float(diferencia_usd),
         },
     )
+    if datos.tipo == "CAMBIO_DIVISA" and diferencia_usd != Decimal("0.00"):
+        from app.servicios.contabilidad_service import registrar_asiento
+
+        dif_abs = abs(diferencia_usd).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        if dif_abs > Decimal("0.00"):
+            if diferencia_usd > Decimal("0.00"):
+                lineas_dif = [
+                    {"codigo_cuenta": "1.1.01", "debe_usd": dif_abs, "descripcion": f"Ganancia cambiaria {codigo}"},
+                    {"codigo_cuenta": "4.2.01", "haber_usd": dif_abs, "descripcion": f"Diferencial cambiario positivo {codigo}"},
+                ]
+            else:
+                lineas_dif = [
+                    {"codigo_cuenta": "6.3.02", "debe_usd": dif_abs, "descripcion": f"Diferencial cambiario negativo {codigo}"},
+                    {"codigo_cuenta": "1.1.01", "haber_usd": dif_abs, "descripcion": f"Pérdida cambiaria {codigo}"},
+                ]
+            registrar_asiento(
+                bd,
+                fecha=fecha_op,
+                referencia=codigo,
+                modulo_origen="TESORERIA",
+                entidad_id=mov.id or codigo,
+                descripcion=f"Diferencial cambiario en operación {codigo}",
+                lineas=lineas_dif,
+                creado_por_id=usuario_actual.id,
+            )
     bd.commit()
 
     mov_completo = (

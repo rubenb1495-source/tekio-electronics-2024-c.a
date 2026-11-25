@@ -19,6 +19,12 @@ class ComponenteUsadoEntrada(BaseModel):
     cantidad: int = Field(gt=0)
 
 
+class ComponentePreparacionAgregarEntrada(BaseModel):
+    articulo_id: int
+    cantidad: int = Field(default=1, gt=0)
+    nota: str = Field(default="", max_length=300)
+
+
 class RepuestoFaltanteEntrada(BaseModel):
     articulo_id: int | None = None
     descripcion: str = Field(min_length=2, max_length=255)
