@@ -55,6 +55,8 @@ class TipoDocumentoPago(str, Enum):
     PARTE_DE_PAGO = "PARTE_DE_PAGO"
     DEVOLUCION = "DEVOLUCION"
     LIQUIDACION_COMISION = "LIQUIDACION_COMISION"
+    TESORERIA = "TESORERIA"
+    CAMBIO_DIVISA = "CAMBIO_DIVISA"
 
 
 class EstadoVerificacionPago(str, Enum):

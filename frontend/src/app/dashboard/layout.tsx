@@ -35,6 +35,8 @@ import {
 } from "lucide-react";
 import LogoTekio from "@/components/LogoTekio";
 import ModalRecargoDiario from "@/components/ModalRecargoDiario";
+import InstaladorPwa from "@/components/InstaladorPwa";
+import CampanaAlertas from "@/components/CampanaAlertas";
 import { usarSesion } from "@/contexto/SesionContexto";
 import { puedeAccederRuta, usePermisos } from "@/lib/permisos";
 import {
@@ -221,6 +223,18 @@ export default function DisenoDashboard({
     {
       titulo: "Finanzas",
       enlaces: [
+        {
+          href: "/dashboard/direccion",
+          etiqueta: "Panel Dirección",
+          icono: <BarChart3 className="w-4 h-4 shrink-0" />,
+          visible: esAdmin,
+        },
+        {
+          href: "/dashboard/finanzas/tesoreria",
+          etiqueta: "Tesorería y Divisas",
+          icono: <ArrowLeftRight className="w-4 h-4 shrink-0" />,
+          visible: esAdmin,
+        },
         {
           href: "/dashboard/finanzas/pagos",
           etiqueta: "Pagos y CxC",
@@ -516,8 +530,10 @@ export default function DisenoDashboard({
               </button>
             </div>
 
-            {/* Derecha: Sucursal activa + Perfil de usuario */}
+            {/* Derecha: PWA + Alertas + Sucursal activa + Perfil de usuario */}
             <div className="flex items-center gap-2 text-xs">
+              <InstaladorPwa />
+              <CampanaAlertas />
               {usuario.sucursal && (
                 <span className="hidden md:inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-white/80 border border-gray-200/80 text-[#191818] font-semibold">
                   <Building2 className="w-3.5 h-3.5 text-[#E85A28]" />

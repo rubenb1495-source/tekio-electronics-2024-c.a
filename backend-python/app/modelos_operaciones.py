@@ -191,3 +191,35 @@ class CierreCaja(Base):
 
     sucursal = relationship("Sucursal")
     usuario = relationship("Usuario")
+
+
+class MovimientoTesoreria(Base):
+    __tablename__ = "movimientos_tesoreria"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    codigo: Mapped[str] = mapped_column(String(30), unique=True, index=True, nullable=False)
+    tipo: Mapped[str] = mapped_column(String(25), nullable=False, index=True)  # TRANSFERENCIA | CAMBIO_DIVISA
+    fecha: Mapped[date] = mapped_column(Date, index=True, nullable=False)
+    instrumento_origen_id: Mapped[int] = mapped_column(ForeignKey("instrumentos_financieros.id"), nullable=False)
+    monto_origen: Mapped[Decimal] = mapped_column(Numeric(16, 2), nullable=False)
+    moneda_origen: Mapped[str] = mapped_column(String(10), nullable=False)
+    instrumento_destino_id: Mapped[int] = mapped_column(ForeignKey("instrumentos_financieros.id"), nullable=False)
+    monto_destino: Mapped[Decimal] = mapped_column(Numeric(16, 2), nullable=False)
+    moneda_destino: Mapped[str] = mapped_column(String(10), nullable=False)
+    tasa_pactada: Mapped[Decimal] = mapped_column(Numeric(14, 4), default=Decimal("0"), nullable=False)
+    tasa_referencia_bcv: Mapped[Decimal] = mapped_column(Numeric(14, 4), default=Decimal("0"), nullable=False)
+    tasa_referencia_usdt: Mapped[Decimal] = mapped_column(Numeric(14, 4), default=Decimal("0"), nullable=False)
+    diferencia_usd: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=Decimal("0"), nullable=False)
+    diferencia_pct: Mapped[Decimal] = mapped_column(Numeric(8, 2), default=Decimal("0"), nullable=False)
+    referencia: Mapped[str] = mapped_column(String(120), default="", nullable=False)
+    notas: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    pago_egreso_id: Mapped[int | None] = mapped_column(ForeignKey("pagos.id"), nullable=True)
+    pago_ingreso_id: Mapped[int | None] = mapped_column(ForeignKey("pagos.id"), nullable=True)
+    usuario_id: Mapped[int] = mapped_column(ForeignKey("usuarios.id"), nullable=False)
+    creado_en: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    instrumento_origen = relationship("InstrumentoFinanciero", foreign_keys=[instrumento_origen_id])
+    instrumento_destino = relationship("InstrumentoFinanciero", foreign_keys=[instrumento_destino_id])
+    pago_egreso = relationship("Pago", foreign_keys=[pago_egreso_id])
+    pago_ingreso = relationship("Pago", foreign_keys=[pago_ingreso_id])
+    usuario = relationship("Usuario")

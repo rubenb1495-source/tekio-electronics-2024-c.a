@@ -377,6 +377,8 @@ def crear_compra(
         moneda=(datos.moneda or "USD").strip().upper() or "USD",
         proveedor_id=datos.proveedor_id,
         fecha=datos.fecha,
+        fecha_vencimiento=datos.fecha_vencimiento,
+        saldo_pendiente_usd=datos.saldo_pendiente_usd,
         factura_orden=datos.factura_orden.strip(),
         numero_guia=datos.numero_guia.strip(),
         monto_mercancia_usd=datos.monto_mercancia_usd,

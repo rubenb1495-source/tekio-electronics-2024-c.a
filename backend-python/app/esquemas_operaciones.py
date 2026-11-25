@@ -68,3 +68,15 @@ class CierreCajaCrearEntrada(BaseModel):
 
 class LiquidacionAnularEntrada(BaseModel):
     motivo_anulacion: str = Field(min_length=3, max_length=500)
+
+
+class TesoreriaCrearEntrada(BaseModel):
+    tipo: str = Field(pattern="^(TRANSFERENCIA|CAMBIO_DIVISA)$")
+    fecha: date | None = None
+    instrumento_origen_id: int
+    monto_origen: Decimal = Field(gt=0)
+    instrumento_destino_id: int
+    monto_destino: Decimal = Field(gt=0)
+    tasa_pactada: Decimal = Field(default=Decimal("0"), ge=0)
+    referencia: str = Field(default="", max_length=120)
+    notas: str = Field(default="", max_length=1000)

@@ -115,6 +115,8 @@ class CompraCrearEntrada(BaseModel):
     moneda: str = Field(default="USD", max_length=10)
     proveedor_id: int | None = None
     fecha: date
+    fecha_vencimiento: date | None = None
+    saldo_pendiente_usd: Decimal = Field(default=Decimal("0"), ge=0)
     factura_orden: str = Field(default="", max_length=100)
     numero_guia: str = Field(default="", max_length=100)
     monto_mercancia_usd: Decimal = Field(default=Decimal("0"), ge=0)

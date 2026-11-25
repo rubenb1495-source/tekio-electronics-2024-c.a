@@ -72,11 +72,17 @@ export function puedeAccederRuta(
     return p.puedeGestionarUsuarios;
   }
 
-  // Finanzas globales (bancos, pagos, CxC, Cashea, conciliación)
+  // Panel Ejecutivo de Dirección
+  if (ruta.startsWith("/dashboard/direccion")) {
+    return p.esAdmin;
+  }
+
+  // Finanzas globales (bancos, pagos, CxC, Cashea, conciliación, tesorería)
   if (
     ruta.startsWith("/dashboard/finanzas/pagos") ||
     ruta.startsWith("/dashboard/finanzas/cashea") ||
-    ruta.startsWith("/dashboard/finanzas/conciliacion")
+    ruta.startsWith("/dashboard/finanzas/conciliacion") ||
+    ruta.startsWith("/dashboard/finanzas/tesoreria")
   ) {
     return p.puedeVerFinanzasGlobales;
   }

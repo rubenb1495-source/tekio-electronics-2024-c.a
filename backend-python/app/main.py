@@ -13,7 +13,7 @@ from app import modelos_finanzas as _modelos_finanzas  # noqa: F401
 from app import modelos_logistica as _modelos_logistica  # noqa: F401
 from app import modelos_operaciones as _modelos_operaciones  # noqa: F401
 from app import modelos_taller as _modelos_taller  # noqa: F401
-from app.rutas import autenticacion, catalogo, finanzas, liquidaciones_caja, logistica, operaciones, taller, tasas, usuarios, ventas
+from app.rutas import autenticacion, catalogo, direccion_tesoreria, finanzas, liquidaciones_caja, logistica, operaciones, taller, tasas, usuarios, ventas
 from app.semilla import ejecutar_semilla
 from app.semilla_finanzas import ejecutar_semilla_finanzas
 
@@ -92,6 +92,13 @@ def asegurar_columnas_compatibles() -> None:
                     conexion.execute(
                         text(f"ALTER TABLE tasas_diarias ADD COLUMN {nombre_col} {ddl_col}")
                     )
+    if inspector.has_table("catalogo_articulos"):
+        columnas_cat = {col["name"] for col in inspector.get_columns("catalogo_articulos")}
+        if "stock_minimo" not in columnas_cat:
+            with motor.begin() as conexion:
+                conexion.execute(
+                    text("ALTER TABLE catalogo_articulos ADD COLUMN stock_minimo INTEGER NOT NULL DEFAULT 2")
+                )
     if inspector.has_table("cierres_caja"):
         columnas_cc = {col["name"] for col in inspector.get_columns("cierres_caja")}
         nuevas_cc = [
@@ -111,6 +118,8 @@ def asegurar_columnas_compatibles() -> None:
             ("moneda", "VARCHAR(10) NOT NULL DEFAULT 'USD'"),
             ("numero_guia", "VARCHAR(100) NOT NULL DEFAULT ''"),
             ("aduana_usd", "NUMERIC(14, 2) NOT NULL DEFAULT 0"),
+            ("fecha_vencimiento", "DATE NULL"),
+            ("saldo_pendiente_usd", "NUMERIC(14, 2) NOT NULL DEFAULT 0"),
         ]
         for nombre_col, ddl_col in nuevas_comp:
             if nombre_col not in columnas_comp:
@@ -191,3 +200,4 @@ app.include_router(ventas.enrutador)
 app.include_router(finanzas.enrutador)
 app.include_router(liquidaciones_caja.enrutador)
 app.include_router(operaciones.enrutador)
+app.include_router(direccion_tesoreria.enrutador)

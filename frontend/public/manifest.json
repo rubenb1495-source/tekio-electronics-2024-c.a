@@ -1,0 +1,25 @@
+{
+  "name": "Tekio Electronics · Sistema Administrativo",
+  "short_name": "Tekio ERP",
+  "description": "Sistema administrativo centralizado de TEKIO ELECTRONICS 2024, C.A. — Somos tu solución.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "theme_color": "#E85A28",
+  "background_color": "#F6F6F6",
+  "icons": [
+    {
+      "src": "/icon-192x192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icon-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}

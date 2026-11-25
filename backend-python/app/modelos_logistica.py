@@ -138,6 +138,8 @@ class Compra(Base):
     moneda: Mapped[str] = mapped_column(String(10), default="USD", nullable=False)
     proveedor_id: Mapped[int | None] = mapped_column(ForeignKey("terceros.id"), nullable=True)
     fecha: Mapped[date] = mapped_column(Date, nullable=False, index=True)
+    fecha_vencimiento: Mapped[date | None] = mapped_column(Date, nullable=True, index=True)
+    saldo_pendiente_usd: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=Decimal("0"), nullable=False)
     factura_orden: Mapped[str] = mapped_column(String(100), default="", nullable=False)
     numero_guia: Mapped[str] = mapped_column(String(100), default="", nullable=False)
     monto_mercancia_usd: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=Decimal("0"), nullable=False)

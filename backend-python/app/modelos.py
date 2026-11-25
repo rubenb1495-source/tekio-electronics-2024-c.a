@@ -111,6 +111,7 @@ class CatalogoArticulo(Base):
     descripcion: Mapped[str] = mapped_column(String(255), nullable=False)
     tipo: Mapped[str] = mapped_column(String(20), nullable=False)
     categoria: Mapped[str] = mapped_column(String(100), default="General", nullable=False)
+    stock_minimo: Mapped[int] = mapped_column(Integer, default=2, nullable=False)
     activo: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     creado_en: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
