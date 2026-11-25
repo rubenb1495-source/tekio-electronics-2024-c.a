@@ -708,7 +708,7 @@ def test_comisiones_filtros_rango_usuario_lider_multitienda_y_tecnico(cliente: T
     body = resp_all.json()
     assert body["fecha_inicio"] == hoy_str
     assert body["fecha_fin"] == hoy_str
-    assert len(body["operaciones"]) == 3  # venta asesora + ST técnico + venta líder
+    assert len(body["operaciones"]) == 4  # venta asesora + ST técnico + venta líder + líder 0.5% equipo
     assert "costo" not in str(body).lower()
 
     fila_as = next(c for c in body["comisiones"] if c["usuario_id"] == ctx["asesora_id"])
@@ -984,3 +984,143 @@ def test_tasas_automaticas_fallback_bloqueo_y_recargo_diario_en_pos(
     assert sim["total_promo_usd"] == 400.0
     assert sim["total_regular_usd"] == 500.0
     assert sim["falta_bs"] == 30000.0
+
+
+def test_liquidacion_comisiones_egreso_antiduplicados_y_cierre_caja_pdf(cliente: TestClient) -> None:
+    from app.modelos_finanzas import Pago
+
+    ctx = _preparar_escenario_base(cliente)
+    h_dir = ctx["headers_dir"]
+    h_as = ctx["headers_as"]
+    hoy_str = obtener_fecha_hoy().isoformat()
+
+    # 1. Crear venta 1 en USD Efectivo ($400 -> comisión 1% = $4.00)
+    insts = cliente.get("/api/finanzas/instrumentos", headers=h_dir).json()
+    inst_ef_usd = next(i for i in insts if i["moneda"] == "USD" and "efectivo" in i["nombre"].lower())
+    inst_cashea = next(i for i in insts if "cashea" in i["nombre"].lower())
+
+    r_v1 = cliente.post(
+        "/api/ventas",
+        headers=h_as,
+        json={
+            "sucursal_id": 1,
+            "cliente_id": ctx["cliente_id"],
+            "asesor_id": ctx["asesora_id"],
+            "items": [{"equipo_id": ctx["eq_hp_1"], "cantidad": 1}],
+            "pagos": [{"instrumento_id": inst_ef_usd["id"], "monto_moneda_origen": 400.0}],
+        },
+    )
+    assert r_v1.status_code == 201, r_v1.text
+
+    # 2. Crear venta 2 con Cashea ($600 Promo -> $720 Regular: $288 inicial USD + $432 Cashea)
+    r_v2 = cliente.post(
+        "/api/ventas",
+        headers=h_as,
+        json={
+            "sucursal_id": 1,
+            "cliente_id": ctx["cliente_id"],
+            "asesor_id": ctx["asesora_id"],
+            "items": [{"equipo_id": ctx["eq_dell_1"], "cantidad": 1}],
+            "pagos": [
+                {"instrumento_id": inst_ef_usd["id"], "monto_moneda_origen": 288.0},
+                {"instrumento_id": inst_cashea["id"], "monto_moneda_origen": 432.0},
+            ],
+        },
+    )
+    assert r_v2.status_code == 201, r_v2.text
+
+    # Verificar que comisiones pendientes suman $10.00 ($4 + $6)
+    r_pend = cliente.get(
+        f"/api/finanzas/comisiones?fecha_inicio={hoy_str}&fecha_fin={hoy_str}&usuario_id={ctx['asesora_id']}&estado=PENDIENTE",
+        headers=h_dir,
+    )
+    assert r_pend.status_code == 200, r_pend.text
+    fila_pend = r_pend.json()["comisiones"][0]
+    assert fila_pend["estado_comision"] == "PENDIENTE"
+    assert fila_pend["monto_pendiente_usd"] == 10.0
+
+    # 3. Liquidar comisiones pendientes -> crea LIQ-0001 + EGRESO automático de $10.00
+    r_liq = cliente.post(
+        "/api/finanzas/liquidaciones",
+        headers=h_dir,
+        json={
+            "usuario_id": ctx["asesora_id"],
+            "fecha_inicio": hoy_str,
+            "fecha_fin": hoy_str,
+            "instrumento_id": inst_ef_usd["id"],
+            "referencia": "PAG-COM-01",
+            "notas": "Pago quincena",
+        },
+    )
+    assert r_liq.status_code == 201, r_liq.text
+    liq = r_liq.json()
+    assert liq["codigo"].startswith("LIQ-")
+    assert liq["monto_total_usd"] == 10.0
+    assert liq["pago_egreso_id"] is not None
+
+    # Verificar EGRESO real en tabla pagos
+    bd = cliente.sesion_factory()  # type: ignore[attr-defined]
+    try:
+        egreso = bd.query(Pago).filter(Pago.id == liq["pago_egreso_id"]).first()
+        assert egreso is not None
+        assert egreso.tipo_movimiento == "EGRESO"
+        assert float(egreso.usd_nominal) == 10.0
+    finally:
+        bd.close()
+
+    # 4. Anti-duplicados: intentar liquidar de nuevo el mismo rango debe fallar con 400
+    r_liq_dup = cliente.post(
+        "/api/finanzas/liquidaciones",
+        headers=h_dir,
+        json={
+            "usuario_id": ctx["asesora_id"],
+            "fecha_inicio": hoy_str,
+            "fecha_fin": hoy_str,
+            "instrumento_id": inst_ef_usd["id"],
+        },
+    )
+    assert r_liq_dup.status_code == 400
+
+    # PDF de comprobante de liquidación
+    r_liq_pdf = cliente.get(f"/api/finanzas/liquidaciones/{liq['id']}/pdf", headers=h_dir)
+    assert r_liq_pdf.status_code == 200
+    assert r_liq_pdf.headers["content-type"] == "application/pdf"
+    txt_liq = _extraer_texto_pdf(r_liq_pdf.content)
+    assert liq["codigo"] in txt_liq
+    assert "COMPROBANTE DE LIQUID" in txt_liq
+
+    # 5. Preview de Cierre de Caja Diario: incluye ventas ($1000), ingresos ($688), Cashea ($432), egreso ($10)
+    r_prev = cliente.get(
+        f"/api/finanzas/cierre-caja/preview?fecha={hoy_str}&sucursal_id=1",
+        headers=h_dir,
+    )
+    assert r_prev.status_code == 200, r_prev.text
+    prev = r_prev.json()
+    assert prev["cantidad_ventas"] == 2
+    assert prev["total_ventas_usd"] == 1000.0
+    assert prev["total_ingresos_usd"] == 688.0
+    assert prev["total_cashea_usd"] == 432.0
+    assert prev["total_egresos_usd"] == 10.0
+    assert prev["efectivo_esperado_usd"] == 678.0  # 400 + 288 - 10
+
+    # 6. Guardar Cierre de Caja declarando $680 (+$2 sobrante) y descargar PDF
+    r_cierre = cliente.post(
+        "/api/finanzas/cierre-caja",
+        headers=h_dir,
+        json={
+            "fecha": hoy_str,
+            "sucursal_id": 1,
+            "efectivo_declarado_usd": 680.0,
+            "observaciones": "Cierre verificado al final de la jornada",
+        },
+    )
+    assert r_cierre.status_code == 201, r_cierre.text
+    cierre = r_cierre.json()
+    assert cierre["diferencia_usd"] == 2.0
+
+    r_cierre_pdf = cliente.get(f"/api/finanzas/cierre-caja/{cierre['id']}/pdf", headers=h_dir)
+    assert r_cierre_pdf.status_code == 200
+    assert r_cierre_pdf.headers["content-type"] == "application/pdf"
+    txt_cierre = _extraer_texto_pdf(r_cierre_pdf.content)
+    assert "CIERRE DE CAJA DIARIO" in txt_cierre
+    assert "$680.00" in txt_cierre

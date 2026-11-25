@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import date
 from decimal import Decimal
 from typing import Literal
 
@@ -47,3 +48,19 @@ class CotizacionCrearEntrada(BaseModel):
 
 class CotizacionEstadoEntrada(BaseModel):
     estado: EstadoCotizacion
+
+
+class LiquidacionComisionCrearEntrada(BaseModel):
+    usuario_id: int
+    fecha_inicio: date
+    fecha_fin: date
+    instrumento_id: int
+    referencia: str = Field(default="", max_length=120)
+    notas: str = Field(default="", max_length=1000)
+
+
+class CierreCajaCrearEntrada(BaseModel):
+    fecha: date | None = None
+    sucursal_id: int | None = None
+    efectivo_declarado_usd: Decimal = Field(default=Decimal("0"), ge=0)
+    observaciones: str = Field(default="", max_length=1000)

@@ -3,14 +3,17 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   AlertCircle,
+  Banknote,
   BarChart3,
   Calendar,
   Check,
   CheckCircle2,
   Copy,
   ExternalLink,
+  FileDown,
   Lock,
   MessageSquare,
+  X,
 } from "lucide-react";
 import BuscadorTabla from "@/componentes/BuscadorTabla";
 import { usarSesion } from "@/contexto/SesionContexto";
@@ -19,11 +22,19 @@ import {
   copiarTextoPortapapeles,
   formatearWhatsAppComisionesGeneral,
   formatearWhatsAppComisionIndividual,
+  formatearWhatsAppLiquidacion,
 } from "@/lib/whatsapp";
-import { ErrorApi, formatearUsd, solicitarApi } from "@/servicios/api";
+import {
+  ErrorApi,
+  descargarPdfApi,
+  formatearUsd,
+  solicitarApi,
+} from "@/servicios/api";
 import type { Sucursal } from "@/tipos/dominio";
 import type {
   ComisionPersona,
+  InstrumentoFinanciero,
+  LiquidacionComisionResumen,
   ReporteComisiones,
   TableroFinanciero,
   UsuarioOperativo,
@@ -83,17 +94,29 @@ export default function PaginaComisionesYCierre() {
   const [fechaFin, setFechaFin] = useState(inicial.fin);
   const [usuarioFiltroId, setUsuarioFiltroId] = useState("");
   const [sucursalFiltroId, setSucursalFiltroId] = useState("");
+  const [estadoFiltro, setEstadoFiltro] = useState<"TODAS" | "PENDIENTE" | "PAGADA">("TODAS");
   const [incluirNotasWa, setIncluirNotasWa] = useState(true);
   const [busqueda, setBusqueda] = useState("");
+  const [busquedaLiq, setBusquedaLiq] = useState("");
 
   const [operativos, setOperativos] = useState<UsuarioOperativo[]>([]);
   const [sucursales, setSucursales] = useState<Sucursal[]>([]);
+  const [instrumentos, setInstrumentos] = useState<InstrumentoFinanciero[]>([]);
+  const [liquidaciones, setLiquidaciones] = useState<LiquidacionComisionResumen[]>([]);
   const [reporte, setReporte] = useState<ReporteComisiones | null>(null);
   const [tablero, setTablero] = useState<TableroFinanciero | null>(null);
   const [cargando, setCargando] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [exito, setExito] = useState<string | null>(null);
   const [modalCierre, setModalCierre] = useState(false);
+
+  // Modal liquidar pendientes
+  const [personaLiquidar, setPersonaLiquidar] = useState<ComisionPersona | null>(null);
+  const [instrumentoLiqId, setInstrumentoLiqId] = useState("");
+  const [referenciaLiq, setReferenciaLiq] = useState("");
+  const [notasLiq, setNotasLiq] = useState("");
+  const [liquidando, setLiquidando] = useState(false);
+  const [liqReciente, setLiqReciente] = useState<LiquidacionComisionResumen | null>(null);
 
   const [copiadoGeneral, setCopiadoGeneral] = useState(false);
   const [copiadoPersonaId, setCopiadoPersonaId] = useState<number | null>(null);
@@ -104,9 +127,13 @@ export default function PaginaComisionesYCierre() {
         () => []
       ),
       solicitarApi<Sucursal[]>("/api/sucursales").catch(() => []),
-    ]).then(([ops, sucs]) => {
+      solicitarApi<InstrumentoFinanciero[]>("/api/finanzas/instrumentos").catch(
+        () => []
+      ),
+    ]).then(([ops, sucs, insts]) => {
       setOperativos(ops);
       setSucursales(sucs);
+      setInstrumentos(insts.filter((i) => i.activo !== false));
     });
   }, []);
 
@@ -119,22 +146,27 @@ export default function PaginaComisionesYCierre() {
       if (fechaFin) paramsCom.set("fecha_fin", fechaFin);
       if (usuarioFiltroId) paramsCom.set("usuario_id", usuarioFiltroId);
       if (sucursalFiltroId) paramsCom.set("sucursal_id", sucursalFiltroId);
+      paramsCom.set("estado", estadoFiltro);
 
       const paramsTab = new URLSearchParams();
       if (fechaInicio) paramsTab.set("desde", fechaInicio);
       if (fechaFin) paramsTab.set("hasta", fechaFin);
       if (sucursalFiltroId) paramsTab.set("sucursal_id", sucursalFiltroId);
 
-      const [respCom, respTab] = await Promise.all([
+      const [respCom, respTab, respLiq] = await Promise.all([
         solicitarApi<ReporteComisiones>(
           `/api/finanzas/comisiones?${paramsCom.toString()}`
         ),
         solicitarApi<TableroFinanciero>(
           `/api/finanzas/tablero?${paramsTab.toString()}`
         ),
+        solicitarApi<LiquidacionComisionResumen[]>("/api/finanzas/liquidaciones").catch(
+          () => []
+        ),
       ]);
       setReporte(respCom);
       setTablero(respTab);
+      setLiquidaciones(respLiq);
     } catch (err) {
       setError(
         err instanceof ErrorApi
@@ -144,7 +176,7 @@ export default function PaginaComisionesYCierre() {
     } finally {
       setCargando(false);
     }
-  }, [fechaInicio, fechaFin, usuarioFiltroId, sucursalFiltroId]);
+  }, [fechaInicio, fechaFin, usuarioFiltroId, sucursalFiltroId, estadoFiltro]);
 
   useEffect(() => {
     void cargarDatos();
@@ -255,6 +287,62 @@ export default function PaginaComisionesYCierre() {
     if (ok) {
       setCopiadoPersonaId(persona.usuario_id);
       setTimeout(() => setCopiadoPersonaId(null), 2400);
+    }
+  };
+
+  const liquidacionesFiltradas = useMemo(() => {
+    const q = busquedaLiq.trim().toLowerCase();
+    if (!q) return liquidaciones;
+    return liquidaciones.filter((l) =>
+      [l.codigo, l.usuario_nombre, l.instrumento, l.referencia, l.fecha_pago]
+        .join(" ")
+        .toLowerCase()
+        .includes(q)
+    );
+  }, [liquidaciones, busquedaLiq]);
+
+  const abrirModalLiquidar = (persona: ComisionPersona) => {
+    setPersonaLiquidar(persona);
+    setInstrumentoLiqId(instrumentos[0] ? String(instrumentos[0].id) : "");
+    setReferenciaLiq("");
+    setNotasLiq("");
+    setLiqReciente(null);
+    setError(null);
+  };
+
+  const ejecutarLiquidacion = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    if (!personaLiquidar || !instrumentoLiqId) return;
+    setLiquidando(true);
+    setError(null);
+    try {
+      const creada = await solicitarApi<LiquidacionComisionResumen>(
+        "/api/finanzas/liquidaciones",
+        {
+          method: "POST",
+          body: JSON.stringify({
+            usuario_id: personaLiquidar.usuario_id,
+            fecha_inicio: fechaInicio,
+            fecha_fin: fechaFin,
+            instrumento_id: Number(instrumentoLiqId),
+            referencia: referenciaLiq.trim(),
+            notas: notasLiq.trim(),
+          }),
+        }
+      );
+      setLiqReciente(creada);
+      setExito(
+        `Liquidación ${creada.codigo} por ${formatearUsd(creada.monto_total_usd)} registrada con egreso automático.`
+      );
+      await cargarDatos();
+    } catch (err) {
+      setError(
+        err instanceof ErrorApi
+          ? err.message
+          : "No se pudo liquidar las comisiones pendientes."
+      );
+    } finally {
+      setLiquidando(false);
     }
   };
 
@@ -388,7 +476,7 @@ export default function PaginaComisionesYCierre() {
           </label>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-3">
           <div>
             <label className="block text-[11px] font-bold uppercase text-neutral-500 mb-1">
               Desde
@@ -420,12 +508,28 @@ export default function PaginaComisionesYCierre() {
               onChange={(e) => setUsuarioFiltroId(e.target.value)}
               className="w-full px-3 py-2 rounded-xl border border-neutral-200 bg-white text-sm text-[#191818]"
             >
-              <option value="">Todos los colaboradores</option>
+              <option value="">Todos</option>
               {operativos.map((u) => (
                 <option key={u.id} value={String(u.id)}>
                   {u.nombre} ({u.rol})
                 </option>
               ))}
+            </select>
+          </div>
+          <div>
+            <label className="block text-[11px] font-bold uppercase text-neutral-500 mb-1">
+              Estado Comisión
+            </label>
+            <select
+              value={estadoFiltro}
+              onChange={(e) =>
+                setEstadoFiltro(e.target.value as "TODAS" | "PENDIENTE" | "PAGADA")
+              }
+              className="w-full px-3 py-2 rounded-xl border border-neutral-200 bg-white text-sm text-[#191818]"
+            >
+              <option value="TODAS">Todas</option>
+              <option value="PENDIENTE">Pendientes</option>
+              <option value="PAGADA">Pagadas</option>
             </select>
           </div>
           <div>
@@ -437,7 +541,7 @@ export default function PaginaComisionesYCierre() {
               onChange={(e) => setSucursalFiltroId(e.target.value)}
               className="w-full px-3 py-2 rounded-xl border border-neutral-200 bg-white text-sm text-[#191818]"
             >
-              <option value="">Todas las sucursales</option>
+              <option value="">Todas</option>
               {sucursales.map((s) => (
                 <option key={s.id} value={String(s.id)}>
                   {s.nombre}
@@ -449,7 +553,7 @@ export default function PaginaComisionesYCierre() {
             <BuscadorTabla
               valor={busqueda}
               alCambiar={setBusqueda}
-              placeholder="Buscar nombre, rol o nota N-..."
+              placeholder="Buscar nombre, rol o nota..."
             />
           </div>
         </div>
@@ -571,12 +675,16 @@ export default function PaginaComisionesYCierre() {
                   <th className="px-4 py-3 text-right">0,5% Líder</th>
                   <th className="px-4 py-3 text-right">50% ST</th>
                   <th className="px-4 py-3 text-right">Preps</th>
-                  <th className="px-4 py-3 text-right">Total a Pagar</th>
-                  <th className="px-4 py-3 text-right">WhatsApp</th>
+                  <th className="px-4 py-3 text-right">Total / Estado</th>
+                  <th className="px-4 py-3 text-right">Acciones</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-neutral-100">
-                {comisionesFiltradas.map((c) => (
+                {comisionesFiltradas.map((c) => {
+                  const pendiente = c.monto_pendiente_usd ?? c.total_comision_usd;
+                  const pagado = c.monto_pagado_usd ?? 0;
+                  const esPagada = c.estado_comision === "PAGADA";
+                  return (
                   <tr key={c.usuario_id} className="hover:bg-white/60">
                     <td className="px-4 py-3">
                       <p className="font-bold text-[#191818]">{c.nombre}</p>
@@ -600,11 +708,35 @@ export default function PaginaComisionesYCierre() {
                     <td className="px-4 py-3 text-right tabular-nums">
                       {formatearUsd(c.pago_preparaciones_usd)}
                     </td>
-                    <td className="px-4 py-3 text-right font-black text-emerald-700 tabular-nums">
-                      {formatearUsd(c.total_comision_usd)}
+                    <td className="px-4 py-3 text-right tabular-nums">
+                      <p className="font-black text-emerald-700">
+                        {formatearUsd(c.total_comision_usd)}
+                      </p>
+                      <span
+                        className={`inline-flex px-2 py-0.5 rounded-full text-[10px] font-bold mt-0.5 ${
+                          esPagada
+                            ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
+                            : "bg-amber-50 text-amber-800 border border-amber-200"
+                        }`}
+                      >
+                        {esPagada
+                          ? `PAGADA (${formatearUsd(pagado)})`
+                          : `PENDIENTE (${formatearUsd(pendiente)})`}
+                      </span>
                     </td>
                     <td className="px-4 py-3 text-right whitespace-nowrap">
                       <div className="inline-flex items-center gap-1.5">
+                        {pendiente > 0 && (
+                          <button
+                            type="button"
+                            onClick={() => abrirModalLiquidar(c)}
+                            className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-[#E85A28] hover:bg-[#D14D1F] text-white text-xs font-bold cursor-pointer"
+                            title="Liquidar comisiones pendientes con egreso automático"
+                          >
+                            <Banknote className="w-3.5 h-3.5" />
+                            Liquidar
+                          </button>
+                        )}
                         <button
                           type="button"
                           onClick={() => void copiarIndividual(c)}
@@ -628,12 +760,13 @@ export default function PaginaComisionesYCierre() {
                           title="Enviar resumen individual por WhatsApp"
                         >
                           <ExternalLink className="w-3.5 h-3.5" />
-                          Enviar
+                          WA
                         </a>
                       </div>
                     </td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -662,6 +795,7 @@ export default function PaginaComisionesYCierre() {
                   <th className="px-4 py-2.5">Cliente</th>
                   <th className="px-4 py-2.5">Colaborador</th>
                   <th className="px-4 py-2.5">Tipo</th>
+                  <th className="px-4 py-2.5">Estado</th>
                   <th className="px-4 py-2.5 text-right">Base Promo USD</th>
                   <th className="px-4 py-2.5 text-right">Comisión USD</th>
                 </tr>
@@ -688,6 +822,18 @@ export default function PaginaComisionesYCierre() {
                         {op.tipo}
                       </span>
                     </td>
+                    <td className="px-4 py-2.5">
+                      <span
+                        className={`inline-flex px-2 py-0.5 rounded-full font-bold ${
+                          op.estado_comision === "PAGADA"
+                            ? "bg-emerald-50 text-emerald-700"
+                            : "bg-amber-50 text-amber-800"
+                        }`}
+                      >
+                        {op.estado_comision || "PENDIENTE"}
+                        {op.liquidacion_codigo ? ` (${op.liquidacion_codigo})` : ""}
+                      </span>
+                    </td>
                     <td className="px-4 py-2.5 text-right tabular-nums">
                       {formatearUsd(op.base_promo_usd)}
                     </td>
@@ -701,6 +847,249 @@ export default function PaginaComisionesYCierre() {
           </div>
         )}
       </div>
+
+      {/* Historial de Liquidaciones */}
+      <div className="bg-white/75 backdrop-blur-md rounded-2xl border border-white/60 shadow-[0_8px_30px_rgb(0,0,0,0.04)] p-5 space-y-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <h3 className="text-base font-bold text-[#191818]">
+            Historial de Liquidaciones ({liquidacionesFiltradas.length})
+          </h3>
+          <div className="w-full sm:w-80">
+            <BuscadorTabla
+              valor={busquedaLiq}
+              alCambiar={setBusquedaLiq}
+              placeholder="Buscar por LIQ, colaborador o referencia..."
+            />
+          </div>
+        </div>
+
+        {liquidacionesFiltradas.length === 0 ? (
+          <p className="text-sm text-neutral-500 text-center py-6">
+            Aún no se han registrado liquidaciones de comisiones.
+          </p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm text-left">
+              <thead className="bg-neutral-50/90 border-b border-neutral-200 text-xs uppercase text-neutral-500">
+                <tr>
+                  <th className="px-4 py-2.5">Código / Pago</th>
+                  <th className="px-4 py-2.5">Colaborador</th>
+                  <th className="px-4 py-2.5">Período</th>
+                  <th className="px-4 py-2.5">Instrumento / Ref.</th>
+                  <th className="px-4 py-2.5 text-right">Monto USD</th>
+                  <th className="px-4 py-2.5 text-right">Comprobante</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-neutral-100">
+                {liquidacionesFiltradas.map((l) => (
+                  <tr key={l.id} className="hover:bg-white/60">
+                    <td className="px-4 py-3">
+                      <p className="font-mono font-bold text-[#191818]">{l.codigo}</p>
+                      <p className="text-xs text-neutral-500">{l.fecha_pago}</p>
+                    </td>
+                    <td className="px-4 py-3">
+                      <p className="font-semibold text-[#191818]">{l.usuario_nombre}</p>
+                      <p className="text-xs text-neutral-500">
+                        {l.usuario_rol} · {l.cantidad_operaciones} op.
+                      </p>
+                    </td>
+                    <td className="px-4 py-3 text-xs text-neutral-600">
+                      {l.fecha_inicio} al {l.fecha_fin}
+                    </td>
+                    <td className="px-4 py-3 text-xs">
+                      <p className="font-semibold text-[#191818]">{l.instrumento}</p>
+                      <p className="text-neutral-500">{l.referencia || "—"}</p>
+                    </td>
+                    <td className="px-4 py-3 text-right tabular-nums font-black text-emerald-700">
+                      {formatearUsd(l.monto_total_usd)}
+                    </td>
+                    <td className="px-4 py-3 text-right whitespace-nowrap space-x-1.5">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          void descargarPdfApi(
+                            `/api/finanzas/liquidaciones/${l.id}/pdf`,
+                            `Liquidacion_${l.codigo}.pdf`
+                          )
+                        }
+                        className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-neutral-200 bg-white hover:bg-neutral-50 text-xs font-bold text-[#191818] cursor-pointer"
+                      >
+                        <FileDown className="w-3.5 h-3.5 text-[#E85A28]" />
+                        PDF
+                      </button>
+                      <a
+                        href={construirUrlWhatsApp(
+                          formatearWhatsAppLiquidacion(l),
+                          l.usuario_telefono
+                        )}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold"
+                      >
+                        <ExternalLink className="w-3.5 h-3.5" />
+                        WA
+                      </a>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      {/* Modal Liquidar Pendientes */}
+      {personaLiquidar && (
+        <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
+          <div className="bg-white/95 backdrop-blur-md rounded-2xl max-w-md w-full p-6 shadow-xl space-y-4 border border-white/60">
+            <div className="flex items-center justify-between">
+              <h3 className="text-lg font-black text-[#191818]">
+                Liquidar Comisiones Pendientes
+              </h3>
+              <button
+                type="button"
+                onClick={() => setPersonaLiquidar(null)}
+                className="text-neutral-400 hover:text-neutral-700 cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {liqReciente ? (
+              <div className="space-y-4 text-center py-2">
+                <CheckCircle2 className="w-11 h-11 text-emerald-600 mx-auto" />
+                <div>
+                  <p className="font-black text-[#191818] text-base">
+                    ¡Liquidación {liqReciente.codigo} registrada!
+                  </p>
+                  <p className="text-xs text-neutral-600 mt-1">
+                    Egreso automático creado por{" "}
+                    <strong>{formatearUsd(liqReciente.monto_total_usd)}</strong> en{" "}
+                    <strong>{liqReciente.instrumento}</strong>.
+                  </p>
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      void descargarPdfApi(
+                        `/api/finanzas/liquidaciones/${liqReciente.id}/pdf`,
+                        `Liquidacion_${liqReciente.codigo}.pdf`
+                      )
+                    }
+                    className="inline-flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl bg-[#E85A28] hover:bg-[#D14D1F] text-white text-xs font-bold cursor-pointer"
+                  >
+                    <FileDown className="w-4 h-4" />
+                    Descargar Recibo PDF
+                  </button>
+                  <a
+                    href={construirUrlWhatsApp(
+                      formatearWhatsAppLiquidacion(liqReciente),
+                      liqReciente.usuario_telefono
+                    )}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold"
+                  >
+                    <ExternalLink className="w-4 h-4" />
+                    Enviar por WhatsApp
+                  </a>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setPersonaLiquidar(null)}
+                  className="w-full py-2 rounded-xl border border-neutral-300 text-xs font-bold cursor-pointer"
+                >
+                  Cerrar
+                </button>
+              </div>
+            ) : (
+              <form onSubmit={ejecutarLiquidacion} className="space-y-3.5">
+                <div className="rounded-xl bg-[#FDF0EB]/80 border border-[#E85A28]/30 p-3.5">
+                  <p className="text-xs text-neutral-600">
+                    Colaborador:{" "}
+                    <strong className="text-[#191818]">
+                      {personaLiquidar.nombre} ({personaLiquidar.rol})
+                    </strong>
+                  </p>
+                  <p className="text-xs text-neutral-600">
+                    Período: {fechaInicio} al {fechaFin}
+                  </p>
+                  <p className="text-lg font-black text-[#E85A28] mt-1 tabular-nums">
+                    Pendiente por pagar:{" "}
+                    {formatearUsd(
+                      personaLiquidar.monto_pendiente_usd ??
+                        personaLiquidar.total_comision_usd
+                    )}
+                  </p>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-neutral-700 mb-1">
+                    Cuenta / Caja de salida (Egreso) *
+                  </label>
+                  <select
+                    required
+                    value={instrumentoLiqId}
+                    onChange={(e) => setInstrumentoLiqId(e.target.value)}
+                    className="w-full px-3 py-2 rounded-xl border border-neutral-300 text-sm bg-white"
+                  >
+                    <option value="">Selecciona instrumento...</option>
+                    {instrumentos.map((i) => (
+                      <option key={i.id} value={String(i.id)}>
+                        {i.nombre} ({i.moneda})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-neutral-700 mb-1">
+                    Referencia de pago
+                  </label>
+                  <input
+                    type="text"
+                    value={referenciaLiq}
+                    onChange={(e) => setReferenciaLiq(e.target.value)}
+                    placeholder="Nro. referencia bancaria o recibo"
+                    className="w-full px-3 py-2 rounded-xl border border-neutral-300 text-sm"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-neutral-700 mb-1">
+                    Notas
+                  </label>
+                  <input
+                    type="text"
+                    value={notasLiq}
+                    onChange={(e) => setNotasLiq(e.target.value)}
+                    placeholder="Ej. Pago quincena 1 de noviembre"
+                    className="w-full px-3 py-2 rounded-xl border border-neutral-300 text-sm"
+                  />
+                </div>
+
+                <div className="flex justify-end gap-2 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setPersonaLiquidar(null)}
+                    className="px-4 py-2 rounded-xl border border-neutral-300 text-xs font-bold cursor-pointer"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={liquidando}
+                    className="px-4 py-2 rounded-xl bg-[#E85A28] hover:bg-[#D14D1F] disabled:opacity-50 text-white text-xs font-bold cursor-pointer"
+                  >
+                    {liquidando ? "Liquidando..." : "Confirmar Pago y Egreso"}
+                  </button>
+                </div>
+              </form>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Modal de confirmación de cierre de mes */}
       {modalCierre && (

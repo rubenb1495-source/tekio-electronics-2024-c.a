@@ -171,10 +171,14 @@ export interface ComisionPersona {
   comision_servicios_50_usd: number;
   pago_preparaciones_usd: number;
   total_comision_usd: number;
+  monto_pendiente_usd?: number;
+  monto_pagado_usd?: number;
+  estado_comision?: "PENDIENTE" | "PAGADA";
   notas?: string[];
 }
 
 export interface OperacionComision {
+  venta_id?: number | null;
   numero_nota: string;
   fecha: string;
   cliente: string;
@@ -185,6 +189,82 @@ export interface OperacionComision {
   tipo: string;
   base_promo_usd: number;
   comision_usd: number;
+  estado_comision?: "PENDIENTE" | "PAGADA";
+  liquidacion_codigo?: string | null;
+}
+
+export interface LiquidacionComisionResumen {
+  id: number;
+  codigo: string;
+  usuario_id: number;
+  usuario_nombre: string;
+  usuario_rol: string;
+  usuario_telefono?: string;
+  fecha_inicio: string;
+  fecha_fin: string;
+  fecha_pago: string;
+  monto_total_usd: number;
+  instrumento_id: number;
+  instrumento: string;
+  referencia: string;
+  pago_egreso_id: number | null;
+  autorizado_por: string;
+  notas: string;
+  cantidad_operaciones: number;
+  notas_liquidadas: string[];
+  creado_en: string | null;
+}
+
+export interface DesgloseInstrumentoCaja {
+  instrumento_id: number;
+  instrumento: string;
+  moneda: "USD" | "USDT" | "BS" | string;
+  ingresos_origen: number;
+  egresos_origen: number;
+  neto_origen: number;
+  ingresos_usd: number;
+  egresos_usd: number;
+  neto_usd: number;
+  cantidad_movimientos: number;
+}
+
+export interface PreviewCierreCaja {
+  fecha: string;
+  sucursal_id: number | null;
+  sucursal: string;
+  cantidad_ventas: number;
+  cantidad_anulaciones: number;
+  total_ventas_usd: number;
+  total_ingresos_usd: number;
+  total_ingresos_bs: number;
+  total_egresos_usd: number;
+  total_egresos_bs: number;
+  total_cashea_usd: number;
+  efectivo_esperado_usd: number;
+  saldo_neto_esperado_usd: number;
+  desglose_instrumentos: DesgloseInstrumentoCaja[];
+}
+
+export interface CierreCajaResumen {
+  id: number;
+  fecha: string;
+  sucursal_id: number | null;
+  sucursal: string;
+  usuario: string;
+  cantidad_ventas: number;
+  cantidad_anulaciones: number;
+  total_ventas_usd: number;
+  total_ingresos_usd: number;
+  total_ingresos_bs: number;
+  total_egresos_usd: number;
+  total_egresos_bs: number;
+  total_cashea_usd: number;
+  efectivo_esperado_usd: number;
+  efectivo_declarado_usd: number;
+  diferencia_usd: number;
+  observaciones: string;
+  desglose_instrumentos: DesgloseInstrumentoCaja[];
+  creado_en: string | null;
 }
 
 export interface ReporteComisiones {

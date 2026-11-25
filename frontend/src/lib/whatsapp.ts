@@ -1,6 +1,8 @@
 import { formatearBs, formatearUsd } from "@/servicios/api";
 import type {
+  CierreCajaResumen,
   ComisionPersona,
+  LiquidacionComisionResumen,
   PagoBandeja,
   VentaResumen,
 } from "@/tipos/finanzas";
@@ -597,5 +599,69 @@ export function formatearWhatsAppComisionesGeneral(
     "",
     `💰 *TOTAL COMISIONES A PAGAR: ${formatearUsd(totalPagar)} USD*`
   );
+  return lineas.join("\n");
+}
+
+/**
+ * 9. Comprobante de Liquidación de Comisiones para WhatsApp.
+ */
+export function formatearWhatsAppLiquidacion(
+  liq: LiquidacionComisionResumen
+): string {
+  const periodo = `${formatearFechaLatam(liq.fecha_inicio)} al ${formatearFechaLatam(liq.fecha_fin)}`;
+  const lineas: string[] = [
+    `✅ *COMPROBANTE DE LIQUIDACIÓN · TEKIO ELECTRONICS*`,
+    `🧾 Código: *${liq.codigo}* · Fecha pago: ${formatearFechaLatam(liq.fecha_pago)}`,
+    `👤 Colaborador: *${liq.usuario_nombre}* (${liq.usuario_rol})`,
+    `📅 Período liquidado: *${periodo}*`,
+    `💳 Método de pago: ${liq.instrumento}${liq.referencia ? ` · Ref: ${liq.referencia}` : ""}`,
+    `💵 *Monto pagado: ${formatearUsd(liq.monto_total_usd)} USD*`,
+  ];
+  if (liq.notas_liquidadas && liq.notas_liquidadas.length > 0) {
+    lineas.push(`📋 Operaciones (${liq.cantidad_operaciones}): ${liq.notas_liquidadas.slice(0, 30).join(", ")}`);
+  }
+  if (liq.notas) {
+    lineas.push(`📝 Nota: ${liq.notas}`);
+  }
+  return lineas.join("\n");
+}
+
+/**
+ * 10. Resumen de Cierre de Caja Diario para grupo gerencial en WhatsApp.
+ */
+export function formatearWhatsAppCierreCaja(cierre: CierreCajaResumen): string {
+  const dif = cierre.diferencia_usd;
+  const estadoCaja =
+    dif === 0 ? "✅ CUADRADO" : dif > 0 ? `🟢 SOBRANTE (+${formatearUsd(dif)})` : `🔴 FALTANTE (${formatearUsd(dif)})`;
+  const lineas: string[] = [
+    `🏦 *CIERRE DE CAJA DIARIO · TEKIO ELECTRONICS*`,
+    `📅 Fecha: *${formatearFechaLatam(cierre.fecha)}* · 🏪 Sucursal: *${cierre.sucursal}*`,
+    `👤 Responsable: ${cierre.usuario}`,
+    "",
+    `🧾 Ventas emitidas: *${cierre.cantidad_ventas}* (Anulaciones/Dev.: ${cierre.cantidad_anulaciones})`,
+    `💵 Total Ventas Promo: *${formatearUsd(cierre.total_ventas_usd)}*`,
+    `📥 Ingresos: *${formatearUsd(cierre.total_ingresos_usd)} USD* / ${formatearBs(cierre.total_ingresos_bs)}`,
+    `🟣 Cashea Financiado: *${formatearUsd(cierre.total_cashea_usd)} USD*`,
+    `📤 Egresos del día: *${formatearUsd(cierre.total_egresos_usd)} USD* / ${formatearBs(cierre.total_egresos_bs)}`,
+    "",
+    `💰 *Cuadre Efectivo USD:*`,
+    `• Esperado: ${formatearUsd(cierre.efectivo_esperado_usd)}`,
+    `• Declarado: ${formatearUsd(cierre.efectivo_declarado_usd)}`,
+    `• Resultado: *${estadoCaja}*`,
+  ];
+
+  if (cierre.desglose_instrumentos && cierre.desglose_instrumentos.length > 0) {
+    lineas.push("", "💳 *Desglose por Instrumento:*");
+    for (const d of cierre.desglose_instrumentos) {
+      const montoTxt =
+        d.moneda === "BS"
+          ? `${formatearBs(d.neto_origen)} (≈ ${formatearUsd(d.neto_usd)})`
+          : `${formatearUsd(d.neto_origen)} ${d.moneda}`;
+      lineas.push(`• ${d.instrumento}: *${montoTxt}*`);
+    }
+  }
+  if (cierre.observaciones) {
+    lineas.push("", `📝 Observaciones: ${cierre.observaciones}`);
+  }
   return lineas.join("\n");
 }

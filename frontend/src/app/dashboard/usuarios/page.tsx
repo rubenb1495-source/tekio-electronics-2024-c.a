@@ -409,7 +409,7 @@ export default function PaginaPersonalYUsuarios() {
                               : "bg-amber-50 text-amber-800 border-amber-200"
                           }`}
                         >
-                          {conAcceso ? "Con acceso" : "Sin acceso"}
+                          {conAcceso ? "Con acceso" : "Solo comisiones"}
                         </span>
                       </td>
                       <td className="px-4 py-3">

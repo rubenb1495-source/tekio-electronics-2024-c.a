@@ -4,7 +4,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from enum import Enum
 
-from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Integer, Numeric, String, Text, func
+from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Integer, Numeric, String, Text, UniqueConstraint, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.base_datos import Base
@@ -109,3 +109,77 @@ class CotizacionDetalle(Base):
     cotizacion = relationship("Cotizacion", back_populates="detalles")
     equipo = relationship("Equipo")
     articulo = relationship("CatalogoArticulo")
+
+
+class LiquidacionComision(Base):
+    __tablename__ = "liquidaciones_comisiones"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    codigo: Mapped[str] = mapped_column(String(30), unique=True, index=True, nullable=False)
+    usuario_id: Mapped[int] = mapped_column(ForeignKey("usuarios.id"), index=True, nullable=False)
+    fecha_inicio: Mapped[date] = mapped_column(Date, nullable=False)
+    fecha_fin: Mapped[date] = mapped_column(Date, nullable=False)
+    fecha_pago: Mapped[date] = mapped_column(Date, index=True, nullable=False)
+    monto_total_usd: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False)
+    instrumento_id: Mapped[int] = mapped_column(ForeignKey("instrumentos_financieros.id"), nullable=False)
+    referencia: Mapped[str] = mapped_column(String(120), default="", nullable=False)
+    pago_egreso_id: Mapped[int | None] = mapped_column(ForeignKey("pagos.id"), nullable=True)
+    autorizado_por_id: Mapped[int] = mapped_column(ForeignKey("usuarios.id"), nullable=False)
+    notas: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    creado_en: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    usuario = relationship("Usuario", foreign_keys=[usuario_id])
+    autorizado_por = relationship("Usuario", foreign_keys=[autorizado_por_id])
+    instrumento = relationship("InstrumentoFinanciero")
+    pago_egreso = relationship("Pago")
+    detalles = relationship(
+        "LiquidacionComisionDetalle",
+        back_populates="liquidacion",
+        cascade="all, delete-orphan",
+    )
+
+
+class LiquidacionComisionDetalle(Base):
+    __tablename__ = "liquidaciones_comisiones_detalle"
+    __table_args__ = (
+        UniqueConstraint("venta_id", "usuario_id", "concepto", name="uq_liq_venta_usuario_concepto"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    liquidacion_id: Mapped[int] = mapped_column(ForeignKey("liquidaciones_comisiones.id"), index=True, nullable=False)
+    venta_id: Mapped[int | None] = mapped_column(ForeignKey("ventas.id"), index=True, nullable=True)
+    usuario_id: Mapped[int] = mapped_column(ForeignKey("usuarios.id"), index=True, nullable=False)
+    referencia_origen: Mapped[str] = mapped_column(String(60), default="", nullable=False, index=True)
+    concepto: Mapped[str] = mapped_column(String(40), nullable=False)
+    base_promo_usd: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=Decimal("0"), nullable=False)
+    monto_comision_usd: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=Decimal("0"), nullable=False)
+
+    liquidacion = relationship("LiquidacionComision", back_populates="detalles")
+    venta = relationship("Venta")
+    usuario = relationship("Usuario")
+
+
+class CierreCaja(Base):
+    __tablename__ = "cierres_caja"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    fecha: Mapped[date] = mapped_column(Date, index=True, nullable=False)
+    sucursal_id: Mapped[int | None] = mapped_column(ForeignKey("sucursales.id"), index=True, nullable=True)
+    usuario_id: Mapped[int] = mapped_column(ForeignKey("usuarios.id"), nullable=False)
+    cantidad_ventas: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    cantidad_anulaciones: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    total_ventas_usd: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=Decimal("0"), nullable=False)
+    total_ingresos_usd: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=Decimal("0"), nullable=False)
+    total_ingresos_bs: Mapped[Decimal] = mapped_column(Numeric(16, 2), default=Decimal("0"), nullable=False)
+    total_egresos_usd: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=Decimal("0"), nullable=False)
+    total_egresos_bs: Mapped[Decimal] = mapped_column(Numeric(16, 2), default=Decimal("0"), nullable=False)
+    total_cashea_usd: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=Decimal("0"), nullable=False)
+    desglose_instrumentos_json: Mapped[str] = mapped_column(Text, default="[]", nullable=False)
+    efectivo_esperado_usd: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=Decimal("0"), nullable=False)
+    efectivo_declarado_usd: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=Decimal("0"), nullable=False)
+    diferencia_usd: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=Decimal("0"), nullable=False)
+    observaciones: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    creado_en: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    sucursal = relationship("Sucursal")
+    usuario = relationship("Usuario")

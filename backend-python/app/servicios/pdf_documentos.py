@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import io
+import json
 from datetime import date, timedelta
 from decimal import Decimal, ROUND_HALF_UP
 from pathlib import Path
@@ -10,7 +11,14 @@ from reportlab.lib.pagesizes import letter
 from reportlab.lib.units import inch
 from reportlab.pdfgen import canvas
 
-from app.modelos_operaciones import Cotizacion, DevolucionGarantia, ModalidadCotizacion, TipoResolucionDevolucion
+from app.modelos_operaciones import (
+    CierreCaja,
+    Cotizacion,
+    DevolucionGarantia,
+    LiquidacionComision,
+    ModalidadCotizacion,
+    TipoResolucionDevolucion,
+)
 from app.utils.pdf_branding import dibujar_marca_de_agua
 
 
@@ -612,6 +620,253 @@ def generar_pdf_cotizacion(cot: Cotizacion) -> bytes:
         0.66 * inch,
         f"Cotización válida por {cot.vigencia_horas} horas desde su emisión · Esta cotización no reserva inventario ni constituye Nota de Entrega.",
     )
+
+    pdf.save()
+    return buffer.getvalue()
+
+
+# =====================================================================
+# 4. COMPROBANTE DE LIQUIDACIÓN DE COMISIONES
+# =====================================================================
+
+
+def generar_pdf_liquidacion_comision(liq: LiquidacionComision) -> bytes:
+    buffer = io.BytesIO()
+    pdf = canvas.Canvas(buffer, pagesize=letter)
+    ancho, alto = letter
+
+    colaborador = liq.usuario.nombre if liq.usuario else "Colaborador"
+    rol_col = liq.usuario.rol if liq.usuario else ""
+    inst_nom = liq.instrumento.nombre if liq.instrumento else "Caja / Banco"
+    aut_nom = liq.autorizado_por.nombre if liq.autorizado_por else "Administración"
+
+    y = _dibujar_encabezado_corporativo(
+        pdf,
+        ancho,
+        alto,
+        titulo_doc="COMPROBANTE DE LIQUIDACIÓN",
+        numero_doc=f"Nro: {liq.codigo}",
+        fecha_texto=f"Fecha de pago: {liq.fecha_pago.isoformat()}",
+        subtitulo_der=f"Período: {liq.fecha_inicio.isoformat()} al {liq.fecha_fin.isoformat()}",
+    )
+
+    pdf.setFillColorRGB(0.953, 0.957, 0.965)
+    pdf.roundRect(0.50 * inch, y - 0.84 * inch, ancho - 1.0 * inch, 0.90 * inch, 6, fill=1, stroke=0)
+    pdf.setFillColorRGB(0.098, 0.094, 0.094)
+    pdf.setFont("Helvetica-Bold", 9.2)
+    pdf.drawString(0.62 * inch, y - 0.14 * inch, f"Colaborador: {colaborador} ({rol_col})")
+    pdf.setFont("Helvetica", 8.4)
+    pdf.drawString(
+        0.62 * inch,
+        y - 0.34 * inch,
+        f"Período liquidado: {liq.fecha_inicio.isoformat()} al {liq.fecha_fin.isoformat()}",
+    )
+    pdf.drawString(
+        0.62 * inch,
+        y - 0.52 * inch,
+        f"Método de pago: {inst_nom}" + (f" · Ref: {liq.referencia}" if liq.referencia else ""),
+    )
+    pdf.drawString(0.62 * inch, y - 0.70 * inch, f"Autorizado por: {aut_nom}")
+    y -= 1.10 * inch
+
+    # Encabezado de tabla
+    pdf.setFillColorRGB(0.953, 0.957, 0.965)
+    pdf.rect(0.50 * inch, y - 0.22 * inch, ancho - 1.0 * inch, 0.26 * inch, fill=1, stroke=0)
+    pdf.setStrokeColorRGB(0.91, 0.35, 0.16)
+    pdf.setLineWidth(1.0)
+    pdf.line(0.50 * inch, y - 0.22 * inch, ancho - 0.50 * inch, y - 0.22 * inch)
+
+    pdf.setFillColorRGB(0.098, 0.094, 0.094)
+    pdf.setFont("Helvetica-Bold", 8.2)
+    pdf.drawString(0.58 * inch, y - 0.13 * inch, "Referencia / Nota")
+    pdf.drawString(2.35 * inch, y - 0.13 * inch, "Concepto")
+    pdf.drawRightString(5.85 * inch, y - 0.13 * inch, "Base Promo USD")
+    pdf.drawRightString(ancho - 0.56 * inch, y - 0.13 * inch, "Comisión USD")
+    y -= 0.40 * inch
+
+    for det in liq.detalles:
+        if y < 1.65 * inch:
+            pdf.showPage()
+            y = _dibujar_encabezado_corporativo(
+                pdf,
+                ancho,
+                alto,
+                titulo_doc="COMPROBANTE DE LIQUIDACIÓN",
+                numero_doc=f"Nro: {liq.codigo}",
+                fecha_texto=f"Fecha de pago: {liq.fecha_pago.isoformat()}",
+                pagina=2,
+            )
+        pdf.setFillColorRGB(0.098, 0.094, 0.094)
+        pdf.setFont("Helvetica-Bold", 8.2)
+        pdf.drawString(0.58 * inch, y, det.referencia_origen or f"OP-{det.id}")
+        pdf.setFont("Helvetica", 8.2)
+        pdf.drawString(2.35 * inch, y, det.concepto)
+        pdf.drawRightString(5.85 * inch, y, f"${Decimal(str(det.base_promo_usd)):,.2f}")
+        pdf.setFont("Helvetica-Bold", 8.2)
+        pdf.drawRightString(ancho - 0.56 * inch, y, f"${Decimal(str(det.monto_comision_usd)):,.2f}")
+        pdf.setStrokeColorRGB(0.91, 0.92, 0.93)
+        pdf.setLineWidth(0.4)
+        pdf.line(0.50 * inch, y - 0.09 * inch, ancho - 0.50 * inch, y - 0.09 * inch)
+        y -= 0.24 * inch
+
+    y -= 0.14 * inch
+    pdf.setFillColorRGB(0.992, 0.941, 0.922)
+    pdf.setStrokeColorRGB(0.91, 0.35, 0.16)
+    pdf.setLineWidth(0.8)
+    pdf.roundRect(ancho - 3.30 * inch, y - 0.36 * inch, 2.80 * inch, 0.44 * inch, 6, fill=1, stroke=1)
+    pdf.setFillColorRGB(0.098, 0.094, 0.094)
+    pdf.setFont("Helvetica-Bold", 10)
+    pdf.drawString(ancho - 3.16 * inch, y - 0.19 * inch, "TOTAL PAGADO:")
+    pdf.setFillColorRGB(0.91, 0.35, 0.16)
+    pdf.drawRightString(ancho - 0.62 * inch, y - 0.19 * inch, f"${Decimal(str(liq.monto_total_usd)):,.2f} USD")
+
+    if liq.notas:
+        y -= 0.62 * inch
+        pdf.setFillColorRGB(0.098, 0.094, 0.094)
+        pdf.setFont("Helvetica-Bold", 8.4)
+        pdf.drawString(0.50 * inch, y, "Notas:")
+        pdf.setFont("Helvetica", 8.2)
+        for linea in _envolver_texto(liq.notas, 95):
+            y -= 0.15 * inch
+            pdf.drawString(0.55 * inch, y, linea)
+
+    y_firma = max(1.05 * inch, y - 0.90 * inch)
+    pdf.setStrokeColorRGB(0.55, 0.55, 0.55)
+    pdf.setLineWidth(0.7)
+    pdf.line(0.85 * inch, y_firma, 3.45 * inch, y_firma)
+    pdf.line(ancho - 3.45 * inch, y_firma, ancho - 0.85 * inch, y_firma)
+    pdf.setFillColorRGB(0.098, 0.094, 0.094)
+    pdf.setFont("Helvetica-Bold", 8.4)
+    pdf.drawCentredString(2.15 * inch, y_firma - 0.16 * inch, "Pagado / Autorizado por")
+    pdf.drawCentredString(ancho - 2.15 * inch, y_firma - 0.16 * inch, "Recibido conforme")
+    pdf.setFont("Helvetica", 7.8)
+    pdf.setFillColorRGB(0.4, 0.4, 0.4)
+    pdf.drawCentredString(2.15 * inch, y_firma - 0.30 * inch, aut_nom)
+    pdf.drawCentredString(ancho - 2.15 * inch, y_firma - 0.30 * inch, colaborador)
+
+    pdf.save()
+    return buffer.getvalue()
+
+
+# =====================================================================
+# 5. REPORTE DE CIERRE DE CAJA DIARIO
+# =====================================================================
+
+
+def generar_pdf_cierre_caja(cierre: CierreCaja) -> bytes:
+    buffer = io.BytesIO()
+    pdf = canvas.Canvas(buffer, pagesize=letter)
+    ancho, alto = letter
+
+    suc_nom = cierre.sucursal.nombre if cierre.sucursal else "Todas las sucursales"
+    usr_nom = cierre.usuario.nombre if cierre.usuario else "Operador"
+
+    y = _dibujar_encabezado_corporativo(
+        pdf,
+        ancho,
+        alto,
+        titulo_doc="CIERRE DE CAJA DIARIO",
+        numero_doc=f"Cierre #{cierre.id:04d}",
+        fecha_texto=f"Fecha: {cierre.fecha.isoformat()}",
+        subtitulo_der=f"Sucursal: {suc_nom}",
+    )
+
+    # Resumen ejecutivo
+    pdf.setFillColorRGB(0.953, 0.957, 0.965)
+    pdf.roundRect(0.50 * inch, y - 0.98 * inch, ancho - 1.0 * inch, 1.04 * inch, 6, fill=1, stroke=0)
+    pdf.setFillColorRGB(0.098, 0.094, 0.094)
+    pdf.setFont("Helvetica-Bold", 8.8)
+    pdf.drawString(0.62 * inch, y - 0.15 * inch, f"Sucursal: {suc_nom} · Responsable: {usr_nom}")
+    pdf.setFont("Helvetica", 8.3)
+    pdf.drawString(
+        0.62 * inch,
+        y - 0.35 * inch,
+        f"Ventas emitidas: {cierre.cantidad_ventas} · Anulaciones/Devoluciones: {cierre.cantidad_anulaciones} · Total Ventas Promo: ${Decimal(str(cierre.total_ventas_usd)):,.2f}",
+    )
+    pdf.drawString(
+        0.62 * inch,
+        y - 0.54 * inch,
+        f"Ingresos: ${Decimal(str(cierre.total_ingresos_usd)):,.2f} USD / Bs. {Decimal(str(cierre.total_ingresos_bs)):,.2f} · Cashea Financiado: ${Decimal(str(cierre.total_cashea_usd)):,.2f}",
+    )
+    pdf.drawString(
+        0.62 * inch,
+        y - 0.73 * inch,
+        f"Egresos: ${Decimal(str(cierre.total_egresos_usd)):,.2f} USD / Bs. {Decimal(str(cierre.total_egresos_bs)):,.2f}",
+    )
+    pdf.setFont("Helvetica-Bold", 8.5)
+    dif = Decimal(str(cierre.diferencia_usd))
+    etiqueta_dif = "CUADRADO" if dif == 0 else ("SOBRANTE" if dif > 0 else "FALTANTE")
+    pdf.drawString(
+        0.62 * inch,
+        y - 0.90 * inch,
+        f"Efectivo Esperado USD: ${Decimal(str(cierre.efectivo_esperado_usd)):,.2f} · Declarado: ${Decimal(str(cierre.efectivo_declarado_usd)):,.2f} · Diferencia: ${dif:+,.2f} ({etiqueta_dif})",
+    )
+    y -= 1.24 * inch
+
+    # Desglose por instrumento
+    pdf.setFillColorRGB(0.953, 0.957, 0.965)
+    pdf.rect(0.50 * inch, y - 0.22 * inch, ancho - 1.0 * inch, 0.26 * inch, fill=1, stroke=0)
+    pdf.setStrokeColorRGB(0.91, 0.35, 0.16)
+    pdf.setLineWidth(1.0)
+    pdf.line(0.50 * inch, y - 0.22 * inch, ancho - 0.50 * inch, y - 0.22 * inch)
+
+    pdf.setFillColorRGB(0.098, 0.094, 0.094)
+    pdf.setFont("Helvetica-Bold", 8.1)
+    pdf.drawString(0.58 * inch, y - 0.13 * inch, "Instrumento / Banco")
+    pdf.drawCentredString(3.55 * inch, y - 0.13 * inch, "Moneda")
+    pdf.drawRightString(4.95 * inch, y - 0.13 * inch, "Ingresos")
+    pdf.drawRightString(6.25 * inch, y - 0.13 * inch, "Egresos")
+    pdf.drawRightString(ancho - 0.56 * inch, y - 0.13 * inch, "Neto USD")
+    y -= 0.40 * inch
+
+    try:
+        desglose = json.loads(cierre.desglose_instrumentos_json or "[]")
+    except Exception:
+        desglose = []
+
+    for fila in desglose:
+        mon = str(fila.get("moneda") or "USD")
+        pref = "Bs. " if mon == "BS" else "$"
+        ing = Decimal(str(fila.get("ingresos_origen") or 0))
+        egr = Decimal(str(fila.get("egresos_origen") or 0))
+        neto_usd = Decimal(str(fila.get("neto_usd") or 0))
+
+        pdf.setFillColorRGB(0.098, 0.094, 0.094)
+        pdf.setFont("Helvetica-Bold", 8.1)
+        pdf.drawString(0.58 * inch, y, str(fila.get("instrumento") or "Instrumento")[:38])
+        pdf.setFont("Helvetica", 8.1)
+        pdf.drawCentredString(3.55 * inch, y, mon)
+        pdf.drawRightString(4.95 * inch, y, f"{pref}{ing:,.2f}")
+        pdf.drawRightString(6.25 * inch, y, f"{pref}{egr:,.2f}")
+        pdf.setFont("Helvetica-Bold", 8.1)
+        pdf.drawRightString(ancho - 0.56 * inch, y, f"${neto_usd:,.2f}")
+        pdf.setStrokeColorRGB(0.91, 0.92, 0.93)
+        pdf.setLineWidth(0.4)
+        pdf.line(0.50 * inch, y - 0.08 * inch, ancho - 0.50 * inch, y - 0.08 * inch)
+        y -= 0.24 * inch
+
+    if cierre.observaciones:
+        y -= 0.16 * inch
+        pdf.setFillColorRGB(0.098, 0.094, 0.094)
+        pdf.setFont("Helvetica-Bold", 8.4)
+        pdf.drawString(0.50 * inch, y, "Observaciones:")
+        pdf.setFont("Helvetica", 8.2)
+        for linea in _envolver_texto(cierre.observaciones, 95):
+            y -= 0.15 * inch
+            pdf.drawString(0.55 * inch, y, linea)
+
+    y_firma = max(1.05 * inch, y - 0.85 * inch)
+    pdf.setStrokeColorRGB(0.55, 0.55, 0.55)
+    pdf.setLineWidth(0.7)
+    pdf.line(0.85 * inch, y_firma, 3.45 * inch, y_firma)
+    pdf.line(ancho - 3.45 * inch, y_firma, ancho - 0.85 * inch, y_firma)
+    pdf.setFillColorRGB(0.098, 0.094, 0.094)
+    pdf.setFont("Helvetica-Bold", 8.4)
+    pdf.drawCentredString(2.15 * inch, y_firma - 0.16 * inch, "Elaborado por")
+    pdf.drawCentredString(ancho - 2.15 * inch, y_firma - 0.16 * inch, "Revisado por Dirección / Admin.")
+    pdf.setFont("Helvetica", 7.8)
+    pdf.setFillColorRGB(0.4, 0.4, 0.4)
+    pdf.drawCentredString(2.15 * inch, y_firma - 0.30 * inch, usr_nom)
 
     pdf.save()
     return buffer.getvalue()

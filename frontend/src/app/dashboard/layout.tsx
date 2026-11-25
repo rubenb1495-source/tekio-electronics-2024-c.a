@@ -229,6 +229,12 @@ export default function DisenoDashboard({
           icono: <BarChart3 className="w-4 h-4 shrink-0" />,
           visible: esAdmin,
         },
+        {
+          href: "/dashboard/finanzas/cierre-caja",
+          etiqueta: "Cierre de Caja",
+          icono: <Receipt className="w-4 h-4 shrink-0" />,
+          visible: true,
+        },
       ],
     },
     {

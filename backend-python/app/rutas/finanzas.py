@@ -485,6 +485,7 @@ def calcular_reporte_comisiones_rango(
     fecha_fin: date,
     sucursal_id: int | None = None,
     usuario_id: int | None = None,
+    estado: str = "TODAS",
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     usuarios = bd.query(Usuario).filter(Usuario.activo.is_(True)).all()
     usuarios_map = {u.id: u for u in usuarios}
@@ -566,6 +567,7 @@ def calcular_reporte_comisiones_rango(
                 u_as = usuarios_map.get(v.asesor_id)
                 operaciones_detalle.append(
                     {
+                        "venta_id": v.id,
                         "numero_nota": v.numero_venta,
                         "fecha": v.fecha.isoformat(),
                         "cliente": cliente_nom,
@@ -603,6 +605,7 @@ def calcular_reporte_comisiones_rango(
             u_as = usuarios_map.get(v.asesor_id)
             operaciones_detalle.append(
                 {
+                    "venta_id": v.id,
                     "numero_nota": v.numero_venta,
                     "fecha": v.fecha.isoformat(),
                     "cliente": cliente_nom,
@@ -626,6 +629,7 @@ def calcular_reporte_comisiones_rango(
             u_tec = usuarios_map.get(v.tecnico_id)
             operaciones_detalle.append(
                 {
+                    "venta_id": v.id,
                     "numero_nota": v.numero_venta,
                     "fecha": v.fecha.isoformat(),
                     "cliente": cliente_nom,
@@ -777,6 +781,84 @@ def calcular_reporte_comisiones_rango(
                 }
             )
 
+    # Cruzar contra liquidaciones_comisiones_detalle para marcar PENDIENTE vs PAGADA (anti-duplicados)
+    from app.modelos_operaciones import LiquidacionComision, LiquidacionComisionDetalle
+
+    detalles_liq = (
+        bd.query(LiquidacionComisionDetalle)
+        .options(joinedload(LiquidacionComisionDetalle.liquidacion))
+        .all()
+    )
+    pagadas_por_venta: dict[tuple[int, int, str], str] = {}
+    pagadas_por_ref: dict[tuple[str, int, str], str] = {}
+    for dl in detalles_liq:
+        cod_liq = dl.liquidacion.codigo if dl.liquidacion else f"LIQ-{dl.liquidacion_id}"
+        if dl.venta_id is not None:
+            pagadas_por_venta[(dl.venta_id, dl.usuario_id, dl.concepto)] = cod_liq
+        if dl.referencia_origen:
+            pagadas_por_ref[(dl.referencia_origen, dl.usuario_id, dl.concepto)] = cod_liq
+
+    # Agregar líneas de 0,5% multi-tienda para los Líderes en las operaciones liquidables
+    lideres = [u for u in usuarios_map.values() if u.rol == RolUsuario.LIDER.value]
+    if lideres:
+        for v in ventas_globales:
+            if v.asesor_id is None:
+                continue
+            base_equipo_v = Decimal("0")
+            if not v.detalles:
+                base_equipo_v = v.total_promo_usd
+            else:
+                for det in v.detalles:
+                    es_srv = det.articulo is not None and det.articulo.tipo == TipoArticulo.SERVICIO.value
+                    if not es_srv:
+                        base_equipo_v += det.precio_promo_usd * Decimal(det.cantidad)
+            if base_equipo_v <= 0:
+                continue
+            com_05_v = (base_equipo_v * Decimal("0.005")).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+            for lid in lideres:
+                if v.asesor_id == lid.id:
+                    continue
+                operaciones_detalle.append(
+                    {
+                        "venta_id": v.id,
+                        "numero_nota": v.numero_venta,
+                        "fecha": v.fecha.isoformat(),
+                        "cliente": v.cliente.nombre if v.cliente else "Cliente general",
+                        "sucursal": v.sucursal.nombre if v.sucursal else "",
+                        "usuario_id": lid.id,
+                        "usuario_nombre": lid.nombre,
+                        "rol": lid.rol,
+                        "tipo": "LIDER_0.5%",
+                        "base_promo_usd": redondear_usd(base_equipo_v),
+                        "comision_usd": redondear_usd(com_05_v),
+                    }
+                )
+
+    pendiente_por_usuario: dict[int, Decimal] = {}
+    pagado_por_usuario: dict[int, Decimal] = {}
+    for op in operaciones_detalle:
+        vid = op.get("venta_id")
+        uid_op = int(op["usuario_id"])
+        tipo_op = str(op["tipo"])
+        ref_op = str(op.get("numero_nota") or "")
+        cod_liq = (
+            pagadas_por_venta.get((vid, uid_op, tipo_op))
+            if vid is not None
+            else None
+        ) or pagadas_por_ref.get((ref_op, uid_op, tipo_op))
+        if cod_liq:
+            op["estado_comision"] = "PAGADA"
+            op["liquidacion_codigo"] = cod_liq
+            pagado_por_usuario[uid_op] = pagado_por_usuario.get(uid_op, Decimal("0")) + Decimal(str(op["comision_usd"]))
+        else:
+            op["estado_comision"] = "PENDIENTE"
+            op["liquidacion_codigo"] = None
+            pendiente_por_usuario[uid_op] = pendiente_por_usuario.get(uid_op, Decimal("0")) + Decimal(str(op["comision_usd"]))
+
+    estado_norm = (estado or "TODAS").strip().upper()
+    if estado_norm in ("PENDIENTE", "PAGADA"):
+        operaciones_detalle = [op for op in operaciones_detalle if op["estado_comision"] == estado_norm]
+
     reporte: list[dict[str, Any]] = []
     for uid, u in usuarios_map.items():
         if usuario_id is not None and uid != usuario_id:
@@ -796,6 +878,14 @@ def calcular_reporte_comisiones_rango(
         com_servicios = st_por_tecnico.get(uid, Decimal("0"))
         pago_preps = prep_por_tecnico.get(uid, Decimal("0"))
         total_persona = com_ventas_1 + com_lider_05 + com_servicios + pago_preps
+        monto_pend = max(Decimal("0"), pendiente_por_usuario.get(uid, Decimal("0")))
+        monto_pag = max(Decimal("0"), pagado_por_usuario.get(uid, Decimal("0")))
+        estado_u = "PAGADA" if (monto_pend <= 0 and monto_pag > 0) else "PENDIENTE"
+
+        if estado_norm == "PENDIENTE" and monto_pend <= 0 and usuario_id is None:
+            continue
+        if estado_norm == "PAGADA" and monto_pag <= 0 and usuario_id is None:
+            continue
 
         if (
             usuario_id is not None
@@ -822,6 +912,9 @@ def calcular_reporte_comisiones_rango(
                     "comision_servicios_50_usd": redondear_usd(com_servicios),
                     "pago_preparaciones_usd": redondear_usd(pago_preps),
                     "total_comision_usd": redondear_usd(total_persona),
+                    "monto_pendiente_usd": redondear_usd(monto_pend),
+                    "monto_pagado_usd": redondear_usd(monto_pag),
+                    "estado_comision": estado_u,
                     "notas": notas_por_usuario.get(uid, []),
                 }
             )
@@ -854,6 +947,7 @@ def obtener_comisiones(
     fecha_fin: date | None = Query(default=None),
     usuario_id: int | None = Query(default=None),
     sucursal_id: int | None = Query(default=None),
+    estado: str = Query(default="TODAS"),
     _usuario: Usuario = Depends(requerir_roles(*ROLES_ADMINISTRATIVOS)),
     bd: Session = Depends(obtener_bd),
 ) -> dict[str, Any]:
@@ -878,6 +972,7 @@ def obtener_comisiones(
         fecha_fin=f_fin,
         sucursal_id=sucursal_id,
         usuario_id=usuario_id,
+        estado=estado,
     )
     cierre = (
         bd.query(CierreMensual)
