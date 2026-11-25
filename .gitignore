@@ -3,8 +3,9 @@
 .env.local
 .env.*.local
 
-# Bases de datos locales
+# Bases de datos locales y respaldos
 backend-python/datos/
+backend-python/backups/
 *.db
 *.db-shm
 *.db-wal
