@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import calendar
 import json
 from datetime import date, datetime, timezone
 from decimal import Decimal, ROUND_HALF_UP
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Response, UploadFile, status
 from pydantic import BaseModel, Field
@@ -11,7 +13,7 @@ from sqlalchemy.orm import Session, joinedload
 
 from app.base_datos import obtener_bd
 from app.core.permisos import Permiso, require_permiso
-from app.modelos import Sucursal, TasaDiaria, Usuario
+from app.modelos import RolUsuario, Sucursal, TasaDiaria, Usuario
 from app.modelos_admin_finanzas import (
     AuditoriaSistema,
     ConciliacionBancaria,
@@ -23,15 +25,19 @@ from app.modelos_admin_finanzas import (
     ObligacionFiscal,
 )
 from app.modelos_finanzas import (
+    CuentaPorCobrar,
+    EstadoCuentaPorCobrar,
     EstadoVenta,
     EstadoVerificacionPago,
     InstrumentoFinanciero,
     MonedaInstrumento,
     Pago,
+    TipoCuentaPorCobrar,
     TipoDocumentoPago,
     TipoMovimientoPago,
     Venta,
 )
+from app.modelos_logistica import Compra
 from app.modelos_operaciones import LiquidacionComision, MovimientoTesoreria
 from app.rutas.tasas import obtener_fecha_hoy
 from app.rutas.ventas import generar_correlativo_corto, redondear_usd
@@ -449,6 +455,168 @@ def descargar_xlsx_estado_resultados(
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition": f'attachment; filename="Estado_Resultados_{pyl["fecha_inicio"]}_{pyl["fecha_fin"]}.xlsx"'},
     )
+
+
+@enrutador.get("/estado-resultados/resumen-ejecutivo")
+def obtener_resumen_ejecutivo_pl(
+    mes: str | None = Query(default=None, description="Formato YYYY-MM"),
+    sucursal_id: int | None = Query(default=None),
+    _usuario: Usuario = Depends(require_permiso(Permiso.VER_FINANZAS_GLOBALES)),
+    bd: Session = Depends(obtener_bd),
+) -> dict[str, Any]:
+    hoy = obtener_fecha_hoy()
+    if mes and mes.strip():
+        try:
+            anio_str, mes_str = mes.strip().split("-")
+            anio_obj = int(anio_str)
+            mes_obj = int(mes_str)
+            if not (1 <= mes_obj <= 12):
+                raise ValueError
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="El parámetro 'mes' debe tener formato YYYY-MM.",
+            ) from exc
+    else:
+        anio_obj, mes_obj = hoy.year, hoy.month
+
+    ultimo_dia = calendar.monthrange(anio_obj, mes_obj)[1]
+    f_ini = date(anio_obj, mes_obj, 1)
+    f_fin = date(anio_obj, mes_obj, ultimo_dia)
+
+    # Mes anterior para comparativo automático
+    if mes_obj == 1:
+        anio_ant, mes_ant = anio_obj - 1, 12
+    else:
+        anio_ant, mes_ant = anio_obj, mes_obj - 1
+    f_ini_ant = date(anio_ant, mes_ant, 1)
+    f_fin_ant = date(anio_ant, mes_ant, calendar.monthrange(anio_ant, mes_ant)[1])
+
+    pyl_actual = _calcular_pyl(bd, fecha_inicio=f_ini, fecha_fin=f_fin, sucursal_id=sucursal_id)
+    pyl_ant = _calcular_pyl(bd, fecha_inicio=f_ini_ant, fecha_fin=f_fin_ant, sucursal_id=sucursal_id)
+
+    ing = Decimal(str(pyl_actual["ingresos_ventas_usd"]))
+    ub = Decimal(str(pyl_actual["utilidad_bruta_usd"]))
+    un = Decimal(str(pyl_actual["utilidad_neta_usd"]))
+    un_ant = Decimal(str(pyl_ant["utilidad_neta_usd"]))
+
+    margen_bruto_pct = float(((ub / ing) * Decimal("100")).quantize(Decimal("0.1"), rounding=ROUND_HALF_UP)) if ing > 0 else 0.0
+    margen_neto_pct = float(((un / ing) * Decimal("100")).quantize(Decimal("0.1"), rounding=ROUND_HALF_UP)) if ing > 0 else 0.0
+    if un_ant != 0:
+        variacion_neta_pct = float(
+            (((un - un_ant) / abs(un_ant)) * Decimal("100")).quantize(Decimal("0.1"), rounding=ROUND_HALF_UP)
+        )
+    else:
+        variacion_neta_pct = 100.0 if un > 0 else (-100.0 if un < 0 else 0.0)
+
+    # Desglose rápido por sucursal (excluyendo ANULADA y DEVUELTA)
+    q_v_suc = (
+        bd.query(Venta)
+        .options(joinedload(Venta.detalles), joinedload(Venta.sucursal))
+        .filter(
+            Venta.fecha >= f_ini,
+            Venta.fecha <= f_fin,
+            Venta.estado.notin_([EstadoVenta.ANULADA.value, EstadoVenta.DEVUELTA.value]),
+        )
+    )
+    if sucursal_id is not None:
+        q_v_suc = q_v_suc.filter(Venta.sucursal_id == sucursal_id)
+    por_suc: dict[str, dict[str, Any]] = {}
+    for v in q_v_suc.all():
+        s_nom = v.sucursal.nombre if v.sucursal else "Sin sucursal"
+        if s_nom not in por_suc:
+            por_suc[s_nom] = {"sucursal": s_nom, "cantidad_ventas": 0, "ventas_usd": Decimal("0"), "contribucion_usd": Decimal("0")}
+        costo_v = sum((d.costo_total_snapshot_usd for d in v.detalles), Decimal("0"))
+        por_suc[s_nom]["cantidad_ventas"] += 1
+        por_suc[s_nom]["ventas_usd"] += v.total_promo_usd
+        por_suc[s_nom]["contribucion_usd"] += (v.total_promo_usd - costo_v)
+
+    desglose_sucursales = [
+        {
+            "sucursal": d["sucursal"],
+            "cantidad_ventas": d["cantidad_ventas"],
+            "ventas_usd": redondear_usd(d["ventas_usd"]),
+            "contribucion_usd": redondear_usd(d["contribucion_usd"]),
+        }
+        for d in sorted(por_suc.values(), key=lambda x: x["ventas_usd"], reverse=True)
+    ]
+
+    # Salud de caja al cierre: liquidez consolidada USD, CxC (clientes + Cashea) y CxP
+    tasa_bcv, tasa_usdt = _tasa_bcv_usdt(bd, hoy)
+    tasa_conv = tasa_usdt if tasa_usdt > 0 else tasa_bcv
+    insts = bd.query(InstrumentoFinanciero).filter(InstrumentoFinanciero.activo.is_(True)).all()
+    pagos_ok = bd.query(Pago).filter(Pago.anulado.is_(False)).all()
+    saldos_inst: dict[int, Decimal] = {}
+    for p in pagos_ok:
+        sig = Decimal("-1") if p.tipo_movimiento == TipoMovimientoPago.EGRESO.value else Decimal("1")
+        saldos_inst[p.instrumento_id] = saldos_inst.get(p.instrumento_id, Decimal("0")) + (sig * p.monto_moneda_origen)
+    liquidez_usd = Decimal("0")
+    for inst in insts:
+        s_orig = saldos_inst.get(inst.id, Decimal("0"))
+        if inst.moneda == MonedaInstrumento.BS.value:
+            liquidez_usd += (s_orig / tasa_conv).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP) if tasa_conv > 0 else Decimal("0")
+        else:
+            liquidez_usd += s_orig.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
+    cxcs = (
+        bd.query(CuentaPorCobrar)
+        .filter(
+            CuentaPorCobrar.estado == EstadoCuentaPorCobrar.PENDIENTE.value,
+            CuentaPorCobrar.saldo_pendiente_usd > Decimal("0"),
+        )
+        .all()
+    )
+    cxc_clientes = sum((c.saldo_pendiente_usd for c in cxcs if c.tipo != TipoCuentaPorCobrar.CASHEA.value), Decimal("0"))
+    cxc_cashea = sum((c.saldo_pendiente_usd for c in cxcs if c.tipo == TipoCuentaPorCobrar.CASHEA.value), Decimal("0"))
+    cxp_total = sum(
+        (c.saldo_pendiente_usd for c in bd.query(Compra).filter(Compra.saldo_pendiente_usd > Decimal("0")).all()),
+        Decimal("0"),
+    )
+
+    # Destinatarios Directores con teléfono
+    directores_db = (
+        bd.query(Usuario)
+        .filter(
+            Usuario.activo.is_(True),
+            Usuario.rol == RolUsuario.DIRECCION.value,
+        )
+        .order_by(Usuario.nombre.asc())
+        .all()
+    )
+    directores = [
+        {"id": u.id, "nombre": u.nombre, "telefono": (u.telefono or "").strip()}
+        for u in directores_db
+        if (u.telefono or "").strip()
+    ]
+
+    ahora_ccs = datetime.now(ZoneInfo("America/Caracas")).strftime("%d/%m/%Y %H:%M")
+
+    return {
+        "mes": f"{anio_obj:04d}-{mes_obj:02d}",
+        "mes_anterior": f"{anio_ant:04d}-{mes_ant:02d}",
+        "fecha_inicio": f_ini.isoformat(),
+        "fecha_fin": f_fin.isoformat(),
+        "sucursal_id": sucursal_id,
+        "sucursal": pyl_actual["sucursal"],
+        "emitido_en": ahora_ccs,
+        "resultados": {
+            **pyl_actual,
+            "margen_bruto_pct": margen_bruto_pct,
+            "margen_neto_pct": margen_neto_pct,
+            "utilidad_neta_mes_anterior_usd": redondear_usd(un_ant),
+            "variacion_neta_pct": variacion_neta_pct,
+            "top_gastos": pyl_actual["gastos_por_categoria"][:3],
+        },
+        "desglose_sucursales": desglose_sucursales,
+        "salud_caja": {
+            "liquidez_total_usd": redondear_usd(liquidez_usd),
+            "cxc_clientes_usd": redondear_usd(cxc_clientes),
+            "cxc_cashea_usd": redondear_usd(cxc_cashea),
+            "cxc_total_usd": redondear_usd(cxc_clientes + cxc_cashea),
+            "cxp_total_usd": redondear_usd(cxp_total),
+        },
+        "directores": directores,
+    }
 
 
 # =====================================================================

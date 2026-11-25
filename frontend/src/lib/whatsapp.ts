@@ -701,3 +701,127 @@ export function formatearWhatsAppCierreCaja(cierre: CierreCajaResumen): string {
   }
   return lineas.join("\n");
 }
+
+export interface ResumenEjecutivoPL {
+  mes: string;
+  mes_anterior: string;
+  fecha_inicio: string;
+  fecha_fin: string;
+  sucursal_id: number | null;
+  sucursal: string;
+  emitido_en: string;
+  resultados: {
+    cantidad_ventas: number;
+    ingresos_ventas_usd: number;
+    costo_mercancia_usd: number;
+    utilidad_bruta_usd: number;
+    margen_bruto_pct: number;
+    gastos_operativos_usd: number;
+    comisiones_liquidadas_usd: number;
+    nomina_pagada_usd: number;
+    diferencial_cambiario_usd: number;
+    utilidad_neta_usd: number;
+    margen_neto_pct: number;
+    utilidad_neta_mes_anterior_usd: number;
+    variacion_neta_pct: number;
+    top_gastos: { categoria: string; cantidad: number; total_usd: number }[];
+  };
+  desglose_sucursales: {
+    sucursal: string;
+    cantidad_ventas: number;
+    ventas_usd: number;
+    contribucion_usd: number;
+  }[];
+  salud_caja: {
+    liquidez_total_usd: number;
+    cxc_clientes_usd: number;
+    cxc_cashea_usd: number;
+    cxc_total_usd: number;
+    cxp_total_usd: number;
+  };
+  directores: { id: number; nombre: string; telefono: string }[];
+}
+
+const MESES_ES = [
+  "Enero",
+  "Febrero",
+  "Marzo",
+  "Abril",
+  "Mayo",
+  "Junio",
+  "Julio",
+  "Agosto",
+  "Septiembre",
+  "Octubre",
+  "Noviembre",
+  "Diciembre",
+];
+
+/**
+ * 11. Resumen Ejecutivo Mensual del Estado de Resultados (P&L) para Directores por WhatsApp.
+ */
+export function formatearResumenEjecutivoPL(
+  datos: ResumenEjecutivoPL,
+  opciones: { incluirPosicionFinanciera?: boolean } = {}
+): string {
+  const incluirPosicion = opciones.incluirPosicionFinanciera ?? true;
+  const [anioStr, mesStr] = (datos.mes || "").split("-");
+  const idxMes = Number(mesStr) - 1;
+  const nombreMes =
+    idxMes >= 0 && idxMes < 12 ? `${MESES_ES[idxMes]} ${anioStr}` : datos.mes;
+  const alcance = datos.sucursal_id ? datos.sucursal : "Consolidado";
+  const r = datos.resultados;
+  const iconoVar = r.variacion_neta_pct >= 0 ? "📈" : "📉";
+  const signoVar = r.variacion_neta_pct >= 0 ? "+" : "";
+  const signoDif = r.diferencial_cambiario_usd >= 0 ? "+" : "";
+
+  const lineas: string[] = [
+    `📊 *RESUMEN EJECUTIVO MENSUAL — TEKIO ELECTRONICS*`,
+    `📅 Período: *${nombreMes}* · 🏪 Alcance: *${alcance}*`,
+    "",
+    `💼 *1. Resultados del Mes (${r.cantidad_ventas} ventas):*`,
+    `• Ingresos Totales: *${formatearUsd(r.ingresos_ventas_usd)}*`,
+    `• Costo Mercancía (COGS): -${formatearUsd(r.costo_mercancia_usd)}`,
+    `• Utilidad Bruta: *${formatearUsd(r.utilidad_bruta_usd)}* (${r.margen_bruto_pct.toFixed(1)}%)`,
+    `• Gastos Operativos: -${formatearUsd(r.gastos_operativos_usd)}`,
+    `• Nómina y Comisiones: -${formatearUsd(r.nomina_pagada_usd + r.comisiones_liquidadas_usd)}`,
+    `• Diferencial Cambiario: ${signoDif}${formatearUsd(r.diferencial_cambiario_usd)}`,
+    `• *UTILIDAD NETA: ${formatearUsd(r.utilidad_neta_usd)} (${r.margen_neto_pct.toFixed(1)}%)*`,
+    `  ${iconoVar} Variación vs. ${datos.mes_anterior}: *${signoVar}${r.variacion_neta_pct.toFixed(1)}%*`,
+  ];
+
+  if (r.top_gastos && r.top_gastos.length > 0) {
+    lineas.push(
+      `• Top Gastos: ${r.top_gastos
+        .map((g) => `${g.categoria} (${formatearUsd(g.total_usd)})`)
+        .join(", ")}`
+    );
+  }
+
+  if (datos.desglose_sucursales && datos.desglose_sucursales.length > 0) {
+    lineas.push("", "🏪 *2. Rendimiento por Sucursal:*");
+    for (const s of datos.desglose_sucursales) {
+      lineas.push(
+        `• ${s.sucursal} (${s.cantidad_ventas}): Ventas *${formatearUsd(s.ventas_usd)}* · Contrib. *${formatearUsd(s.contribucion_usd)}*`
+      );
+    }
+  }
+
+  if (incluirPosicion) {
+    const sc = datos.salud_caja;
+    lineas.push(
+      "",
+      "🏦 *3. Posición Financiera al Cierre:*",
+      `• Liquidez Cajas y Bancos: *${formatearUsd(sc.liquidez_total_usd)}*`,
+      `• CxC Pendientes: *${formatearUsd(sc.cxc_total_usd)}* (Cashea: ${formatearUsd(sc.cxc_cashea_usd)})`,
+      `• CxP Proveedores: *${formatearUsd(sc.cxp_total_usd)}*`
+    );
+  }
+
+  lineas.push(
+    "",
+    `🕒 Emitido: ${datos.emitido_en} (Caracas)`,
+    "🔒 _Confidencial · Uso exclusivo Dirección_"
+  );
+  return lineas.join("\n");
+}

@@ -8,11 +8,13 @@ import {
   Boxes,
   Building2,
   Landmark,
+  MessageCircle,
   RefreshCw,
   TrendingUp,
   Wallet,
 } from "lucide-react";
 import type { RespuestaAlertas } from "@/components/CampanaAlertas";
+import ModalResumenEjecutivoPL from "@/components/ModalResumenEjecutivoPL";
 import {
   ErrorApi,
   formatearBs,
@@ -80,6 +82,7 @@ export default function PaginaPanelDireccion() {
   const [datos, setDatos] = useState<ResumenDireccion | null>(null);
   const [cargando, setCargando] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [modalResumenWa, setModalResumenWa] = useState(false);
 
   const cargar = useCallback(async () => {
     setCargando(true);
@@ -113,14 +116,24 @@ export default function PaginaPanelDireccion() {
             Consolidado en tiempo real de cajas y bancos, inventario valorizado, CxC/CxP, pulso comercial y alertas.
           </p>
         </div>
-        <button
-          type="button"
-          onClick={() => void cargar()}
-          className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-white/85 border border-neutral-200 hover:border-[#E85A28] text-xs font-bold text-[#191818] cursor-pointer"
-        >
-          <RefreshCw className={`w-3.5 h-3.5 ${cargando ? "animate-spin" : ""}`} />
-          Actualizar en vivo
-        </button>
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setModalResumenWa(true)}
+            className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-[#E85A28] hover:bg-[#D14D1F] text-white text-xs font-bold cursor-pointer shadow-xs"
+          >
+            <MessageCircle className="w-3.5 h-3.5" />
+            Resumen Ejecutivo WhatsApp
+          </button>
+          <button
+            type="button"
+            onClick={() => void cargar()}
+            className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-white/85 border border-neutral-200 hover:border-[#E85A28] text-xs font-bold text-[#191818] cursor-pointer"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${cargando ? "animate-spin" : ""}`} />
+            Actualizar en vivo
+          </button>
+        </div>
       </div>
 
       {error && (
@@ -369,6 +382,11 @@ export default function PaginaPanelDireccion() {
           </div>
         </>
       ) : null}
+
+      <ModalResumenEjecutivoPL
+        abierto={modalResumenWa}
+        alCerrar={() => setModalResumenWa(false)}
+      />
     </div>
   );
 }

@@ -243,3 +243,140 @@ def test_modulo_integral_administracion_finanzas_y_rbac(cliente: TestClient) -> 
     assert "APROBAR_PAGAR_NOMINA" in acciones
     assert cliente.get("/api/finanzas/auditoria/exportar/xlsx", headers=cab_dir).content.startswith(b"PK")
     assert cliente.get("/api/finanzas/auditoria/exportar/pdf", headers=cab_dir).content.startswith(b"%PDF-")
+
+
+def test_resumen_ejecutivo_pl_whatsapp_variacion_y_rbac(cliente: TestClient) -> None:
+    from datetime import date
+    from decimal import Decimal
+    from app.modelos_finanzas import EstadoVenta, Venta, VentaDetalle
+
+    ctx = _preparar_escenario_base(cliente)
+    cab_dir = ctx["headers_dir"]
+    cab_as = ctx["headers_as"]
+    hoy = obtener_fecha_hoy()
+    mes_actual = f"{hoy.year:04d}-{hoy.month:02d}"
+
+    # Crear TECNICO, ADMINISTRACION y un Director con teléfono
+    r_tec = cliente.post(
+        "/api/usuarios",
+        headers=cab_dir,
+        json={"nombre": "Téc Res", "correo": "tec.res@tekio.com", "clave": "Password123!", "rol": "TECNICO", "sucursal_id": 1},
+    )
+    assert r_tec.status_code == 201
+    cab_tec = _login(cliente, "tec.res@tekio.com", "Password123!")
+
+    r_adm = cliente.post(
+        "/api/usuarios",
+        headers=cab_dir,
+        json={"nombre": "Admin Res", "correo": "adm.res@tekio.com", "clave": "Password123!", "rol": "ADMINISTRACION", "sucursal_id": 1},
+    )
+    assert r_adm.status_code == 201
+    cab_adm = _login(cliente, "adm.res@tekio.com", "Password123!")
+
+    r_dir2 = cliente.post(
+        "/api/usuarios",
+        headers=cab_dir,
+        json={
+            "nombre": "Director Teléfono",
+            "correo": "dir2.res@tekio.com",
+            "clave": "Password123!",
+            "rol": "DIRECCION",
+            "telefono": "04141234567",
+            "sucursal_id": 1,
+        },
+    )
+    assert r_dir2.status_code == 201
+
+    # 1. RBAC: ASESORA y TECNICO -> 403; DIRECCION y ADMINISTRACION -> 200
+    assert cliente.get(f"/api/finanzas/estado-resultados/resumen-ejecutivo?mes={mes_actual}", headers=cab_as).status_code == 403
+    assert cliente.get(f"/api/finanzas/estado-resultados/resumen-ejecutivo?mes={mes_actual}", headers=cab_tec).status_code == 403
+    assert cliente.get(f"/api/finanzas/estado-resultados/resumen-ejecutivo?mes={mes_actual}", headers=cab_adm).status_code == 200
+
+    # 2. Insertar 1 venta en el mes anterior con utilidad neta = $100 (Ingreso $300 - COGS $200)
+    if hoy.month == 1:
+        f_ant = date(hoy.year - 1, 12, 15)
+    else:
+        f_ant = date(hoy.year, hoy.month - 1, 15)
+
+    gen_bd = app.dependency_overrides[obtener_bd]()
+    bd = next(gen_bd)
+    try:
+        v_ant = Venta(
+            numero_venta="N-ANT-001",
+            fecha=f_ant,
+            sucursal_id=1,
+            cliente_id=ctx["cliente_id"],
+            asesor_id=ctx["asesora_id"],
+            total_promo_usd=Decimal("300.00"),
+            total_regular_usd=Decimal("330.00"),
+            estado=EstadoVenta.CUADRADA.value,
+            creado_por_id=ctx["asesora_id"],
+        )
+        bd.add(v_ant)
+        bd.flush()
+        bd.add(
+            VentaDetalle(
+                venta_id=v_ant.id,
+                articulo_id=ctx["art_base_id"],
+                descripcion="Laptop Mes Anterior",
+                cantidad=1,
+                precio_promo_usd=Decimal("300.00"),
+                precio_regular_usd=Decimal("330.00"),
+                costo_total_snapshot_usd=Decimal("200.00"),
+            )
+        )
+        bd.commit()
+    finally:
+        bd.close()
+
+    # 3. En el mes actual: 1 venta válida ($400, costo $260 -> Bruta $140), 1 venta ANULADA ($400, debe excluirse) y gasto $20 -> Neta $120 (+20.0% vs $100)
+    r_v1 = cliente.post(
+        "/api/ventas",
+        headers=cab_dir,
+        json={
+            "sucursal_id": 1,
+            "cliente_id": ctx["cliente_id"],
+            "asesor_id": ctx["asesora_id"],
+            "items": [{"equipo_id": ctx["eq_hp_1"], "cantidad": 1}],
+            "pagos": [{"instrumento_id": ctx["inst_usd_id"], "monto_moneda_origen": 400.0, "referencia": "V1"}],
+        },
+    )
+    assert r_v1.status_code == 201
+
+    r_v2 = cliente.post(
+        "/api/ventas",
+        headers=cab_dir,
+        json={
+            "sucursal_id": 1,
+            "cliente_id": ctx["cliente_id"],
+            "asesor_id": ctx["asesora_id"],
+            "items": [{"equipo_id": ctx["eq_hp_2"], "cantidad": 1}],
+            "pagos": [{"instrumento_id": ctx["inst_usd_id"], "monto_moneda_origen": 400.0, "referencia": "V2"}],
+        },
+    )
+    assert r_v2.status_code == 201
+    assert cliente.post(f"/api/ventas/{r_v2.json()['id']}/anular", headers=cab_dir, json={"motivo": "Prueba exclusión"}).status_code == 200
+
+    assert cliente.post(
+        "/api/finanzas/gastos",
+        headers=cab_dir,
+        json={
+            "fecha": hoy.isoformat(),
+            "categoria": "SERVICIOS",
+            "sucursal_id": 1,
+            "moneda": "USD",
+            "monto_origen": 20.0,
+            "instrumento_id": ctx["inst_usd_id"],
+        },
+    ).status_code == 201
+
+    r_res = cliente.get(f"/api/finanzas/estado-resultados/resumen-ejecutivo?mes={mes_actual}", headers=cab_dir)
+    assert r_res.status_code == 200, r_res.text
+    body = r_res.json()
+    res = body["resultados"]
+    assert res["ingresos_ventas_usd"] == 400.0  # venta anulada excluida
+    assert res["utilidad_bruta_usd"] == 140.0
+    assert res["utilidad_neta_usd"] == 120.0
+    assert res["utilidad_neta_mes_anterior_usd"] == 100.0
+    assert res["variacion_neta_pct"] == 20.0
+    assert any(d["nombre"] == "Director Teléfono" and d["telefono"] == "04141234567" for d in body["directores"])

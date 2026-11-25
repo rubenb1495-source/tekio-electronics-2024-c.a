@@ -6,9 +6,11 @@ import {
   CheckCircle2,
   FileDown,
   FileSpreadsheet,
+  MessageCircle,
   Plus,
 } from "lucide-react";
 import BuscadorTabla from "@/componentes/BuscadorTabla";
+import ModalResumenEjecutivoPL from "@/components/ModalResumenEjecutivoPL";
 import PanelImportacionAdmin from "@/components/PanelImportacionAdmin";
 import {
   ErrorApi,
@@ -80,6 +82,7 @@ export default function PaginaContabilidadPyL() {
   const [guardando, setGuardando] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [exito, setExito] = useState<string | null>(null);
+  const [modalResumenWa, setModalResumenWa] = useState(false);
 
   // Formulario gasto
   const [fechaGasto, setFechaGasto] = useState(hoy);
@@ -207,8 +210,16 @@ export default function PaginaContabilidadPyL() {
           </select>
           <button
             type="button"
+            onClick={() => setModalResumenWa(true)}
+            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-[#E85A28] hover:bg-[#D14D1F] text-white text-xs font-bold cursor-pointer shadow-xs"
+          >
+            <MessageCircle className="w-3.5 h-3.5" />
+            Resumen Ejecutivo WhatsApp
+          </button>
+          <button
+            type="button"
             onClick={() => void descargarPdfApi(`/api/finanzas/estado-resultados/pdf?${qsExport}`, `Estado_Resultados_${fechaInicio}.pdf`)}
-            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-[#E85A28] text-white text-xs font-bold cursor-pointer"
+            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl border border-[#E85A28]/40 bg-[#FDF0EB] text-[#E85A28] text-xs font-bold cursor-pointer"
           >
             <FileDown className="w-3.5 h-3.5" />
             P&L PDF
@@ -362,6 +373,13 @@ export default function PaginaContabilidadPyL() {
           </div>
         )}
       </div>
+
+      <ModalResumenEjecutivoPL
+        abierto={modalResumenWa}
+        alCerrar={() => setModalResumenWa(false)}
+        mesInicial={fechaInicio.slice(0, 7)}
+        sucursalInicial={sucursalFiltro}
+      />
     </div>
   );
 }
