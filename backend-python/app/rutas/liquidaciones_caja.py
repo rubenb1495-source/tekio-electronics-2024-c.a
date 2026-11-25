@@ -48,6 +48,7 @@ from app.rutas.tasas import obtener_fecha_hoy
 from app.rutas.ventas import generar_correlativo_corto, redondear_usd, verificar_mes_abierto
 from app.core.permisos import Permiso, require_permiso, validar_sucursal_permitida
 from app.seguridad import ROLES_ADMINISTRATIVOS, obtener_usuario_actual, requerir_roles
+from app.servicios.auditoria_service import registrar_auditoria
 from app.servicios.pdf_documentos import (
     generar_pdf_cierre_caja,
     generar_pdf_liquidacion_comision,
@@ -186,6 +187,15 @@ def anular_liquidacion_comisiones(
     liq.fecha_anulacion = datetime.now(timezone.utc)
     liq.motivo_anulacion = motivo
 
+    registrar_auditoria(
+        bd,
+        usuario_actual,
+        "COMISIONES",
+        "ANULAR_LIQUIDACION",
+        liq.codigo,
+        {"estado": "ACTIVA", "monto_total_usd": float(liq.monto_total_usd)},
+        {"estado": "ANULADA", "motivo_anulacion": motivo},
+    )
     bd.commit()
     liq_actualizada = (
         bd.query(LiquidacionComision)

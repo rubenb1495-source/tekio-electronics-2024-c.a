@@ -77,12 +77,16 @@ export function puedeAccederRuta(
     return p.esAdmin;
   }
 
-  // Finanzas globales (bancos, pagos, CxC, Cashea, conciliación, tesorería)
+  // Finanzas globales (bancos, pagos, CxC, Cashea, conciliación, tesorería, contabilidad, fiscal, nómina, auditoría)
   if (
     ruta.startsWith("/dashboard/finanzas/pagos") ||
     ruta.startsWith("/dashboard/finanzas/cashea") ||
     ruta.startsWith("/dashboard/finanzas/conciliacion") ||
-    ruta.startsWith("/dashboard/finanzas/tesoreria")
+    ruta.startsWith("/dashboard/finanzas/tesoreria") ||
+    ruta.startsWith("/dashboard/finanzas/contabilidad") ||
+    ruta.startsWith("/dashboard/finanzas/fiscal") ||
+    ruta.startsWith("/dashboard/finanzas/nomina") ||
+    ruta.startsWith("/dashboard/finanzas/auditoria")
   ) {
     return p.puedeVerFinanzasGlobales;
   }

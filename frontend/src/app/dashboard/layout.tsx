@@ -236,6 +236,30 @@ export default function DisenoDashboard({
           visible: esAdmin,
         },
         {
+          href: "/dashboard/finanzas/contabilidad",
+          etiqueta: "Contabilidad y P&L",
+          icono: <FileSpreadsheet className="w-4 h-4 shrink-0" />,
+          visible: esAdmin,
+        },
+        {
+          href: "/dashboard/finanzas/fiscal",
+          etiqueta: "Fiscal · SENIAT",
+          icono: <Receipt className="w-4 h-4 shrink-0" />,
+          visible: esAdmin,
+        },
+        {
+          href: "/dashboard/finanzas/nomina",
+          etiqueta: "Nómina y Laboral",
+          icono: <Users className="w-4 h-4 shrink-0" />,
+          visible: esAdmin,
+        },
+        {
+          href: "/dashboard/finanzas/auditoria",
+          etiqueta: "Auditoría Interna",
+          icono: <Shield className="w-4 h-4 shrink-0" />,
+          visible: esAdmin,
+        },
+        {
           href: "/dashboard/finanzas/pagos",
           etiqueta: "Pagos y CxC",
           icono: <CheckSquare className="w-4 h-4 shrink-0" />,

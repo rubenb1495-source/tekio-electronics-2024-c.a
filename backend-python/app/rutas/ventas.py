@@ -60,6 +60,7 @@ from app.rutas.logistica import calcular_stock_componente, generar_correlativo
 from app.rutas.tasas import obtener_fecha_hoy
 from app.core.permisos import Permiso, require_permiso, sanear_respuesta_costos
 from app.seguridad import obtener_usuario_actual, puede_ver_costos
+from app.servicios.auditoria_service import registrar_auditoria
 from app.servicios.pdf_nota import generar_pdf_nota_entrega
 
 
@@ -1052,6 +1053,15 @@ def anular_venta(
         cxc.estado = EstadoCuentaPorCobrar.ANULADA.value
         cxc.saldo_pendiente_usd = Decimal("0")
 
+    registrar_auditoria(
+        bd,
+        usuario_actual,
+        "VENTAS",
+        "ANULAR_VENTA",
+        venta.numero_venta,
+        {"estado": "CUADRADA", "total_promo_usd": float(venta.total_promo_usd)},
+        {"estado": venta.estado, "motivo_anulacion": venta.motivo_anulacion},
+    )
     bd.commit()
     return {
         "id": venta.id,

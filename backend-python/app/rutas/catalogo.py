@@ -31,6 +31,7 @@ from app.modelos import (
 )
 from app.core.permisos import Permiso, require_permiso, sanear_respuesta_costos
 from app.rutas.tasas import obtener_fecha_hoy
+from app.servicios.auditoria_service import registrar_auditoria
 from app.seguridad import (
     ROLES_ADMINISTRATIVOS,
     obtener_usuario_actual,
@@ -264,6 +265,18 @@ def registrar_nuevo_precio(
         creado_por_id=usuario_actual.id,
     )
     bd.add(nuevo_precio)
+    registrar_auditoria(
+        bd,
+        usuario_actual,
+        "CATALOGO",
+        "ACTUALIZAR_PRECIO_COSTO",
+        articulo.sku,
+        {},
+        {
+            "precio_promo_usd": float(datos.precio_promo_usd),
+            "costo_referencia_usd": float(datos.costo_referencia_usd) if datos.costo_referencia_usd is not None else None,
+        },
+    )
     bd.commit()
     bd.refresh(nuevo_precio)
 

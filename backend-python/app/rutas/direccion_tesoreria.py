@@ -33,10 +33,12 @@ from app.modelos_logistica import (
     MovimientoInventario,
     Traslado,
 )
+from app.modelos_admin_finanzas import ObligacionFiscal
 from app.modelos_operaciones import MovimientoTesoreria
 from app.rutas.finanzas import calcular_reporte_comisiones_rango
 from app.rutas.tasas import obtener_fecha_hoy
 from app.rutas.ventas import generar_correlativo_corto, redondear_usd
+from app.servicios.auditoria_service import registrar_auditoria
 
 
 enrutador = APIRouter(prefix="/api", tags=["Dirección, Tesorería y Alertas"])
@@ -146,6 +148,32 @@ def _calcular_alertas_internas(bd: Session, hoy: date) -> dict[str, Any]:
                 "fecha_vencimiento": c.fecha_vencimiento.isoformat() if c.fecha_vencimiento else None,
                 "dias_restantes": dias_rest,
                 "saldo_pendiente_usd": redondear_usd(c.saldo_pendiente_usd),
+                "estado": "VENCIDA" if dias_rest < 0 else "POR_VENCER",
+            }
+        )
+
+    # 3. Obligaciones Fiscales vencidas o por vencer en <= 7 días
+    obligaciones_pend = (
+        bd.query(ObligacionFiscal)
+        .filter(
+            ObligacionFiscal.estado == "PENDIENTE",
+            ObligacionFiscal.fecha_vencimiento <= limite_7d,
+        )
+        .order_by(ObligacionFiscal.fecha_vencimiento.asc())
+        .all()
+    )
+    for ob in obligaciones_pend:
+        dias_rest = (ob.fecha_vencimiento - hoy).days
+        cxp_alertas.append(
+            {
+                "compra_id": 100000 + ob.id,
+                "numero_compra": f"FISCAL-{ob.id}",
+                "factura_orden": f"{ob.tipo} ({ob.periodo})",
+                "proveedor": "SENIAT / Fiscal",
+                "origen": "FISCAL",
+                "fecha_vencimiento": ob.fecha_vencimiento.isoformat(),
+                "dias_restantes": dias_rest,
+                "saldo_pendiente_usd": redondear_usd(ob.monto_estimado_usd),
                 "estado": "VENCIDA" if dias_rest < 0 else "POR_VENCER",
             }
         )
@@ -655,6 +683,21 @@ def registrar_movimiento_tesoreria(
         usuario_id=usuario_actual.id,
     )
     bd.add(mov)
+    registrar_auditoria(
+        bd,
+        usuario_actual,
+        "TESORERIA",
+        datos.tipo,
+        codigo,
+        {},
+        {
+            "origen": inst_orig.nombre,
+            "monto_origen": float(datos.monto_origen),
+            "destino": inst_dest.nombre,
+            "monto_destino": float(datos.monto_destino),
+            "diferencia_usd": float(diferencia_usd),
+        },
+    )
     bd.commit()
 
     mov_completo = (

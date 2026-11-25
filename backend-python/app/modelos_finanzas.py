@@ -57,6 +57,8 @@ class TipoDocumentoPago(str, Enum):
     LIQUIDACION_COMISION = "LIQUIDACION_COMISION"
     TESORERIA = "TESORERIA"
     CAMBIO_DIVISA = "CAMBIO_DIVISA"
+    GASTO_OPERATIVO = "GASTO_OPERATIVO"
+    NOMINA = "NOMINA"
 
 
 class EstadoVerificacionPago(str, Enum):

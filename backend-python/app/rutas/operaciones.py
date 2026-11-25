@@ -53,6 +53,7 @@ from app.rutas.ventas import (
 )
 from app.core.permisos import Permiso, sanear_respuesta_costos, tiene_permiso
 from app.seguridad import obtener_usuario_actual, puede_ver_costos
+from app.servicios.auditoria_service import registrar_auditoria
 from app.servicios.pdf_documentos import (
     generar_pdf_cotizacion,
     generar_pdf_devolucion_garantia,
