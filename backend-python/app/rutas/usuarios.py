@@ -140,23 +140,25 @@ def crear_usuario(
                 detail="La sucursal indicada no existe.",
             )
 
-    if datos.username:
-        u_norm = re.sub(r"[^a-z0-9._-]+", "", datos.username.strip().lower())
-        if len(u_norm) < 3:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="El nombre de usuario debe tener al menos 3 caracteres válidos.",
+    username_final: str | None = None
+    if acceso:
+        if datos.username:
+            u_norm = re.sub(r"[^a-z0-9._-]+", "", datos.username.strip().lower())
+            if len(u_norm) < 3:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="El nombre de usuario debe tener al menos 3 caracteres válidos.",
+                )
+            if bd.query(Usuario.id).filter(func.lower(Usuario.username) == u_norm).first() is not None:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail=f"El nombre de usuario '{u_norm}' ya está en uso.",
+                )
+            username_final = u_norm
+        else:
+            username_final = generar_username_unico(
+                bd, deseado=None, correo=correo_normalizado, nombre=datos.nombre
             )
-        if bd.query(Usuario.id).filter(func.lower(Usuario.username) == u_norm).first() is not None:
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail=f"El nombre de usuario '{u_norm}' ya está en uso.",
-            )
-        username_final = u_norm
-    else:
-        username_final = generar_username_unico(
-            bd, deseado=None, correo=correo_normalizado, nombre=datos.nombre
-        )
 
     nuevo = Usuario(
         nombre=datos.nombre,
@@ -218,36 +220,37 @@ def actualizar_usuario(
             )
 
     usuario.nombre = datos.nombre
-    if datos.username is not None and datos.username.strip():
-        u_norm = re.sub(r"[^a-z0-9._-]+", "", datos.username.strip().lower())
-        if len(u_norm) < 3:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="El nombre de usuario debe tener al menos 3 caracteres válidos.",
-            )
-        dup_u = (
-            bd.query(Usuario.id)
-            .filter(func.lower(Usuario.username) == u_norm, Usuario.id != usuario_id)
-            .first()
-        )
-        if dup_u is not None:
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail=f"El nombre de usuario '{u_norm}' ya está en uso.",
-            )
-        usuario.username = u_norm
-    elif not usuario.username:
-        usuario.username = generar_username_unico(
-            bd, deseado=None, correo=datos.correo, nombre=datos.nombre, excluir_id=usuario_id
-        )
     usuario.rol = datos.rol.value
     usuario.modalidad = datos.modalidad
     usuario.telefono = datos.telefono.strip()
     usuario.cedula = datos.cedula.strip()
     usuario.sucursal_id = datos.sucursal_id
-    usuario.tiene_acceso = datos.tiene_acceso
+    acceso_edicion = bool(datos.tiene_acceso)
+    usuario.tiene_acceso = acceso_edicion
 
-    if datos.tiene_acceso:
+    if acceso_edicion:
+        if datos.username is not None and datos.username.strip():
+            u_norm = re.sub(r"[^a-z0-9._-]+", "", datos.username.strip().lower())
+            if len(u_norm) < 3:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="El nombre de usuario debe tener al menos 3 caracteres válidos.",
+                )
+            dup_u = (
+                bd.query(Usuario.id)
+                .filter(func.lower(Usuario.username) == u_norm, Usuario.id != usuario_id)
+                .first()
+            )
+            if dup_u is not None:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail=f"El nombre de usuario '{u_norm}' ya está en uso.",
+                )
+            usuario.username = u_norm
+        elif not usuario.username:
+            usuario.username = generar_username_unico(
+                bd, deseado=None, correo=datos.correo, nombre=datos.nombre, excluir_id=usuario_id
+            )
         if datos.correo:
             correo_norm = datos.correo.strip().lower()
             duplicado = (
@@ -271,6 +274,7 @@ def actualizar_usuario(
                 detail="Debes asignar una contraseña (mínimo 6 caracteres) al habilitar el acceso por primera vez.",
             )
     else:
+        usuario.username = None
         usuario.correo = None
         usuario.clave_hash = None
 
@@ -340,6 +344,7 @@ def desbloquear_usuario(
     usuario.intentos_fallidos_login = 0
     usuario.cuenta_bloqueada = False
     usuario.bloqueado_hasta = None
+    usuario.bloqueado_en = None
     clave_asignada = False
     if datos and datos.nueva_clave_temporal:
         usuario.clave_hash = generar_hash_clave(datos.nueva_clave_temporal)

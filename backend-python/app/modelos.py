@@ -74,6 +74,7 @@ class Usuario(Base):
     tiene_acceso: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     intentos_fallidos_login: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     bloqueado_hasta: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    bloqueado_en: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     cuenta_bloqueada: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     debe_cambiar_clave: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     sucursal_id: Mapped[int | None] = mapped_column(ForeignKey("sucursales.id"), nullable=True)
@@ -82,6 +83,10 @@ class Usuario(Base):
     creado_en: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
     sucursal: Mapped[Sucursal | None] = relationship("Sucursal", back_populates="usuarios")
+
+    @property
+    def tiene_acceso_sistema(self) -> bool:
+        return bool(self.tiene_acceso)
 
 
 class TasaDiaria(Base):

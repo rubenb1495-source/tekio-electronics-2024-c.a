@@ -79,7 +79,6 @@ ROLES_LOGISTICA: tuple[str, ...] = (
     RolUsuario.DIRECCION.value,
     RolUsuario.ADMINISTRACION.value,
     RolUsuario.LOGISTICA.value,
-    RolUsuario.LIDER.value,
 )
 
 ROLES_SOLICITAR_AJUSTE: tuple[str, ...] = (

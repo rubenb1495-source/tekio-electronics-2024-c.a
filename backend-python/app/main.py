@@ -82,6 +82,7 @@ def asegurar_columnas_compatibles() -> None:
             ("tiene_acceso", "BOOLEAN NOT NULL DEFAULT TRUE"),
             ("intentos_fallidos_login", "INTEGER NOT NULL DEFAULT 0"),
             ("bloqueado_hasta", f"{tipo_ts_usr} NULL"),
+            ("bloqueado_en", f"{tipo_ts_usr} NULL"),
             ("cuenta_bloqueada", "BOOLEAN NOT NULL DEFAULT FALSE"),
             ("debe_cambiar_clave", "BOOLEAN NOT NULL DEFAULT FALSE"),
         ]
@@ -214,7 +215,14 @@ async def ciclo_vida(_app: FastAPI) -> AsyncIterator[None]:
         from app.modelos import Usuario as _Usuario
         from app.rutas.usuarios import generar_username_unico
 
-        sin_user = bd.query(_Usuario).filter((_Usuario.username.is_(None)) | (_Usuario.username == "")).all()
+        sin_user = (
+            bd.query(_Usuario)
+            .filter(
+                _Usuario.tiene_acceso.is_(True),
+                (_Usuario.username.is_(None)) | (_Usuario.username == ""),
+            )
+            .all()
+        )
         for u in sin_user:
             u.username = generar_username_unico(
                 bd, deseado=None, correo=u.correo, nombre=u.nombre, excluir_id=u.id

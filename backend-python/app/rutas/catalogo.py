@@ -46,7 +46,6 @@ ROLES_GESTION_CATALOGO: tuple[str, ...] = (
     RolUsuario.DIRECCION.value,
     RolUsuario.ADMINISTRACION.value,
     RolUsuario.LOGISTICA.value,
-    RolUsuario.LIDER.value,
 )
 
 

@@ -32,8 +32,7 @@ export function obtenerPermisos(
   const esAdmin = r === "DIRECCION" || r === "ADMINISTRACION";
   const esDireccion = r === "DIRECCION";
   const esEncargado = r === "ENCARGADO";
-  const esLogistica =
-    esAdmin || r === "LOGISTICA" || r === "LIDER";
+  const esLogistica = esAdmin || r === "LOGISTICA";
 
   return {
     rol: r,
@@ -45,7 +44,7 @@ export function obtenerPermisos(
     puedeVerCostos: esLogistica,
     puedeGestionarCatalogo: esLogistica,
     puedeGestionarCompras: esLogistica,
-    puedeRegistrarTraslados: esLogistica || esEncargado,
+    puedeRegistrarTraslados: esLogistica || esEncargado || r === "LIDER",
     puedeLiquidar: esAdmin,
     puedeVerComisiones: esAdmin || esEncargado,
     puedeVerFinanzasGlobales: esAdmin,

@@ -228,6 +228,7 @@ def _calcular_alertas_internas(bd: Session, hoy: date) -> dict[str, Any]:
                 "rol": ub.rol,
                 "intentos_fallidos": ub.intentos_fallidos_login,
                 "bloqueado_hasta": ub.bloqueado_hasta.isoformat() if ub.bloqueado_hasta else None,
+                "bloqueado_en": (ub.bloqueado_en or ub.bloqueado_hasta).isoformat() if (ub.bloqueado_en or ub.bloqueado_hasta) else None,
                 "mensaje": f"Cuenta bloqueada tras {ub.intentos_fallidos_login} intentos fallidos.",
             }
         )

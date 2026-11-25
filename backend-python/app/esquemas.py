@@ -63,18 +63,30 @@ class LoginEntrada(ModeloEntradaLimpio):
 
 
 class CambiarPasswordEntrada(ModeloEntradaLimpio):
-    clave_actual: str = Field(min_length=1)
-    clave_nueva: str | None = Field(default=None, min_length=6, max_length=128)
-    nueva_clave: str | None = Field(default=None, min_length=6, max_length=128)
+    clave_actual: str | None = Field(default=None, min_length=1)
+    password_actual: str | None = Field(default=None, min_length=1)
+    clave_nueva: str | None = Field(default=None, max_length=128)
+    nueva_clave: str | None = Field(default=None, max_length=128)
+    password_nuevo: str | None = Field(default=None, max_length=128)
     confirmar_clave: str | None = Field(default=None, max_length=128)
+    confirmar_password: str | None = Field(default=None, max_length=128)
 
     @model_validator(mode="after")
     def validar_claves(self) -> "CambiarPasswordEntrada":
-        nueva = self.nueva_clave or self.clave_nueva or ""
-        if len(nueva) < 6:
-            raise ValueError("La nueva clave debe tener al menos 6 caracteres.")
-        if self.confirmar_clave is not None and nueva != self.confirmar_clave:
-            raise ValueError("La confirmación de clave no coincide con la nueva clave.")
+        actual = self.clave_actual or self.password_actual or ""
+        if not actual:
+            raise ValueError("Debes ingresar tu contraseña actual.")
+        nueva = self.nueva_clave or self.clave_nueva or self.password_nuevo or ""
+        if len(nueva) < 8:
+            raise ValueError("La nueva contraseña debe tener al menos 8 caracteres.")
+        confirmacion = (
+            self.confirmar_clave
+            if self.confirmar_clave is not None
+            else self.confirmar_password
+        )
+        if confirmacion is not None and nueva != confirmacion:
+            raise ValueError("La confirmación no coincide con la nueva contraseña.")
+        self.clave_actual = actual
         self.clave_nueva = nueva
         return self
 
@@ -95,9 +107,11 @@ class UsuarioSalida(BaseModel):
     telefono: str = ""
     cedula: str = ""
     tiene_acceso: bool = True
+    tiene_acceso_sistema: bool = True
     intentos_fallidos_login: int = 0
     cuenta_bloqueada: bool = False
     bloqueado_hasta: datetime | None = None
+    bloqueado_en: datetime | None = None
     activo: bool
     motivo_estado: str | None = None
     creado_en: datetime
@@ -117,8 +131,11 @@ class UsuarioCrearEntrada(ModeloEntradaLimpio):
     telefono: str = Field(default="", max_length=40)
     cedula: str = Field(default="", max_length=40)
     tiene_acceso: bool | None = None
+    tiene_acceso_sistema: bool | None = None
     correo: EmailStr | None = None
+    email: EmailStr | None = None
     clave: str | None = Field(default=None, max_length=128)
+    password: str | None = Field(default=None, max_length=128)
     sucursal_id: int | None = None
 
     @field_validator("nombre")
@@ -129,14 +146,14 @@ class UsuarioCrearEntrada(ModeloEntradaLimpio):
             raise ValueError("El nombre debe tener al menos 2 caracteres.")
         return limpio
 
-    @field_validator("correo", mode="before")
+    @field_validator("correo", "email", mode="before")
     @classmethod
     def vacio_a_none_correo(cls, valor: object) -> object:
         if isinstance(valor, str) and not valor.strip():
             return None
         return valor
 
-    @field_validator("clave", mode="before")
+    @field_validator("clave", "password", mode="before")
     @classmethod
     def vacio_a_none_clave(cls, valor: object) -> object:
         if isinstance(valor, str) and not valor.strip():
@@ -145,19 +162,30 @@ class UsuarioCrearEntrada(ModeloEntradaLimpio):
 
     @model_validator(mode="after")
     def validar_acceso_sistema(self) -> "UsuarioCrearEntrada":
-        # Compatibilidad: si tiene_acceso no se envía, se infiere True cuando envían correo/clave y False si no.
-        acceso = (
+        if self.correo is None and self.email is not None:
+            self.correo = self.email
+        if self.clave is None and self.password is not None:
+            self.clave = self.password
+        acceso_explicito = (
             self.tiene_acceso
             if self.tiene_acceso is not None
+            else self.tiene_acceso_sistema
+        )
+        # Compatibilidad: si no se envía bandera, se infiere True cuando envían correo/clave y False si no.
+        acceso = (
+            acceso_explicito
+            if acceso_explicito is not None
             else bool(self.correo or self.clave)
         )
         self.tiene_acceso = acceso
+        self.tiene_acceso_sistema = acceso
         if acceso:
             if not self.correo and not self.username:
                 raise ValueError("Debes indicar un nombre de usuario o correo electrónico cuando el colaborador tiene acceso al sistema.")
             if not self.clave or len(self.clave) < 6:
                 raise ValueError("La contraseña es obligatoria (mínimo 6 caracteres) cuando tiene acceso al sistema.")
         else:
+            self.username = None
             self.correo = None
             self.clave = None
         return self
@@ -170,9 +198,12 @@ class UsuarioActualizarEntrada(ModeloEntradaLimpio):
     modalidad: Literal["PRESENCIAL", "ONLINE"] = "PRESENCIAL"
     telefono: str = Field(default="", max_length=40)
     cedula: str = Field(default="", max_length=40)
-    tiene_acceso: bool = False
+    tiene_acceso: bool | None = None
+    tiene_acceso_sistema: bool | None = None
     correo: EmailStr | None = None
+    email: EmailStr | None = None
     clave: str | None = Field(default=None, max_length=128)
+    password: str | None = Field(default=None, max_length=128)
     sucursal_id: int | None = None
 
     @field_validator("nombre")
@@ -183,14 +214,14 @@ class UsuarioActualizarEntrada(ModeloEntradaLimpio):
             raise ValueError("El nombre debe tener al menos 2 caracteres.")
         return limpio
 
-    @field_validator("correo", mode="before")
+    @field_validator("correo", "email", mode="before")
     @classmethod
     def vacio_a_none_correo(cls, valor: object) -> object:
         if isinstance(valor, str) and not valor.strip():
             return None
         return valor
 
-    @field_validator("clave", mode="before")
+    @field_validator("clave", "password", mode="before")
     @classmethod
     def vacio_a_none_clave(cls, valor: object) -> object:
         if isinstance(valor, str) and not valor.strip():
@@ -199,12 +230,24 @@ class UsuarioActualizarEntrada(ModeloEntradaLimpio):
 
     @model_validator(mode="after")
     def validar_acceso_edicion(self) -> "UsuarioActualizarEntrada":
-        if self.tiene_acceso:
+        if self.correo is None and self.email is not None:
+            self.correo = self.email
+        if self.clave is None and self.password is not None:
+            self.clave = self.password
+        acceso = (
+            self.tiene_acceso
+            if self.tiene_acceso is not None
+            else (self.tiene_acceso_sistema if self.tiene_acceso_sistema is not None else False)
+        )
+        self.tiene_acceso = acceso
+        self.tiene_acceso_sistema = acceso
+        if acceso:
             if not self.correo and not self.username:
                 raise ValueError("Debes indicar un nombre de usuario o correo electrónico cuando el colaborador tiene acceso al sistema.")
             if self.clave is not None and len(self.clave) < 6:
                 raise ValueError("La contraseña debe tener al menos 6 caracteres.")
         else:
+            self.username = None
             self.correo = None
             self.clave = None
         return self

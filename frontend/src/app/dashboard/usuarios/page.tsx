@@ -107,6 +107,7 @@ export default function PaginaPersonalYUsuarios() {
     return usuarios.filter((u) =>
       [
         u.nombre,
+        u.username || "",
         u.correo || "",
         u.telefono || "",
         u.cedula || "",
@@ -130,6 +131,7 @@ export default function PaginaPersonalYUsuarios() {
     setCedula("");
     setSucursalId(sucursales[0] ? String(sucursales[0].id) : "");
     setTieneAcceso(false); // Desactivado por defecto para registrar personal sin acceso rápidamente
+    setUsernameForm("");
     setCorreo("");
     setClave("");
     setErrorModal(null);
@@ -443,15 +445,16 @@ export default function PaginaPersonalYUsuarios() {
                         {u.cuenta_bloqueada && (
                           <div className="flex items-center gap-1.5">
                             <span className="inline-flex px-2 py-0.5 rounded-full text-[10px] font-black bg-red-600 text-white">
-                              Bloqueado
+                              Bloqueada
                             </span>
                             <button
                               type="button"
                               onClick={async () => {
                                 try {
-                                  await solicitarApi(`/api/personal/${u.id}/desbloquear`, {
+                                  await solicitarApi(`/api/usuarios/${u.id}/desbloquear`, {
                                     method: "POST",
                                   });
+                                  setExito(`Cuenta de "${u.nombre}" desbloqueada correctamente.`);
                                   await cargarDatos();
                                 } catch (err) {
                                   setError(
@@ -461,9 +464,9 @@ export default function PaginaPersonalYUsuarios() {
                                   );
                                 }
                               }}
-                              className="px-2 py-0.5 rounded-lg bg-[#E85A28] text-white text-[10px] font-bold cursor-pointer"
+                              className="px-2 py-0.5 rounded-lg bg-[#E85A28] hover:bg-[#D14D1F] text-white text-[10px] font-bold cursor-pointer"
                             >
-                              Desbloquear acceso
+                              Desbloquear
                             </button>
                           </div>
                         )}
@@ -638,12 +641,12 @@ export default function PaginaPersonalYUsuarios() {
                     <KeyRound className="w-4 h-4 text-[#E85A28]" />
                     <div>
                       <p className="text-xs font-bold text-[#191818]">
-                        Dar acceso al sistema
+                        Tiene acceso al sistema
                       </p>
                       <p className="text-[11px] text-neutral-500">
                         {tieneAcceso
-                          ? "Podrá iniciar sesión con correo y contraseña."
-                          : "Sin acceso: aparecerá en POS y comisiones sin necesidad de correo."}
+                          ? "Podrá iniciar sesión con su usuario (nombre) o correo y contraseña."
+                          : "Sin acceso: aparecerá en POS, taller y comisiones sin necesidad de usuario ni correo."}
                       </p>
                     </div>
                   </div>

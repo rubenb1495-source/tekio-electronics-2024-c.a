@@ -85,7 +85,7 @@ export default function PaginaLogin() {
             {error && (
               <div
                 className={`flex items-start gap-2.5 rounded-xl p-3.5 text-sm ${
-                  error.toLowerCase().includes("bloqueado")
+                  error.toLowerCase().includes("bloquead")
                     ? "bg-red-600 text-white border border-red-700 font-bold shadow-sm"
                     : "bg-red-50/90 border border-red-200 text-red-700"
                 }`}
@@ -100,7 +100,7 @@ export default function PaginaLogin() {
                 htmlFor="correo"
                 className="block text-xs font-bold text-[#191818] uppercase tracking-wider"
               >
-                Usuario (Nombre)
+                Usuario (Nombre) o Correo
               </label>
               <div className="relative">
                 <Mail className="w-4 h-4 text-neutral-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />

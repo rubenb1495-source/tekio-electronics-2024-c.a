@@ -27,11 +27,11 @@ ROLES_GESTION_LOGISTICA: frozenset[str] = frozenset({
     RolUsuario.DIRECCION.value,
     RolUsuario.ADMINISTRACION.value,
     RolUsuario.LOGISTICA.value,
-    RolUsuario.LIDER.value,
 })
 
 ROLES_TRASLADOS_SUCURSAL: frozenset[str] = ROLES_GESTION_LOGISTICA | frozenset({
     RolUsuario.ENCARGADO.value,
+    RolUsuario.LIDER.value,
 })
 
 
