@@ -199,10 +199,11 @@ def agregar_componente_a_equipo_preparacion(
             detail="Componente no encontrado en el catálogo.",
         )
 
-    # Verificar stock disponible del componente en el inventario (sucursal del equipo o global)
+    # Verificar stock disponible del componente en el inventario (Kardex por SKU: equipo_id IS NULL)
     stock_sucursal = int(
         bd.query(func.coalesce(func.sum(MovimientoInventario.cantidad), 0))
         .filter(
+            MovimientoInventario.equipo_id.is_(None),
             MovimientoInventario.articulo_id == art.id,
             MovimientoInventario.sucursal_id == eq.ubicacion_id,
         )
@@ -214,7 +215,10 @@ def agregar_componente_a_equipo_preparacion(
         # Buscar si hay stock en otra sucursal (ej. Bodega)
         stock_global = int(
             bd.query(func.coalesce(func.sum(MovimientoInventario.cantidad), 0))
-            .filter(MovimientoInventario.articulo_id == art.id)
+            .filter(
+                MovimientoInventario.equipo_id.is_(None),
+                MovimientoInventario.articulo_id == art.id,
+            )
             .scalar()
             or 0
         )
@@ -229,7 +233,10 @@ def agregar_componente_a_equipo_preparacion(
                 MovimientoInventario.sucursal_id,
                 func.sum(MovimientoInventario.cantidad).label("saldo"),
             )
-            .filter(MovimientoInventario.articulo_id == art.id)
+            .filter(
+                MovimientoInventario.equipo_id.is_(None),
+                MovimientoInventario.articulo_id == art.id,
+            )
             .group_by(MovimientoInventario.sucursal_id)
             .all()
         )
@@ -242,6 +249,7 @@ def agregar_componente_a_equipo_preparacion(
     ultimo_ing = (
         bd.query(MovimientoInventario)
         .filter(
+            MovimientoInventario.equipo_id.is_(None),
             MovimientoInventario.articulo_id == art.id,
             MovimientoInventario.cantidad > 0,
             MovimientoInventario.costo_unitario_usd > Decimal("0"),
@@ -262,7 +270,7 @@ def agregar_componente_a_equipo_preparacion(
         MovimientoInventario(
             tipo=TipoMovimientoInventario.TALLER.value,
             articulo_id=art.id,
-            equipo_id=eq.id,
+            equipo_id=None,
             sucursal_id=sucursal_descuento,
             cantidad=-datos.cantidad,
             costo_unitario_usd=costo_unit,

@@ -809,13 +809,16 @@ def _calcular_balance_general(bd: Session, fecha_corte: date) -> dict[str, Any]:
         Decimal("0.00"),
     ).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
-    # 4. Inventario de Componentes (saldo neto por artículo * último costo positivo)
+    # 4. Inventario de Componentes (Kardex por SKU: equipo_id IS NULL)
     saldos_comp = (
         bd.query(
             MovimientoInventario.articulo_id,
             func.sum(MovimientoInventario.cantidad).label("stock"),
         )
-        .filter(MovimientoInventario.articulo_id.isnot(None))
+        .filter(
+            MovimientoInventario.equipo_id.is_(None),
+            MovimientoInventario.articulo_id.isnot(None),
+        )
         .group_by(MovimientoInventario.articulo_id)
         .all()
     )
