@@ -7,6 +7,7 @@ import {
   KeyRound,
   Pencil,
   Plus,
+  Share2,
   ShieldAlert,
   UserCheck,
   UserX,
@@ -14,10 +15,11 @@ import {
   X,
 } from "lucide-react";
 import BuscadorTabla from "@/componentes/BuscadorTabla";
+import ModalCompartirAcceso from "@/components/ModalCompartirAcceso";
 import TarjetaRespaldoBD from "@/components/TarjetaRespaldoBD";
 import { usarSesion } from "@/contexto/SesionContexto";
 import { ErrorApi, esRolAdministrativo, solicitarApi } from "@/servicios/api";
-import type { RolUsuario, Sucursal, Usuario } from "@/tipos/dominio";
+import type { AccesoTemporalUsuario, RolUsuario, Sucursal, Usuario } from "@/tipos/dominio";
 
 const ROLES_DISPONIBLES: RolUsuario[] = [
   "ASESORA",
@@ -63,6 +65,10 @@ export default function PaginaPersonalYUsuarios() {
   // Modal cambio de estado (activar/desactivar sin borrar historial)
   const [usuarioEstado, setUsuarioEstado] = useState<Usuario | null>(null);
   const [motivoEstado, setMotivoEstado] = useState("");
+
+  // Modal compartir acceso (WhatsApp / copiar credenciales)
+  const [usuarioCompartir, setUsuarioCompartir] = useState<Usuario | null>(null);
+  const [accesoCompartir, setAccesoCompartir] = useState<AccesoTemporalUsuario | null>(null);
 
   const permitido = usuario ? esRolAdministrativo(usuario.rol) : false;
 
@@ -209,7 +215,7 @@ export default function PaginaPersonalYUsuarios() {
         });
         setExito(`Colaborador "${nombre.trim()}" actualizado correctamente.`);
       } else {
-        await solicitarApi<Usuario>("/api/usuarios", {
+        const creado = await solicitarApi<Usuario>("/api/usuarios", {
           method: "POST",
           body: JSON.stringify(payload),
         });
@@ -218,6 +224,10 @@ export default function PaginaPersonalYUsuarios() {
             tieneAcceso ? " con acceso al sistema" : " (sin acceso al sistema)"
           }.`
         );
+        if (creado.acceso_compartir) {
+          setUsuarioCompartir(creado);
+          setAccesoCompartir(creado.acceso_compartir);
+        }
       }
 
       setModalAbierto(false);
@@ -472,6 +482,20 @@ export default function PaginaPersonalYUsuarios() {
                         )}
                       </td>
                       <td className="px-4 py-3 text-right whitespace-nowrap space-x-1.5">
+                        {conAcceso && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setUsuarioCompartir(u);
+                              setAccesoCompartir(null);
+                            }}
+                            title="Generar clave temporal y compartir acceso por WhatsApp"
+                            className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-emerald-200 bg-emerald-50 hover:bg-emerald-100 text-xs font-bold text-emerald-700 cursor-pointer"
+                          >
+                            <Share2 className="w-3.5 h-3.5" />
+                            Compartir acceso
+                          </button>
+                        )}
                         <button
                           type="button"
                           onClick={() => abrirModalEditar(u)}
@@ -783,6 +807,17 @@ export default function PaginaPersonalYUsuarios() {
           </div>
         </div>
       )}
+      {/* Modal Compartir Acceso (WhatsApp / Copiar credenciales) */}
+      <ModalCompartirAcceso
+        abierto={Boolean(usuarioCompartir || accesoCompartir)}
+        usuarioObjetivo={usuarioCompartir}
+        accesoInicial={accesoCompartir}
+        alCerrar={() => {
+          setUsuarioCompartir(null);
+          setAccesoCompartir(null);
+        }}
+        alRegenerar={() => void cargarDatos()}
+      />
     </div>
   );
 }

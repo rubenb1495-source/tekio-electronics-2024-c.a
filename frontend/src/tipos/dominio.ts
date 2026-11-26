@@ -21,6 +21,18 @@ export interface Sucursal {
   fecha_cierre: string | null;
 }
 
+export interface AccesoTemporalUsuario {
+  usuario_id: number;
+  nombre: string;
+  username: string;
+  email: string | null;
+  rol: RolUsuario;
+  sucursal: string;
+  telefono: string;
+  password_temporal: string;
+  url_app: string;
+}
+
 export interface Usuario {
   id: number;
   nombre: string;
@@ -31,13 +43,16 @@ export interface Usuario {
   telefono?: string;
   cedula?: string;
   tiene_acceso?: boolean;
+  tiene_acceso_sistema?: boolean;
   intentos_fallidos_login?: number;
   cuenta_bloqueada?: boolean;
   bloqueado_hasta?: string | null;
+  bloqueado_en?: string | null;
   activo: boolean;
   motivo_estado: string | null;
   creado_en: string;
   sucursal: Sucursal | null;
+  acceso_compartir?: AccesoTemporalUsuario | null;
 }
 
 export interface RespuestaLogin {

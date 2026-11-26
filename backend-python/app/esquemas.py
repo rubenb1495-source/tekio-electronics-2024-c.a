@@ -95,6 +95,18 @@ class DesbloquearUsuarioEntrada(ModeloEntradaLimpio):
     nueva_clave_temporal: str | None = Field(default=None, min_length=6, max_length=128)
 
 
+class AccesoTemporalSalida(BaseModel):
+    usuario_id: int
+    nombre: str
+    username: str
+    email: str | None = None
+    rol: RolUsuario
+    sucursal: str
+    telefono: str = ""
+    password_temporal: str
+    url_app: str
+
+
 class UsuarioSalida(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -116,6 +128,7 @@ class UsuarioSalida(BaseModel):
     motivo_estado: str | None = None
     creado_en: datetime
     sucursal: SucursalSalida | None = None
+    acceso_compartir: AccesoTemporalSalida | None = None
 
 
 class LoginSalida(BaseModel):

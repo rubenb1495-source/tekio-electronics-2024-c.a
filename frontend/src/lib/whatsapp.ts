@@ -825,3 +825,50 @@ export function formatearResumenEjecutivoPL(
   );
   return lineas.join("\n");
 }
+
+export interface DatosAccesoUsuarioWhatsApp {
+  nombre: string;
+  username: string;
+  email?: string | null;
+  rol: string;
+  sucursal: string;
+  telefono?: string;
+  password_temporal: string;
+  url_app?: string;
+}
+
+/**
+ * Formatea un mensaje limpio de credenciales de acceso para enviar por WhatsApp o copiar.
+ */
+export function formatearAccesoUsuario(datos: DatosAccesoUsuarioWhatsApp): string {
+  const urlApp = (datos.url_app || "https://tekio-admin-two.vercel.app").trim();
+  const correoTxt = datos.email && datos.email.trim() ? ` (Correo: ${datos.email.trim()})` : "";
+  const lineas: string[] = [
+    "🔐 *ACCESO AL SISTEMA — TEKIO ELECTRONICS*",
+    "",
+    `👋 Hola, *${datos.nombre}*`,
+    `🌐 *Enlace de acceso:* ${urlApp}`,
+    `👤 *Usuario:* ${datos.username}${correoTxt}`,
+    `🔑 *Contraseña temporal:* ${datos.password_temporal}`,
+    `🏷️ *Rol asignado:* ${datos.rol} — *Sucursal:* ${datos.sucursal || "Multi-tienda"}`,
+    "",
+    "_Por tu seguridad, puedes cambiar tu contraseña en cualquier momento desde tu perfil en la barra superior._",
+  ];
+  return lineas.join("\n");
+}
+
+/**
+ * Normaliza un número venezolano o internacional y construye el enlace wa.me listo para abrir.
+ */
+export function construirEnlaceWhatsAppDirecto(mensaje: string, telefono?: string | null): string {
+  const soloDigitos = (telefono || "").replace(/\D+/g, "");
+  let numero = soloDigitos;
+  if (numero.startsWith("0") && numero.length === 11) {
+    numero = `58${numero.slice(1)}`;
+  }
+  const textoCodificado = encodeURIComponent(mensaje);
+  if (numero.length >= 10) {
+    return `https://wa.me/${numero}?text=${textoCodificado}`;
+  }
+  return `https://wa.me/?text=${textoCodificado}`;
+}

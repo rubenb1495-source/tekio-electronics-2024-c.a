@@ -48,6 +48,13 @@ class Configuracion(BaseSettings):
     # Zona horaria oficial de Venezuela (UTC-4)
     ZONA_HORARIA: str = "America/Caracas"
 
+    # URL pública del frontend para enlaces de acceso compartible
+    FRONTEND_URL: str = "https://tekio-admin-two.vercel.app"
+
+    @property
+    def url_frontend_efectiva(self) -> str:
+        return (self.FRONTEND_URL.strip() or "https://tekio-admin-two.vercel.app").rstrip("/")
+
     @property
     def es_vercel_serverless(self) -> bool:
         return os.getenv("VERCEL") == "1" or bool(os.getenv("VERCEL_ENV"))

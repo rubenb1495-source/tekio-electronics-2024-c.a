@@ -1,14 +1,17 @@
 from __future__ import annotations
 
 import re
+import secrets
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import func
 from sqlalchemy.orm import Session, joinedload
 
 from app.base_datos import obtener_bd
+from app.configuracion import configuracion
 from app.servicios.auditoria_service import registrar_auditoria
 from app.esquemas import (
+    AccesoTemporalSalida,
     DesbloquearUsuarioEntrada,
     SucursalSalida,
     UsuarioActualizarEntrada,
@@ -27,6 +30,29 @@ from app.seguridad import (
 
 
 enrutador = APIRouter(prefix="/api", tags=["Usuarios y Sucursales"])
+
+
+_ALFABETO_MAYUS = "ABCDEFGHJKLMNPQRSTUVWXYZ"
+_ALFABETO_MINUS = "abcdefghjkmnpqrstuvwxyz"
+_ALFABETO_DIGITOS = "23456789"
+_ALFABETO_COMPLETO = _ALFABETO_MAYUS + _ALFABETO_MINUS + _ALFABETO_DIGITOS
+
+
+def generar_password_temporal(longitud: int = 10) -> str:
+    """Genera una contraseña temporal legible y segura sin caracteres ambiguos (O/0, I/l/1)."""
+    longitud_efectiva = max(8, min(longitud, 16))
+    caracteres = [
+        secrets.choice(_ALFABETO_MAYUS),
+        secrets.choice(_ALFABETO_MAYUS),
+        secrets.choice(_ALFABETO_MINUS),
+        secrets.choice(_ALFABETO_MINUS),
+        secrets.choice(_ALFABETO_DIGITOS),
+        secrets.choice(_ALFABETO_DIGITOS),
+    ]
+    while len(caracteres) < longitud_efectiva:
+        caracteres.append(secrets.choice(_ALFABETO_COMPLETO))
+    secrets.SystemRandom().shuffle(caracteres)
+    return "".join(caracteres)
 
 
 def generar_username_unico(
@@ -183,7 +209,20 @@ def crear_usuario(
         .filter(Usuario.id == nuevo.id)
         .first()
     )
-    return UsuarioSalida.model_validate(usuario_completo)
+    salida = UsuarioSalida.model_validate(usuario_completo)
+    if acceso and usuario_completo is not None and datos.clave:
+        salida.acceso_compartir = AccesoTemporalSalida(
+            usuario_id=usuario_completo.id,
+            nombre=usuario_completo.nombre,
+            username=usuario_completo.username or usuario_completo.nombre,
+            email=usuario_completo.correo,
+            rol=RolUsuario(usuario_completo.rol),
+            sucursal=usuario_completo.sucursal.nombre if usuario_completo.sucursal else "Multi-tienda",
+            telefono=usuario_completo.telefono or "",
+            password_temporal=datos.clave,
+            url_app=configuracion.url_frontend_efectiva,
+        )
+    return salida
 
 
 @enrutador.put("/usuarios/{usuario_id}", response_model=UsuarioSalida)
@@ -367,3 +406,75 @@ def desbloquear_usuario(
     bd.commit()
     bd.refresh(usuario)
     return UsuarioSalida.model_validate(usuario)
+
+
+@enrutador.post("/usuarios/{usuario_id}/generar-acceso-temporal", response_model=AccesoTemporalSalida)
+def generar_acceso_temporal(
+    usuario_id: int,
+    usuario_actual: Usuario = Depends(require_permiso(Permiso.GESTIONAR_USUARIOS)),
+    bd: Session = Depends(obtener_bd),
+) -> AccesoTemporalSalida:
+    """Genera una contraseña temporal segura, desbloquea la cuenta si estaba bloqueada y devuelve datos listos para compartir."""
+    usuario = (
+        bd.query(Usuario)
+        .options(joinedload(Usuario.sucursal))
+        .filter(Usuario.id == usuario_id)
+        .first()
+    )
+    if usuario is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Usuario no encontrado.",
+        )
+
+    if not usuario.tiene_acceso:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Este colaborador no tiene acceso habilitado al sistema. Activa primero 'Tiene acceso al sistema'.",
+        )
+
+    if not usuario.username or not usuario.username.strip():
+        usuario.username = generar_username_unico(
+            bd,
+            deseado=None,
+            correo=usuario.correo,
+            nombre=usuario.nombre,
+            excluir_id=usuario.id,
+        )
+
+    estaba_bloqueada = bool(usuario.cuenta_bloqueada)
+    password_temporal = generar_password_temporal(10)
+    usuario.clave_hash = generar_hash_clave(password_temporal)
+    usuario.intentos_fallidos_login = 0
+    usuario.cuenta_bloqueada = False
+    usuario.bloqueado_hasta = None
+    usuario.bloqueado_en = None
+    usuario.debe_cambiar_clave = True
+
+    registrar_auditoria(
+        bd,
+        usuario=usuario_actual,
+        modulo="SEGURIDAD",
+        accion="GENERAR_ACCESO_TEMPORAL",
+        entidad_id=usuario.username or usuario.nombre or str(usuario.id),
+        detalle_anterior={"cuenta_bloqueada": estaba_bloqueada},
+        detalle_nuevo={
+            "cuenta_bloqueada": False,
+            "intentos_fallidos_login": 0,
+            "acceso_temporal_generado": True,
+        },
+    )
+    bd.commit()
+    bd.refresh(usuario)
+
+    return AccesoTemporalSalida(
+        usuario_id=usuario.id,
+        nombre=usuario.nombre,
+        username=usuario.username or usuario.nombre,
+        email=usuario.correo,
+        rol=RolUsuario(usuario.rol),
+        sucursal=usuario.sucursal.nombre if usuario.sucursal else "Multi-tienda",
+        telefono=usuario.telefono or "",
+        password_temporal=password_temporal,
+        url_app=configuracion.url_frontend_efectiva,
+    )
