@@ -42,9 +42,19 @@ export default function PaginaFinanzasCashea() {
         ),
         solicitarApi<InstrumentoFinanciero[]>("/api/finanzas/instrumentos"),
       ]);
-      setCuentas(respCxc);
+      // Garantizar 1 fila única por venta_id (nota N-XXXX) sin concatenar estado previo
+      const vistasPorVenta = new Map<string, CuentaPorCobrarResumen>();
+      for (const item of respCxc) {
+        const clave = item.venta_id != null ? `v-${item.venta_id}` : `c-${item.id}`;
+        if (!vistasPorVenta.has(clave)) {
+          vistasPorVenta.set(clave, item);
+        }
+      }
+      setCuentas(Array.from(vistasPorVenta.values()));
       setInstrumentos(respInst);
-      if (respInst[0] && !destinoId) setDestinoId(String(respInst[0].id));
+      if (respInst[0]) {
+        setDestinoId((prev) => prev || String(respInst[0].id));
+      }
     } catch (err) {
       setError(
         err instanceof ErrorApi
@@ -54,7 +64,7 @@ export default function PaginaFinanzasCashea() {
     } finally {
       setCargando(false);
     }
-  }, [destinoId]);
+  }, []);
 
   useEffect(() => {
     void cargarDatos();
@@ -322,7 +332,7 @@ export default function PaginaFinanzasCashea() {
             </thead>
             <tbody className="divide-y divide-slate-100 tabular-nums">
               {cuentasFiltradas.map((c) => (
-                <tr key={c.id} className="hover:bg-slate-50/70">
+                <tr key={c.venta_id ?? c.id} className="hover:bg-slate-50/70">
                   <td className="px-3 py-3">
                     <input
                       type="checkbox"

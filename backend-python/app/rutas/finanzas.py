@@ -159,13 +159,19 @@ def confirmar_pago_digital(
 
 # ---------------- Cuentas por Cobrar y Cashea ----------------
 
-@enrutador.get("/cuentas-por-cobrar")
-def listar_cuentas_por_cobrar(
-    tipo: TipoCuentaPorCobrar | None = Query(default=None),
-    estado: EstadoCuentaPorCobrar | None = Query(default=None),
-    _usuario: Usuario = Depends(require_permiso(Permiso.VER_FINANZAS_GLOBALES)),
-    bd: Session = Depends(obtener_bd),
+def _construir_filas_cxc_consolidadas(
+    bd: Session,
+    *,
+    tipo: TipoCuentaPorCobrar | None = None,
+    estado: EstadoCuentaPorCobrar | None = None,
 ) -> list[dict[str, Any]]:
+    """
+    Devuelve las cuentas por cobrar garantizando:
+    - Exclusión de ventas ANULADA / DEVUELTA.
+    - Para CASHEA: estrictamente 1 fila única por `venta_id` (nota N-XXXX),
+      sumando saldos financiados si existiera más de un registro CxC para la misma venta
+      y calculando las deducciones Cashea una sola vez por nota.
+    """
     consulta = bd.query(CuentaPorCobrar).options(
         joinedload(CuentaPorCobrar.venta).joinedload(Venta.sucursal),
         joinedload(CuentaPorCobrar.cliente),
@@ -175,11 +181,45 @@ def listar_cuentas_por_cobrar(
     if estado is not None:
         consulta = consulta.filter(CuentaPorCobrar.estado == estado.value)
 
-    filas = consulta.order_by(CuentaPorCobrar.id.desc()).all()
+    filas_crudas = consulta.order_by(CuentaPorCobrar.id.desc()).all()
+
+    # Filtrar ventas anuladas o devueltas
+    filas_validas = [
+        c
+        for c in filas_crudas
+        if c.venta is None
+        or c.venta.estado not in (EstadoVenta.ANULADA.value, EstadoVenta.DEVUELTA.value)
+    ]
+
+    # Agrupar por (tipo, venta_id) cuando tipo == CASHEA y venta_id no es None
+    grupos_ordenados: list[tuple[CuentaPorCobrar, Decimal, Decimal, list[int]]] = []
+    indice_cashea_por_venta: dict[int, int] = {}
+
+    for c in filas_validas:
+        if c.tipo == TipoCuentaPorCobrar.CASHEA.value and c.venta_id is not None:
+            pos = indice_cashea_por_venta.get(c.venta_id)
+            if pos is None:
+                indice_cashea_por_venta[c.venta_id] = len(grupos_ordenados)
+                grupos_ordenados.append(
+                    (c, Decimal(c.monto_original_usd or 0), Decimal(c.saldo_pendiente_usd or 0), [c.id])
+                )
+            else:
+                rep, m_orig, s_pend, ids = grupos_ordenados[pos]
+                grupos_ordenados[pos] = (
+                    rep,
+                    m_orig + Decimal(c.monto_original_usd or 0),
+                    s_pend + Decimal(c.saldo_pendiente_usd or 0),
+                    ids + [c.id],
+                )
+        else:
+            grupos_ordenados.append(
+                (c, Decimal(c.monto_original_usd or 0), Decimal(c.saldo_pendiente_usd or 0), [c.id])
+            )
+
     resultado: list[dict[str, Any]] = []
-    for c in filas:
+    for c, monto_original_agg, saldo_pendiente_agg, cxc_ids in grupos_ordenados:
         v = c.venta
-        total_reg = v.total_regular_usd if v else c.monto_original_usd
+        total_reg = v.total_regular_usd if v else monto_original_agg
         precio_reg_bs = (
             v.precio_regular_bs
             if v and getattr(v, "precio_regular_bs", Decimal("0")) > 0
@@ -197,7 +237,7 @@ def listar_cuentas_por_cobrar(
         com_fin = (
             v.comision_cashea_financiado_usd
             if v and getattr(v, "comision_cashea_financiado_usd", Decimal("0")) > 0
-            else (c.monto_original_usd * Decimal("0.04")).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+            else (monto_original_agg * Decimal("0.04")).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
         )
         iva_c = (
             v.iva_cashea_usd
@@ -210,18 +250,22 @@ def listar_cuentas_por_cobrar(
             else (com_tot * Decimal("0.02")).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
         )
         tot_ded = (com_tot + com_fin + iva_c + islr_c).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
-        neto_esp = max(Decimal("0.00"), (c.saldo_pendiente_usd - tot_ded).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
+        neto_esp = max(
+            Decimal("0.00"),
+            (saldo_pendiente_agg - tot_ded).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP),
+        )
         resultado.append(
             {
                 "id": c.id,
+                "cxc_ids": cxc_ids,
                 "venta_id": c.venta_id,
                 "numero_venta": v.numero_venta if v else None,
                 "sucursal": v.sucursal.nombre if v and v.sucursal else None,
                 "fecha_venta": v.fecha.isoformat() if v else None,
                 "tipo": c.tipo,
                 "cliente": c.cliente.nombre if c.cliente else "Cliente general",
-                "monto_original_usd": redondear_usd(c.monto_original_usd),
-                "saldo_pendiente_usd": redondear_usd(c.saldo_pendiente_usd),
+                "monto_original_usd": redondear_usd(monto_original_agg),
+                "saldo_pendiente_usd": redondear_usd(saldo_pendiente_agg),
                 "total_regular_usd": redondear_usd(total_reg),
                 "precio_regular_bs": redondear_usd(precio_reg_bs),
                 "comision_cashea_venta_total_usd": redondear_usd(com_tot),
@@ -234,6 +278,50 @@ def listar_cuentas_por_cobrar(
             }
         )
     return resultado
+
+
+@enrutador.get("/cuentas-por-cobrar")
+def listar_cuentas_por_cobrar(
+    tipo: TipoCuentaPorCobrar | None = Query(default=None),
+    estado: EstadoCuentaPorCobrar | None = Query(default=None),
+    _usuario: Usuario = Depends(require_permiso(Permiso.VER_FINANZAS_GLOBALES)),
+    bd: Session = Depends(obtener_bd),
+) -> list[dict[str, Any]]:
+    return _construir_filas_cxc_consolidadas(bd, tipo=tipo, estado=estado)
+
+
+@enrutador.get("/cashea")
+def resumen_conciliacion_cashea(
+    estado: EstadoCuentaPorCobrar | None = Query(default=EstadoCuentaPorCobrar.PENDIENTE),
+    _usuario: Usuario = Depends(require_permiso(Permiso.VER_FINANZAS_GLOBALES)),
+    bd: Session = Depends(obtener_bd),
+) -> dict[str, Any]:
+    """Devuelve exactamente 1 fila única por venta Cashea y los KPIs consolidados sobre notas únicas."""
+    items = _construir_filas_cxc_consolidadas(
+        bd,
+        tipo=TipoCuentaPorCobrar.CASHEA,
+        estado=estado,
+    )
+    financiado = sum((Decimal(str(i["saldo_pendiente_usd"])) for i in items), Decimal("0.00"))
+    com_tot = sum((Decimal(str(i["comision_cashea_venta_total_usd"])) for i in items), Decimal("0.00"))
+    com_fin = sum((Decimal(str(i["comision_cashea_financiado_usd"])) for i in items), Decimal("0.00"))
+    iva = sum((Decimal(str(i["iva_cashea_usd"])) for i in items), Decimal("0.00"))
+    islr = sum((Decimal(str(i["islr_cashea_usd"])) for i in items), Decimal("0.00"))
+    deducciones = sum((Decimal(str(i["total_deducciones_cashea_usd"])) for i in items), Decimal("0.00"))
+    neto = sum((Decimal(str(i["neto_esperado_cashea_usd"])) for i in items), Decimal("0.00"))
+    return {
+        "total_notas": len(items),
+        "kpis": {
+            "financiado_bruto_usd": redondear_usd(financiado),
+            "comision_venta_total_usd": redondear_usd(com_tot),
+            "comision_financiado_usd": redondear_usd(com_fin),
+            "iva_cashea_usd": redondear_usd(iva),
+            "islr_cashea_usd": redondear_usd(islr),
+            "total_deducciones_usd": redondear_usd(deducciones),
+            "neto_real_esperado_usd": redondear_usd(neto),
+        },
+        "items": items,
+    }
 
 
 @enrutador.post("/cuentas-por-cobrar/{cxc_id}/abono")
@@ -353,7 +441,7 @@ def liquidar_cashea(
     if destino is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Instrumento destino no encontrado.")
 
-    cuentas = (
+    cuentas_directas = (
         bd.query(CuentaPorCobrar)
         .filter(
             CuentaPorCobrar.id.in_(datos.cuentas_cashea_ids),
@@ -362,11 +450,29 @@ def liquidar_cashea(
         )
         .all()
     )
-    if not cuentas:
+    if not cuentas_directas:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="No se encontraron cuentas Cashea pendientes con los IDs indicados.",
         )
+
+    # Incluir cualquier fila CxC Cashea pendiente adicional asociada a las mismas ventas consolidadas
+    ventas_ids_lote = {c.venta_id for c in cuentas_directas if c.venta_id is not None}
+    if ventas_ids_lote:
+        cuentas = (
+            bd.query(CuentaPorCobrar)
+            .filter(
+                (CuentaPorCobrar.id.in_(datos.cuentas_cashea_ids))
+                | (CuentaPorCobrar.venta_id.in_(ventas_ids_lote)),
+                CuentaPorCobrar.tipo == TipoCuentaPorCobrar.CASHEA.value,
+                CuentaPorCobrar.estado == EstadoCuentaPorCobrar.PENDIENTE.value,
+            )
+            .all()
+        )
+    else:
+        cuentas = cuentas_directas
+
+    notas_unicas = len(ventas_ids_lote) if ventas_ids_lote else len(cuentas)
 
     total_bruto_usd = sum((c.saldo_pendiente_usd for c in cuentas), Decimal("0"))
     neto_usd = max(Decimal("0"), total_bruto_usd - datos.comision_usd - datos.impuestos_usd)
@@ -395,7 +501,7 @@ def liquidar_cashea(
             referencia=datos.referencia.strip(),
             estado_verificacion=EstadoVerificacionPago.CONFIRMADO.value,
             nota=(
-                f"Liquidación Cashea ({len(cuentas)} notas) · Bruto ${redondear_usd(total_bruto_usd):.2f} "
+                f"Liquidación Cashea ({notas_unicas} notas) · Bruto ${redondear_usd(total_bruto_usd):.2f} "
                 f"- Com ${redondear_usd(datos.comision_usd):.2f} - Imp ${redondear_usd(datos.impuestos_usd):.2f}"
             ),
         )
@@ -407,7 +513,7 @@ def liquidar_cashea(
 
     bd.commit()
     return {
-        "cuentas_liquidadas": len(cuentas),
+        "cuentas_liquidadas": notas_unicas,
         "total_bruto_usd": redondear_usd(total_bruto_usd),
         "neto_depositado_usd": redondear_usd(neto_usd),
         "monto_moneda_destino": redondear_usd(monto_origen),
