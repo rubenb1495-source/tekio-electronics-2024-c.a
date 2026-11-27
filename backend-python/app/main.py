@@ -18,7 +18,7 @@ from app import modelos_finanzas as _modelos_finanzas  # noqa: F401
 from app import modelos_logistica as _modelos_logistica  # noqa: F401
 from app import modelos_operaciones as _modelos_operaciones  # noqa: F401
 from app import modelos_taller as _modelos_taller  # noqa: F401
-from app.rutas import admin_finanzas, autenticacion, cashea_conciliacion, catalogo, contabilidad_prestamos, direccion_tesoreria, finanzas, liquidaciones_caja, logistica, operaciones, respaldo, taller, tasas, usuarios, ventas
+from app.rutas import admin_finanzas, autenticacion, cashea_conciliacion, catalogo, contabilidad_prestamos, direccion_tesoreria, finanzas, liquidaciones_caja, logistica, operaciones, recepcion_compras, respaldo, taller, tasas, usuarios, ventas
 from app.semilla import ejecutar_semilla
 from app.semilla_finanzas import ejecutar_semilla_finanzas
 from app.servicios.contabilidad_service import asegurar_plan_cuentas
@@ -162,6 +162,7 @@ def asegurar_columnas_compatibles() -> None:
             ("aduana_usd", "NUMERIC(14, 2) NOT NULL DEFAULT 0"),
             ("fecha_vencimiento", "DATE NULL"),
             ("saldo_pendiente_usd", "NUMERIC(14, 2) NOT NULL DEFAULT 0"),
+            ("cantidad_esperada", "INTEGER NOT NULL DEFAULT 0"),
         ]
         for nombre_col, ddl_col in nuevas_comp:
             if nombre_col not in columnas_comp:
@@ -174,6 +175,9 @@ def asegurar_columnas_compatibles() -> None:
         nuevas_eq = [
             ("es_consignacion", "BOOLEAN NOT NULL DEFAULT FALSE"),
             ("proveedor_consignacion_id", "INTEGER NULL"),
+            ("condicion_llegada", "VARCHAR(30) NOT NULL DEFAULT 'BUENO'"),
+            ("incluye_cargador", "BOOLEAN NOT NULL DEFAULT TRUE"),
+            ("observaciones_llegada", "TEXT NOT NULL DEFAULT ''"),
         ]
         for nombre_col, ddl_col in nuevas_eq:
             if nombre_col not in columnas_eq:
@@ -292,6 +296,7 @@ app.include_router(tasas.enrutador)
 app.include_router(catalogo.enrutador)
 app.include_router(logistica.enrutador)
 app.include_router(logistica.enrutador_inventario)
+app.include_router(recepcion_compras.enrutador)
 app.include_router(taller.enrutador)
 app.include_router(ventas.enrutador)
 app.include_router(finanzas.enrutador)

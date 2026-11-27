@@ -1,11 +1,13 @@
 "use client";
 
 import React, { useCallback, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import {
   AlertCircle,
   CheckCircle2,
   FileSpreadsheet,
   Plus,
+  ScanBarcode,
   ShoppingBag,
   Trash2,
   Upload,
@@ -476,6 +478,7 @@ export default function PaginaCompras() {
                   <th className="px-4 py-3 text-right">Equipos</th>
                   <th className="px-4 py-3 text-right">Monto USD</th>
                   <th className="px-4 py-3">Estado</th>
+                  <th className="px-4 py-3 text-right">Acciones</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
@@ -502,6 +505,15 @@ export default function PaginaCompras() {
                       <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-orange-50 text-[#C9461A]">
                         {c.estado}
                       </span>
+                    </td>
+                    <td className="px-4 py-3 text-right whitespace-nowrap">
+                      <Link
+                        href={`/dashboard/logistica/recepcion?compra_id=${c.id}`}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#FDF0EB] hover:bg-[#E85A28] text-[#E85A28] hover:text-white border border-[#E85A28]/30 text-xs font-bold transition-colors"
+                      >
+                        <ScanBarcode className="w-3.5 h-3.5" />
+                        Recibir / Cargar Seriales
+                      </Link>
                     </td>
                   </tr>
                 ))}

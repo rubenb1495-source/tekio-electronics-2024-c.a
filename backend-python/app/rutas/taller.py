@@ -427,6 +427,9 @@ def obtener_cola_taller(
             "dias_en_taller": dias,
             "repuesto_disponible": eq.id in repuestos_recibidos_ids,
             "repuestos_pendientes": repuestos_pendientes_map.get(eq.id, []),
+            "condicion_llegada": getattr(eq, "condicion_llegada", "BUENO"),
+            "incluye_cargador": getattr(eq, "incluye_cargador", True),
+            "observaciones_llegada": getattr(eq, "observaciones_llegada", ""),
             "nota": eq.nota,
         }
         if incluir_costos:

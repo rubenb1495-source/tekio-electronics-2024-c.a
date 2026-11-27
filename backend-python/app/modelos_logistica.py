@@ -149,6 +149,7 @@ class Compra(Base):
     aduana_usd: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=Decimal("0"), nullable=False)
     otros_gastos_usd: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=Decimal("0"), nullable=False)
     llega_preparada: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    cantidad_esperada: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     estado: Mapped[str] = mapped_column(String(25), default=EstadoCompra.PENDIENTE.value, nullable=False)
     nota: Mapped[str] = mapped_column(Text, default="", nullable=False)
     creado_por_id: Mapped[int | None] = mapped_column(ForeignKey("usuarios.id"), nullable=True)
@@ -240,6 +241,9 @@ class Equipo(Base):
     recibido_por_id: Mapped[int | None] = mapped_column(ForeignKey("usuarios.id"), nullable=True)
     verificado_por_id: Mapped[int | None] = mapped_column(ForeignKey("usuarios.id"), nullable=True)
     fecha_recepcion: Mapped[date | None] = mapped_column(Date, nullable=True)
+    condicion_llegada: Mapped[str] = mapped_column(String(30), default="BUENO", nullable=False)
+    incluye_cargador: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    observaciones_llegada: Mapped[str] = mapped_column(Text, default="", nullable=False)
     nota: Mapped[str] = mapped_column(Text, default="", nullable=False)
     creado_en: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
