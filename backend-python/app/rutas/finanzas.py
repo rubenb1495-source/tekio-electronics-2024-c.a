@@ -290,40 +290,6 @@ def listar_cuentas_por_cobrar(
     return _construir_filas_cxc_consolidadas(bd, tipo=tipo, estado=estado)
 
 
-@enrutador.get("/cashea")
-def resumen_conciliacion_cashea(
-    estado: EstadoCuentaPorCobrar | None = Query(default=EstadoCuentaPorCobrar.PENDIENTE),
-    _usuario: Usuario = Depends(require_permiso(Permiso.VER_FINANZAS_GLOBALES)),
-    bd: Session = Depends(obtener_bd),
-) -> dict[str, Any]:
-    """Devuelve exactamente 1 fila única por venta Cashea y los KPIs consolidados sobre notas únicas."""
-    items = _construir_filas_cxc_consolidadas(
-        bd,
-        tipo=TipoCuentaPorCobrar.CASHEA,
-        estado=estado,
-    )
-    financiado = sum((Decimal(str(i["saldo_pendiente_usd"])) for i in items), Decimal("0.00"))
-    com_tot = sum((Decimal(str(i["comision_cashea_venta_total_usd"])) for i in items), Decimal("0.00"))
-    com_fin = sum((Decimal(str(i["comision_cashea_financiado_usd"])) for i in items), Decimal("0.00"))
-    iva = sum((Decimal(str(i["iva_cashea_usd"])) for i in items), Decimal("0.00"))
-    islr = sum((Decimal(str(i["islr_cashea_usd"])) for i in items), Decimal("0.00"))
-    deducciones = sum((Decimal(str(i["total_deducciones_cashea_usd"])) for i in items), Decimal("0.00"))
-    neto = sum((Decimal(str(i["neto_esperado_cashea_usd"])) for i in items), Decimal("0.00"))
-    return {
-        "total_notas": len(items),
-        "kpis": {
-            "financiado_bruto_usd": redondear_usd(financiado),
-            "comision_venta_total_usd": redondear_usd(com_tot),
-            "comision_financiado_usd": redondear_usd(com_fin),
-            "iva_cashea_usd": redondear_usd(iva),
-            "islr_cashea_usd": redondear_usd(islr),
-            "total_deducciones_usd": redondear_usd(deducciones),
-            "neto_real_esperado_usd": redondear_usd(neto),
-        },
-        "items": items,
-    }
-
-
 @enrutador.post("/cuentas-por-cobrar/{cxc_id}/abono")
 def registrar_abono_cxc(
     cxc_id: int,

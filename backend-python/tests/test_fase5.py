@@ -1020,6 +1020,7 @@ def test_liquidacion_comisiones_egreso_antiduplicados_y_cierre_caja_pdf(cliente:
             "sucursal_id": 1,
             "cliente_id": ctx["cliente_id"],
             "asesor_id": ctx["asesora_id"],
+            "cashea_numero_orden": "CSH-FASE5-001",
             "items": [{"equipo_id": ctx["eq_dell_1"], "cantidad": 1}],
             "pagos": [
                 {"instrumento_id": inst_ef_usd["id"], "monto_moneda_origen": 288.0},

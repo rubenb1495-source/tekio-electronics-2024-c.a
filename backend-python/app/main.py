@@ -18,7 +18,7 @@ from app import modelos_finanzas as _modelos_finanzas  # noqa: F401
 from app import modelos_logistica as _modelos_logistica  # noqa: F401
 from app import modelos_operaciones as _modelos_operaciones  # noqa: F401
 from app import modelos_taller as _modelos_taller  # noqa: F401
-from app.rutas import admin_finanzas, autenticacion, catalogo, contabilidad_prestamos, direccion_tesoreria, finanzas, liquidaciones_caja, logistica, operaciones, respaldo, taller, tasas, usuarios, ventas
+from app.rutas import admin_finanzas, autenticacion, cashea_conciliacion, catalogo, contabilidad_prestamos, direccion_tesoreria, finanzas, liquidaciones_caja, logistica, operaciones, respaldo, taller, tasas, usuarios, ventas
 from app.semilla import ejecutar_semilla
 from app.semilla_finanzas import ejecutar_semilla_finanzas
 from app.servicios.contabilidad_service import asegurar_plan_cuentas
@@ -54,6 +54,7 @@ def asegurar_columnas_compatibles() -> None:
                     )
     if inspector.has_table("ventas"):
         columnas_vta = {col["name"] for col in inspector.get_columns("ventas")}
+        tipo_ts_vta = "TIMESTAMPTZ" if motor.dialect.name == "postgresql" else "DATETIME"
         nuevas_ventas = [
             ("datos_entrega_json", "TEXT NOT NULL DEFAULT ''"),
             ("precio_regular_bs", "NUMERIC(16, 2) NOT NULL DEFAULT 0"),
@@ -64,6 +65,13 @@ def asegurar_columnas_compatibles() -> None:
             ("islr_cashea_usd", "NUMERIC(14, 2) NOT NULL DEFAULT 0"),
             ("total_deducciones_cashea_usd", "NUMERIC(14, 2) NOT NULL DEFAULT 0"),
             ("neto_esperado_cashea_usd", "NUMERIC(14, 2) NOT NULL DEFAULT 0"),
+            ("cashea_numero_orden", "VARCHAR(64) NULL"),
+            ("cashea_estado_conciliacion", "VARCHAR(20) NOT NULL DEFAULT 'PENDIENTE'"),
+            ("cashea_fecha_conciliacion", f"{tipo_ts_vta} NULL"),
+            ("cashea_monto_pagado_real_usd", "NUMERIC(14, 2) NULL"),
+            ("cashea_descuento_real_usd", "NUMERIC(14, 2) NULL"),
+            ("cashea_diferencia_usd", "NUMERIC(14, 2) NULL"),
+            ("cashea_lote_liquidacion_id", "INTEGER NULL"),
         ]
         for nombre_col, ddl_col in nuevas_ventas:
             if nombre_col not in columnas_vta:
@@ -275,6 +283,7 @@ app.include_router(logistica.enrutador_inventario)
 app.include_router(taller.enrutador)
 app.include_router(ventas.enrutador)
 app.include_router(finanzas.enrutador)
+app.include_router(cashea_conciliacion.enrutador)
 app.include_router(liquidaciones_caja.enrutador)
 app.include_router(operaciones.enrutador)
 app.include_router(direccion_tesoreria.enrutador)

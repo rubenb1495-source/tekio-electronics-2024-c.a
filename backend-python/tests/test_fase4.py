@@ -411,6 +411,7 @@ def test_venta_cashea_con_inicial_divisas_aplica_precio_regular_estricto(cliente
         json={
             "sucursal_id": central_id,
             "asesor_id": asesora_u["id"],
+            "cashea_numero_orden": "CSH-FASE4-001",
             "items": [{"equipo_id": eq["id"]}],
             "pagos": [
                 {"instrumento_id": insts["Efectivo divisas"], "monto_moneda_origen": 100.0},
@@ -444,6 +445,7 @@ def test_venta_cashea_con_inicial_divisas_aplica_precio_regular_estricto(cliente
         json={
             "sucursal_id": central_id,
             "asesor_id": asesora_u["id"],
+            "cashea_numero_orden": "CSH-FASE4-001",
             "items": [{"equipo_id": eq["id"]}],
             "pagos": [
                 {"instrumento_id": insts["Efectivo divisas"], "monto_moneda_origen": 100.0},

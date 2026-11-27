@@ -86,6 +86,8 @@ export interface VentaResumen {
     estado_verificacion: "CONFIRMADO" | "PENDIENTE";
     anulado: boolean;
   }[];
+  cashea_numero_orden?: string | null;
+  cashea_estado_conciliacion?: "PENDIENTE" | "CONCILIADO";
 }
 
 export interface NotaCreditoResumen {
@@ -141,6 +143,100 @@ export interface CuentaPorCobrarResumen {
   total_deducciones_cashea_usd?: number;
   neto_esperado_cashea_usd?: number;
   estado: "PENDIENTE" | "PAGADA" | "ANULADA";
+}
+
+export interface CasheaItemConciliacion {
+  id: number;
+  venta_id: number;
+  numero_venta: string;
+  cashea_numero_orden: string | null;
+  sucursal_id: number;
+  sucursal: string;
+  fecha_venta: string;
+  cliente: string;
+  total_regular_usd: number;
+  precio_regular_bs: number;
+  inicial_usd: number;
+  monto_original_usd: number;
+  saldo_pendiente_usd: number;
+  comision_cashea_venta_total_usd: number;
+  comision_cashea_financiado_usd: number;
+  iva_cashea_usd: number;
+  islr_cashea_usd: number;
+  total_deducciones_cashea_usd: number;
+  neto_esperado_cashea_usd: number;
+  cashea_monto_pagado_real_usd: number | null;
+  cashea_descuento_real_usd: number | null;
+  cashea_diferencia_usd: number | null;
+  cashea_estado_conciliacion: "PENDIENTE" | "CONCILIADO";
+  estado: "PENDIENTE" | "CONCILIADO";
+  cashea_fecha_conciliacion: string | null;
+  cashea_lote_liquidacion_id: number | null;
+}
+
+export interface CasheaConciliacionRespuesta {
+  total_notas: number;
+  conteo: {
+    todos: number;
+    pendientes: number;
+    conciliados: number;
+  };
+  kpis: {
+    financiado_bruto_usd: number;
+    comision_venta_total_usd: number;
+    comision_financiado_usd: number;
+    iva_cashea_usd: number;
+    islr_cashea_usd: number;
+    total_deducciones_usd: number;
+    neto_real_esperado_usd: number;
+    pagado_real_usd: number;
+    descuento_real_usd: number;
+    diferencia_neta_usd: number;
+  };
+  items: CasheaItemConciliacion[];
+}
+
+export interface CasheaPreviewFila {
+  fila_archivo: number;
+  estado_cruce: "LISTA_PARA_CONCILIAR" | "YA_CONCILIADA" | "NO_ENCONTRADA";
+  cashea_numero_orden: string;
+  venta_id: number | null;
+  numero_venta: string | null;
+  cliente: string | null;
+  sucursal: string | null;
+  financiado_tekio_usd: number | null;
+  neto_esperado_tekio_usd: number | null;
+  descuento_esperado_tekio_usd: number | null;
+  bruto_reporte_usd: number | null;
+  monto_pagado_real_usd: number;
+  descuento_real_usd: number;
+  diferencia_usd: number | null;
+  fecha_pago_archivo: string;
+  referencia_archivo: string;
+}
+
+export interface CasheaPreviewRespuesta {
+  nombre_archivo: string;
+  encabezados_detectados: string[];
+  mapeo_detectado: {
+    col_orden: string | null;
+    col_bruto: string | null;
+    col_neto: string | null;
+    cols_descuento: string[];
+    col_fecha: string | null;
+    col_ref_banco: string | null;
+  };
+  resumen: {
+    total_filas: number;
+    listas_para_conciliar: number;
+    ya_conciliadas: number;
+    no_encontradas: number;
+    total_a_cobrar_real_usd: number;
+    total_descuentos_reales_usd: number;
+    total_neto_esperado_usd: number;
+    diferencia_neta_usd: number;
+  };
+  filas: CasheaPreviewFila[];
 }
 
 export interface ResultadoConciliacion {

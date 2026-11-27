@@ -52,6 +52,7 @@ class VentaCrearEntrada(BaseModel):
     pagos: list[PagoVentaEntrada] = Field(default_factory=list)
     vuelto_usd: Decimal = Field(default=Decimal("0"), ge=0)
     queda_con_saldo: bool = False
+    cashea_numero_orden: str | None = Field(default=None, max_length=64)
     nota: str = Field(default="", max_length=1000)
     cotizacion_id: int | None = None
 
@@ -98,3 +99,23 @@ class CruceManualEntrada(BaseModel):
 class CierreMensualEntrada(BaseModel):
     anio: int = Field(ge=2020, le=2100)
     mes: int = Field(ge=1, le=12)
+
+
+class CasheaOrdenActualizarEntrada(BaseModel):
+    cashea_numero_orden: str = Field(min_length=1, max_length=64)
+
+
+class CasheaConfirmarOrdenItem(BaseModel):
+    venta_id: int
+    cashea_numero_orden: str = Field(min_length=1, max_length=64)
+    monto_pagado_real_usd: Decimal = Field(ge=0)
+    descuento_real_usd: Decimal = Field(default=Decimal("0"), ge=0)
+
+
+class CasheaImportarConfirmarEntrada(BaseModel):
+    nombre_archivo: str = Field(default="reporte_cashea.xlsx", max_length=255)
+    instrumento_destino_id: int
+    fecha_deposito: date
+    referencia_bancaria: str = Field(default="", max_length=120)
+    tasa_bcv_dia: Decimal | None = Field(default=None, gt=0)
+    ordenes: list[CasheaConfirmarOrdenItem] = Field(min_length=1)

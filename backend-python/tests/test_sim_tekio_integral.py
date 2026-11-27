@@ -255,6 +255,7 @@ def test_sim_tekio_ciclo_integral_completo_y_cuadre_cero(cliente: TestClient) ->
             "sucursal_id": 2,
             "fecha": hoy_str,
             "asesor_id": ctx["asesora_id"],
+            "cashea_numero_orden": "CSH-SIM-001",
             "items": [{"equipo_id": eq2_id, "cantidad": 1, "precio_pactado_usd": 400}],
             "pagos": [
                 {"instrumento_id": inst_usd["id"], "monto_moneda_origen": inicial_c},

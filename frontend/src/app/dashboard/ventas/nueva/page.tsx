@@ -174,6 +174,7 @@ export default function PaginaNuevaVentaPOS() {
   ]);
 
   const [simulacion, setSimulacion] = useState<SimulacionVenta | null>(null);
+  const [casheaNumeroOrden, setCasheaNumeroOrden] = useState("");
   const [guardando, setGuardando] = useState(false);
   const [ventaCreada, setVentaCreada] = useState<VentaResumen | null>(null);
   const [copiado, setCopiado] = useState(false);
@@ -739,6 +740,7 @@ export default function PaginaNuevaVentaPOS() {
           })),
           pagos: pagosValidos,
           queda_con_saldo: quedaConSaldo,
+          cashea_numero_orden: usaCasheaLocal ? casheaNumeroOrden.trim().toUpperCase() : null,
           nota: nota.trim(),
           cotizacion_id: cotizacionOrigenId,
         }),
@@ -800,6 +802,7 @@ export default function PaginaNuevaVentaPOS() {
 
   const iniciarNuevaVenta = () => {
     setVentaCreada(null);
+    setCasheaNumeroOrden("");
     setCopiado(false);
     setError(null);
     setCarrito([]);
@@ -2009,18 +2012,37 @@ export default function PaginaNuevaVentaPOS() {
                     />
                   </div>
 
-                  {esCasheaFila && carrito.length > 0 && (
-                    <div className="flex flex-wrap items-center justify-between gap-1 text-[11px] font-semibold text-orange-900 bg-white/80 rounded-lg px-2.5 py-1.5 border border-orange-200">
-                      <span>
-                        Financiado auto:{" "}
-                        <strong>{formatearUsd(casheaFinanciadoAutoUsd)}</strong>{" "}
-                        USD Regular
-                      </span>
-                      <span>
-                        {casheaFinanciadoAutoBs !== null
-                          ? `≈ ${formatearBs(casheaFinanciadoAutoBs)} (BCV)`
-                          : "Registra tasa BCV"}
-                      </span>
+                  {esCasheaFila && (
+                    <div className="space-y-1.5 rounded-lg bg-white/90 border border-[#E85A28]/40 p-2.5">
+                      <label className="block text-[11px] font-black uppercase tracking-wider text-[#E85A28]">
+                        Nro. de Orden Cashea *
+                      </label>
+                      <input
+                        type="text"
+                        required
+                        value={casheaNumeroOrden}
+                        onChange={(e) => setCasheaNumeroOrden(e.target.value.toUpperCase())}
+                        placeholder="Ej. CSH-984512 (obligatorio de la app/portal Cashea)"
+                        className={`w-full px-2.5 py-1.5 rounded-lg border text-xs font-mono font-bold bg-white ${
+                          !casheaNumeroOrden.trim()
+                            ? "border-red-400 focus:border-[#E85A28]"
+                            : "border-emerald-400"
+                        }`}
+                      />
+                      {carrito.length > 0 && (
+                        <div className="flex flex-wrap items-center justify-between gap-1 text-[11px] font-semibold text-orange-900 pt-1">
+                          <span>
+                            Financiado auto:{" "}
+                            <strong>{formatearUsd(casheaFinanciadoAutoUsd)}</strong>{" "}
+                            USD Regular
+                          </span>
+                          <span>
+                            {casheaFinanciadoAutoBs !== null
+                              ? `≈ ${formatearBs(casheaFinanciadoAutoBs)} (BCV)`
+                              : "Registra tasa BCV"}
+                          </span>
+                        </div>
+                      )}
                     </div>
                   )}
 
@@ -2142,13 +2164,20 @@ export default function PaginaNuevaVentaPOS() {
 
           <button
             type="submit"
-            disabled={guardando || carrito.length === 0 || ventaCreada !== null}
+            disabled={
+              guardando ||
+              carrito.length === 0 ||
+              ventaCreada !== null ||
+              (usaCasheaLocal && !casheaNumeroOrden.trim())
+            }
             className="w-full py-3 rounded-xl bg-[#E85A28] hover:bg-[#C9461A] disabled:opacity-50 disabled:cursor-not-allowed text-white font-black text-sm cursor-pointer transition-colors"
           >
             {guardando
               ? "Registrando venta..."
               : ventaCreada
               ? `Nota ${ventaCreada.numero_venta} emitida · Usa el panel inferior`
+              : usaCasheaLocal && !casheaNumeroOrden.trim()
+              ? "Ingresa el Nro. de Orden Cashea para emitir"
               : "Confirmar y Emitir Nota"}
           </button>
         </div>

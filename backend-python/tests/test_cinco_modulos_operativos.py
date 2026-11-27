@@ -187,6 +187,7 @@ def test_matematica_cashea_trackings_recepcion_pdf_nomina_y_utilidades(
             "sucursal_id": 1,
             "fecha": hoy_str,
             "asesor_id": ctx["asesora_id"],
+            "cashea_numero_orden": "CSH-5MOD-001",
             "items": [{"equipo_id": eq["id"], "cantidad": 1, "precio_pactado_usd": 500}],
             "pagos": [
                 {"instrumento_id": inst_usd["id"], "monto_moneda_origen": inicial},

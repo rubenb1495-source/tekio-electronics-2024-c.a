@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import date
 from decimal import Decimal, ROUND_HALF_UP
 import json
+import re
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
@@ -612,6 +613,8 @@ def serializar_venta(venta: Venta, incluir_costos: bool) -> dict[str, Any]:
         datos["islr_cashea_usd"] = redondear_usd(getattr(venta, "islr_cashea_usd", Decimal("0")) or Decimal("0"))
         datos["total_deducciones_cashea_usd"] = redondear_usd(getattr(venta, "total_deducciones_cashea_usd", Decimal("0")) or Decimal("0"))
         datos["neto_esperado_cashea_usd"] = redondear_usd(getattr(venta, "neto_esperado_cashea_usd", Decimal("0")) or Decimal("0"))
+    datos["cashea_numero_orden"] = getattr(venta, "cashea_numero_orden", None)
+    datos["cashea_estado_conciliacion"] = getattr(venta, "cashea_estado_conciliacion", "PENDIENTE")
     return datos
 
 
@@ -824,6 +827,36 @@ def crear_venta(
             detail=mensaje_faltante,
         )
 
+    cashea_orden_norm: str | None = None
+    if calc["usa_cashea"]:
+        orden_cruda = (datos.cashea_numero_orden or "").strip()
+        if not orden_cruda:
+            for p_calc in calc["pagos"]:
+                if "cashea" in p_calc["instrumento"].nombre.lower():
+                    ref_p = (p_calc["entrada"].referencia or "").strip()
+                    if ref_p:
+                        orden_cruda = ref_p
+                        break
+        cashea_orden_norm = re.sub(r"\s+", "", orden_cruda).upper()
+        if not cashea_orden_norm:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="El número de orden de Cashea es obligatorio.",
+            )
+        dup_cashea = (
+            bd.query(Venta)
+            .filter(
+                func.upper(Venta.cashea_numero_orden) == cashea_orden_norm,
+                Venta.estado != EstadoVenta.ANULADA.value,
+            )
+            .first()
+        )
+        if dup_cashea is not None:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"Ese número de orden de Cashea ya está registrado en la nota {dup_cashea.numero_venta}.",
+            )
+
     numero_venta = generar_correlativo_corto(bd, Venta, Venta.numero_venta, "N")
     venta = Venta(
         numero_venta=numero_venta,
@@ -854,6 +887,8 @@ def crear_venta(
         islr_cashea_usd=calc["islr_cashea_usd"],
         total_deducciones_cashea_usd=calc["total_deducciones_cashea_usd"],
         neto_esperado_cashea_usd=calc["neto_esperado_cashea_usd"],
+        cashea_numero_orden=cashea_orden_norm,
+        cashea_estado_conciliacion="PENDIENTE",
         vuelto_caja_chica_usd=datos.vuelto_usd,
         es_factura=datos.es_factura,
         numero_control=datos.numero_control.strip(),

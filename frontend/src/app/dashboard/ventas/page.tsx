@@ -197,7 +197,12 @@ export default function PaginaHistorialVentas() {
                 {ventasFiltradas.map((v) => (
                   <tr key={v.id} className="hover:bg-slate-50">
                     <td className="px-4 py-3 font-mono font-bold text-slate-900">
-                      {v.numero_venta}
+                      <p>{v.numero_venta}</p>
+                      {v.cashea_numero_orden && (
+                        <p className="text-[10px] font-semibold text-[#E85A28]">
+                          Cashea #{v.cashea_numero_orden}
+                        </p>
+                      )}
                     </td>
                     <td className="px-4 py-3 text-xs">
                       <p className="font-semibold">{v.fecha}</p>
