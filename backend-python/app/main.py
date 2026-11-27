@@ -69,6 +69,15 @@ def asegurar_columnas_compatibles() -> None:
         tipo_ts_vta = "TIMESTAMPTZ" if motor.dialect.name == "postgresql" else "DATETIME"
         nuevas_ventas = [
             ("datos_entrega_json", "TEXT NOT NULL DEFAULT ''"),
+            ("envio_destinatario_nombre", "VARCHAR(180) NOT NULL DEFAULT ''"),
+            ("envio_destinatario_documento", "VARCHAR(60) NOT NULL DEFAULT ''"),
+            ("envio_destinatario_telefono", "VARCHAR(60) NOT NULL DEFAULT ''"),
+            ("envio_agencia_courier", "VARCHAR(100) NOT NULL DEFAULT ''"),
+            ("envio_direccion_o_agencia", "TEXT NOT NULL DEFAULT ''"),
+            ("envio_ciudad_estado", "VARCHAR(140) NOT NULL DEFAULT ''"),
+            ("envio_referencia", "VARCHAR(255) NOT NULL DEFAULT ''"),
+            ("envio_modalidad_pago", "VARCHAR(40) NOT NULL DEFAULT ''"),
+            ("envio_notas", "TEXT NOT NULL DEFAULT ''"),
             ("precio_regular_bs", "NUMERIC(16, 2) NOT NULL DEFAULT 0"),
             ("monto_financiado_cashea_usd", "NUMERIC(14, 2) NOT NULL DEFAULT 0"),
             ("comision_cashea_venta_total_usd", "NUMERIC(14, 2) NOT NULL DEFAULT 0"),

@@ -42,8 +42,17 @@ class VentaCrearEntrada(BaseModel):
     asesor_id: int | None = None
     tecnico_id: int | None = None
     canal_visita: str = Field(default="Tienda", max_length=60)
-    entrega: str = Field(default="Tienda", max_length=60)
+    entrega: str = Field(default="RETIRO_TIENDA", max_length=60)
     datos_entrega: dict[str, Any] | None = None
+    envio_destinatario_nombre: str | None = Field(default=None, max_length=180)
+    envio_destinatario_documento: str | None = Field(default=None, max_length=60)
+    envio_destinatario_telefono: str | None = Field(default=None, max_length=60)
+    envio_agencia_courier: str | None = Field(default=None, max_length=100)
+    envio_direccion_o_agencia: str | None = Field(default=None, max_length=500)
+    envio_ciudad_estado: str | None = Field(default=None, max_length=140)
+    envio_referencia: str | None = Field(default=None, max_length=255)
+    envio_modalidad_pago: str | None = Field(default=None, max_length=40)
+    envio_notas: str | None = Field(default=None, max_length=500)
     origen_equipo: str = Field(default="Propio", max_length=60)
     es_factura: bool = False
     numero_control: str = Field(default="", max_length=60)

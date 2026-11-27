@@ -62,6 +62,11 @@ from app.rutas.tasas import obtener_fecha_hoy
 from app.core.permisos import Permiso, require_permiso, sanear_respuesta_costos
 from app.seguridad import obtener_usuario_actual, puede_ver_costos
 from app.servicios.auditoria_service import registrar_auditoria
+from app.servicios.pdf_etiqueta_envio import (
+    extraer_datos_envio_entrada,
+    generar_pdf_etiqueta_envio,
+    normalizar_tipo_entrega,
+)
 from app.servicios.pdf_nota import generar_pdf_nota_entrega
 
 
@@ -514,12 +519,21 @@ def serializar_venta(venta: Venta, incluir_costos: bool) -> dict[str, Any]:
         "tecnico_id": venta.tecnico_id,
         "tecnico": venta.tecnico.nombre if venta.tecnico else None,
         "canal_visita": venta.canal_visita,
-        "tipo_entrega": venta.tipo_entrega,
+        "tipo_entrega": normalizar_tipo_entrega(venta.tipo_entrega),
         "datos_entrega": (
             json.loads(venta.datos_entrega_json)
             if getattr(venta, "datos_entrega_json", "")
             else None
         ),
+        "envio_destinatario_nombre": getattr(venta, "envio_destinatario_nombre", "") or "",
+        "envio_destinatario_documento": getattr(venta, "envio_destinatario_documento", "") or "",
+        "envio_destinatario_telefono": getattr(venta, "envio_destinatario_telefono", "") or "",
+        "envio_agencia_courier": getattr(venta, "envio_agencia_courier", "") or "",
+        "envio_direccion_o_agencia": getattr(venta, "envio_direccion_o_agencia", "") or "",
+        "envio_ciudad_estado": getattr(venta, "envio_ciudad_estado", "") or "",
+        "envio_referencia": getattr(venta, "envio_referencia", "") or "",
+        "envio_modalidad_pago": getattr(venta, "envio_modalidad_pago", "") or "",
+        "envio_notas": getattr(venta, "envio_notas", "") or "",
         "tasa_bcv_snapshot": float(venta.tasa_bcv_snapshot),
         "tasa_usdt_snapshot": float(venta.tasa_usdt_snapshot),
         "recargo_porcentaje_snapshot": float(venta.recargo_porcentaje_snapshot),
@@ -857,6 +871,21 @@ def crear_venta(
                 detail=f"Ese número de orden de Cashea ya está registrado en la nota {dup_cashea.numero_venta}.",
             )
 
+    tipo_entrega_norm = normalizar_tipo_entrega(datos.entrega)
+    campos_envio = extraer_datos_envio_entrada(
+        tipo_entrega_norm,
+        datos.datos_entrega,
+        envio_destinatario_nombre=datos.envio_destinatario_nombre,
+        envio_destinatario_documento=datos.envio_destinatario_documento,
+        envio_destinatario_telefono=datos.envio_destinatario_telefono,
+        envio_agencia_courier=datos.envio_agencia_courier,
+        envio_direccion_o_agencia=datos.envio_direccion_o_agencia,
+        envio_ciudad_estado=datos.envio_ciudad_estado,
+        envio_referencia=datos.envio_referencia,
+        envio_modalidad_pago=datos.envio_modalidad_pago,
+        envio_notas=datos.envio_notas,
+    )
+
     numero_venta = generar_correlativo_corto(bd, Venta, Venta.numero_venta, "N")
     venta = Venta(
         numero_venta=numero_venta,
@@ -866,12 +895,13 @@ def crear_venta(
         asesor_id=datos.asesor_id,
         tecnico_id=datos.tecnico_id,
         canal_visita=datos.canal_visita.strip(),
-        tipo_entrega=datos.entrega.strip(),
+        tipo_entrega=tipo_entrega_norm,
         datos_entrega_json=(
             json.dumps(datos.datos_entrega, ensure_ascii=False)
             if datos.datos_entrega
             else ""
         ),
+        **campos_envio,
         origen_equipo=datos.origen_equipo.strip(),
         tasa_bcv_snapshot=calc["tasa_bcv"],
         tasa_usdt_snapshot=calc["tasa_usdt"],
@@ -1214,6 +1244,42 @@ def descargar_nota_entrega_pdf(
         content=pdf_bytes,
         media_type="application/pdf",
         headers={"Content-Disposition": f'attachment; filename="Nota_{venta.numero_venta}.pdf"'},
+    )
+
+
+@enrutador.get("/ventas/{venta_id}/etiqueta-envio-pdf")
+def descargar_etiqueta_envio_pdf(
+    venta_id: int,
+    bultos: int | None = Query(default=None, ge=1, le=99),
+    _usuario: Usuario = Depends(obtener_usuario_actual),
+    bd: Session = Depends(obtener_bd),
+) -> Response:
+    venta = (
+        bd.query(Venta)
+        .options(
+            joinedload(Venta.sucursal),
+            joinedload(Venta.cliente),
+        )
+        .filter(Venta.id == venta_id)
+        .first()
+    )
+    if venta is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Venta no encontrada.")
+
+    tipo_norm = normalizar_tipo_entrega(venta.tipo_entrega)
+    if tipo_norm not in ("DELIVERY", "ENVIO_NACIONAL"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Esta venta es de retiro en tienda y no tiene envío ni delivery asociado.",
+        )
+
+    pdf_bytes = generar_pdf_etiqueta_envio(venta, bultos=bultos)
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f'inline; filename="Etiqueta_Envio_{venta.numero_venta}.pdf"'
+        },
     )
 
 

@@ -52,6 +52,15 @@ export interface VentaResumen {
   canal_visita: string;
   tipo_entrega: string;
   datos_entrega?: Record<string, string> | null;
+  envio_destinatario_nombre?: string;
+  envio_destinatario_documento?: string;
+  envio_destinatario_telefono?: string;
+  envio_agencia_courier?: string;
+  envio_direccion_o_agencia?: string;
+  envio_ciudad_estado?: string;
+  envio_referencia?: string;
+  envio_modalidad_pago?: string;
+  envio_notas?: string;
   tasa_bcv_snapshot: number;
   tasa_usdt_snapshot: number;
   recargo_porcentaje_snapshot: number;

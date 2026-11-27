@@ -2245,7 +2245,7 @@ export default function PaginaNuevaVentaPOS() {
               {/* Columna izquierda: Impresión y descarga PDF */}
               <div className="lg:col-span-5 space-y-3">
                 <p className="text-xs font-bold uppercase tracking-wide text-neutral-500">
-                  Nota de Entrega PDF
+                  Documentos PDF para Imprimir
                 </p>
                 <div className="flex flex-col sm:flex-row lg:flex-col gap-2.5">
                   <button
@@ -2255,8 +2255,35 @@ export default function PaginaNuevaVentaPOS() {
                     className="w-full inline-flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-[#E85A28] hover:bg-[#D14D1F] disabled:opacity-60 text-white text-sm font-black shadow-sm transition-colors cursor-pointer"
                   >
                     <Printer className="w-4 h-4" />
-                    {abriendoPdf ? "Abriendo PDF..." : "Imprimir Nota"}
+                    {abriendoPdf ? "Abriendo PDF..." : "Imprimir Nota de Entrega (PDF)"}
                   </button>
+                  {["DELIVERY", "ENVIO_NACIONAL", "ENVIO"].includes(
+                    (ventaCreada.tipo_entrega || "").toUpperCase()
+                  ) && (
+                    <button
+                      type="button"
+                      disabled={abriendoPdf}
+                      onClick={() => {
+                        setError(null);
+                        setAbriendoPdf(true);
+                        void abrirPdfEnPestanaApi(
+                          `/api/ventas/${ventaCreada.id}/etiqueta-envio-pdf`
+                        )
+                          .catch((err) => {
+                            setError(
+                              err instanceof ErrorApi
+                                ? err.message
+                                : "No se pudo abrir la Etiqueta de Envío."
+                            );
+                          })
+                          .finally(() => setAbriendoPdf(false));
+                      }}
+                      className="w-full inline-flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-[#E85A28] hover:bg-[#D14D1F] disabled:opacity-60 text-white text-xs sm:text-sm font-black shadow-sm ring-2 ring-[#E85A28]/25 transition-colors cursor-pointer"
+                    >
+                      <Printer className="w-4 h-4" />
+                      Imprimir Etiqueta de Envío — Hoja Carta (FRÁGIL)
+                    </button>
+                  )}
                   <button
                     type="button"
                     onClick={() =>
@@ -2272,7 +2299,7 @@ export default function PaginaNuevaVentaPOS() {
                   </button>
                 </div>
                 <p className="text-[11px] text-neutral-500 leading-relaxed">
-                  El botón <strong>Imprimir Nota</strong> abre el documento oficial en una pestaña nueva listo para imprimir sin perder esta pantalla.
+                  Los botones de impresión abren cada documento oficial en una pestaña nueva listo para imprimir sin perder esta pantalla.
                 </p>
               </div>
 

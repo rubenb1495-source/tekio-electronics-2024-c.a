@@ -9,6 +9,7 @@ import {
   Copy,
   FileDown,
   Plus,
+  Printer,
   Receipt,
   RotateCcw,
 } from "lucide-react";
@@ -20,6 +21,7 @@ import {
 } from "@/lib/whatsapp";
 import {
   ErrorApi,
+  abrirPdfEnPestanaApi,
   descargarPdfApi,
   formatearUsd,
   solicitarApi,
@@ -245,6 +247,23 @@ export default function PaginaHistorialVentas() {
                         <FileDown className="w-3.5 h-3.5" />
                         PDF
                       </button>
+                      {["DELIVERY", "ENVIO_NACIONAL", "ENVIO"].includes(
+                        (v.tipo_entrega || "").toUpperCase()
+                      ) && (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            void abrirPdfEnPestanaApi(
+                              `/api/ventas/${v.id}/etiqueta-envio-pdf`
+                            )
+                          }
+                          title="Imprimir Etiqueta de Envío en hoja Carta (FRÁGIL)"
+                          className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border border-[#E85A28]/50 bg-[#FDF0EB] hover:bg-[#E85A28] text-[#E85A28] hover:text-white text-xs font-bold transition-colors cursor-pointer"
+                        >
+                          <Printer className="w-3.5 h-3.5" />
+                          Etiqueta Envío (Carta)
+                        </button>
+                      )}
                       <button
                         type="button"
                         onClick={() => void copiarWhatsApp(v)}

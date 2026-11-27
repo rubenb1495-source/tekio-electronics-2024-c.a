@@ -142,13 +142,33 @@ def _dibujar_encabezado(pdf: canvas.Canvas, ancho: float, alto: float, venta: Ve
 
 def _parsear_datos_entrega(venta: Venta) -> dict[str, Any] | None:
     raw = getattr(venta, "datos_entrega_json", "") or ""
-    if not raw.strip():
-        return None
-    try:
-        parsed = json.loads(raw)
-        return parsed if isinstance(parsed, dict) and any(str(v or "").strip() for v in parsed.values()) else None
-    except Exception:
-        return None
+    parsed: dict[str, Any] = {}
+    if raw.strip():
+        try:
+            obj = json.loads(raw)
+            if isinstance(obj, dict):
+                parsed = dict(obj)
+        except Exception:
+            parsed = {}
+
+    # Complementar con columnas estructuradas envio_* si existen en la venta
+    es_envio = "env" in (getattr(venta, "tipo_entrega", "") or "").lower()
+    mapeo = {
+        "destinatario" if es_envio else "nombre_recibe": getattr(venta, "envio_destinatario_nombre", ""),
+        "cedula": getattr(venta, "envio_destinatario_documento", ""),
+        "telefono": getattr(venta, "envio_destinatario_telefono", ""),
+        "empresa_envio": getattr(venta, "envio_agencia_courier", ""),
+        "direccion_oficina" if es_envio else "direccion": getattr(venta, "envio_direccion_o_agencia", ""),
+        "estado_ciudad" if es_envio else "zona_municipio": getattr(venta, "envio_ciudad_estado", ""),
+        "punto_referencia": getattr(venta, "envio_referencia", ""),
+        "modalidad": getattr(venta, "envio_modalidad_pago", ""),
+        "horario_instrucciones": getattr(venta, "envio_notas", ""),
+    }
+    for k, v in mapeo.items():
+        if str(v or "").strip() and not str(parsed.get(k) or "").strip():
+            parsed[k] = str(v).strip()
+
+    return parsed if any(str(v or "").strip() for v in parsed.values()) else None
 
 
 def _dibujar_bloque_entrega(
