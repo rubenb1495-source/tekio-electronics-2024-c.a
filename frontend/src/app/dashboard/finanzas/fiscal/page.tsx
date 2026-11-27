@@ -16,6 +16,7 @@ import {
   formatearUsd,
   solicitarApi,
 } from "@/servicios/api";
+import { EMPRESA_TEKIO } from "@/lib/empresa";
 
 interface DocFiscal {
   id: number;
@@ -176,10 +177,10 @@ export default function PaginaFiscalSeniat() {
         <div className="flex flex-wrap items-center gap-2 text-xs">
           <input type="date" value={fechaInicio} onChange={(e) => setFechaInicio(e.target.value)} className="px-2.5 py-2 rounded-xl border border-neutral-200 bg-white" />
           <input type="date" value={fechaFin} onChange={(e) => setFechaFin(e.target.value)} className="px-2.5 py-2 rounded-xl border border-neutral-200 bg-white" />
-          <button type="button" onClick={() => void descargarPdfApi(`/api/finanzas/fiscal/libro/COMPRA/xlsx?${qs}`, `Libro_Compras_${fechaInicio}.xlsx`)} className="inline-flex items-center gap-1 px-3 py-2 rounded-xl bg-[#191818] text-white font-bold cursor-pointer">
-            <FileSpreadsheet className="w-3.5 h-3.5" /> Libro Compras .xlsx
+          <button type="button" onClick={() => void descargarPdfApi(`/api/finanzas/fiscal/libro/COMPRA/xlsx?${qs}`, `Libro_Compras_${fechaInicio}.xlsx`)} className="inline-flex items-center gap-1 px-3 py-2 rounded-xl border border-neutral-300 bg-white hover:bg-neutral-50 text-[#191818] font-bold cursor-pointer">
+            <FileSpreadsheet className="w-3.5 h-3.5 text-[#E85A28]" /> Libro Compras .xlsx
           </button>
-          <button type="button" onClick={() => void descargarPdfApi(`/api/finanzas/fiscal/libro/VENTA/xlsx?${qs}`, `Libro_Ventas_${fechaInicio}.xlsx`)} className="inline-flex items-center gap-1 px-3 py-2 rounded-xl bg-[#E85A28] text-white font-bold cursor-pointer">
+          <button type="button" onClick={() => void descargarPdfApi(`/api/finanzas/fiscal/libro/VENTA/xlsx?${qs}`, `Libro_Ventas_${fechaInicio}.xlsx`)} className="inline-flex items-center gap-1 px-3 py-2 rounded-xl bg-[#E85A28] hover:bg-[#D14D20] text-white font-bold cursor-pointer">
             <FileSpreadsheet className="w-3.5 h-3.5" /> Libro Ventas .xlsx
           </button>
           <button type="button" onClick={() => void descargarPdfApi(`/api/finanzas/fiscal/libro/COMPRA/pdf?${qs}`, `Libro_Compras_${fechaInicio}.pdf`)} className="inline-flex items-center gap-1 px-3 py-2 rounded-xl border border-neutral-300 bg-white font-bold cursor-pointer">
@@ -188,6 +189,25 @@ export default function PaginaFiscalSeniat() {
           <button type="button" onClick={() => void descargarPdfApi(`/api/finanzas/fiscal/libro/VENTA/pdf?${qs}`, `Libro_Ventas_${fechaInicio}.pdf`)} className="inline-flex items-center gap-1 px-3 py-2 rounded-xl border border-neutral-300 bg-white font-bold cursor-pointer">
             <FileDown className="w-3.5 h-3.5" /> PDF Ventas
           </button>
+        </div>
+      </div>
+
+      {/* Ficha Fiscal Oficial SENIAT — Tekio Electronics */}
+      <div className="rounded-2xl bg-white/85 backdrop-blur-md border border-[#E85A28]/25 p-4 flex flex-wrap items-center justify-between gap-3 text-xs">
+        <div className="space-y-0.5">
+          <p className="font-black text-[#191818]">
+            {EMPRESA_TEKIO.razonSocial} ·{" "}
+            <span className="text-[#E85A28] font-mono">RIF {EMPRESA_TEKIO.rif}</span>
+          </p>
+          <p className="text-neutral-600">{EMPRESA_TEKIO.domicilioFiscal}</p>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="inline-flex items-center px-2.5 py-1 rounded-full bg-[#FDF0EB] text-[#E85A28] border border-[#E85A28]/30 font-bold">
+            Retención 100% IVA (Referencia SENIAT)
+          </span>
+          <span className="inline-flex items-center px-2.5 py-1 rounded-full bg-[#F6F6F6] text-[#191818] border border-neutral-200 font-semibold font-mono">
+            Admin: {EMPRESA_TEKIO.telefonoAdministracion}
+          </span>
         </div>
       </div>
 

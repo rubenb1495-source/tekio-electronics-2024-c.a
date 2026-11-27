@@ -95,8 +95,8 @@ def test_venta_mixta_pdf_bloqueo_serial_sucursal_cerrada_y_rbac(cliente: TestCli
     )
 
     sucs = {s["nombre"]: s["id"] for s in cliente.get("/api/sucursales", headers=cab_dir).json()}
-    central_id = sucs["Tekio central"]
-    bodega_id = sucs["Bodega"]
+    central_id = sucs["Tekio Central"]
+    bodega_id = sucs["Depósito / Tekio Support (Taller)"]
     infot_id = sucs["INFOT"]
 
     insts = {
@@ -229,7 +229,7 @@ def test_devolucion_comisiones_y_cierre_mensual_bloquea_periodo(cliente: TestCli
     hoy = obtener_fecha_hoy()
 
     sucs = {s["nombre"]: s["id"] for s in cliente.get("/api/sucursales", headers=cab_dir).json()}
-    central_id = sucs["Tekio central"]
+    central_id = sucs["Tekio Central"]
     insts = {
         i["nombre"]: i["id"]
         for i in cliente.get("/api/finanzas/instrumentos", headers=cab_dir).json()
@@ -355,7 +355,7 @@ def test_venta_cashea_con_inicial_divisas_aplica_precio_regular_estricto(cliente
     )
 
     sucs = {s["nombre"]: s["id"] for s in cliente.get("/api/sucursales", headers=cab_dir).json()}
-    central_id = sucs["Tekio central"]
+    central_id = sucs["Tekio Central"]
     insts = {
         i["nombre"]: i["id"]
         for i in cliente.get("/api/finanzas/instrumentos", headers=cab_dir).json()
@@ -501,7 +501,7 @@ def test_servicio_tecnico_combinado_con_repuesto_tecnico_obligatorio_y_comisione
     )
 
     sucs = {s["nombre"]: s["id"] for s in cliente.get("/api/sucursales", headers=cab_dir).json()}
-    central_id = sucs["Tekio central"]
+    central_id = sucs["Tekio Central"]
     insts = {
         i["nombre"]: i["id"]
         for i in cliente.get("/api/finanzas/instrumentos", headers=cab_dir).json()
@@ -657,7 +657,7 @@ def test_obsequio_imputa_costo_al_equipo_descuenta_stock_y_rbac(cliente: TestCli
     hoy = obtener_fecha_hoy()
 
     sucs = {s["nombre"]: s["id"] for s in cliente.get("/api/sucursales", headers=cab_dir).json()}
-    central_id = sucs["Tekio central"]
+    central_id = sucs["Tekio Central"]
     insts = {
         i["nombre"]: i["id"]
         for i in cliente.get("/api/finanzas/instrumentos", headers=cab_dir).json()
@@ -783,8 +783,8 @@ def test_obsequio_imputa_costo_al_equipo_descuenta_stock_y_rbac(cliente: TestCli
 def test_lider_multitienda_comision_en_multiples_sucursales(cliente: TestClient) -> None:
     cab_dir, _ = login(cliente, "direccion@tekioelectronics.com", "Tekio2026!")
     sucs = {s["nombre"]: s["id"] for s in cliente.get("/api/sucursales", headers=cab_dir).json()}
-    central_id = sucs["Tekio central"]
-    gran_bazar_id = sucs["Gran Bazar"]
+    central_id = sucs["Tekio Central"]
+    gran_bazar_id = sucs["Tekio Gran Bazar"]
 
     _, lider_u = crear_usuario_rol(
         cliente, cab_dir, "Líder Multi", "lider_multi@tekioelectronics.com", "LIDER", central_id
@@ -932,7 +932,7 @@ def test_creacion_rapida_clientes_natural_juridico_duplicado_409_y_pdf(
 
     # 4. Registrar venta con el cliente Jurídico y verificar que el PDF incluye documento, teléfono y dirección
     sucs = {s["nombre"]: s["id"] for s in cliente.get("/api/sucursales", headers=cab_dir).json()}
-    central_id = sucs["Tekio central"]
+    central_id = sucs["Tekio Central"]
     insts = {
         i["nombre"]: i["id"]
         for i in cliente.get("/api/finanzas/instrumentos", headers=cab_dir).json()
@@ -1032,7 +1032,7 @@ def test_pdf_sin_etiquetas_internas_monto_total_regular_bs_y_envio_nacional(
     )
 
     sucs = {s["nombre"]: s["id"] for s in cliente.get("/api/sucursales", headers=cab_dir).json()}
-    central_id = sucs["Tekio central"]
+    central_id = sucs["Tekio Central"]
     insts = {
         i["nombre"]: i["id"]
         for i in cliente.get("/api/finanzas/instrumentos", headers=cab_dir).json()

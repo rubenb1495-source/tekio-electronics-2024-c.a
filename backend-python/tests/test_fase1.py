@@ -57,10 +57,19 @@ def test_semilla_sucursales_y_login_direccion(cliente: TestClient) -> None:
     assert resp.status_code == 200
     sucursales = {s["nombre"]: s for s in resp.json()}
 
-    assert set(sucursales.keys()) == {"Bodega", "Tekio central", "Gran Bazar", "INFOT", "Free Market C13"}
-    assert sucursales["Bodega"]["estado"] == "ACTIVA"
-    assert sucursales["Tekio central"]["estado"] == "ACTIVA"
-    assert sucursales["Gran Bazar"]["estado"] == "ACTIVA"
+    assert set(sucursales.keys()) == {
+        "Depósito / Tekio Support (Taller)",
+        "Tekio Central",
+        "Tekio Gran Bazar",
+        "INFOT",
+        "Free Market C13",
+    }
+    assert sucursales["Depósito / Tekio Support (Taller)"]["estado"] == "ACTIVA"
+    assert sucursales["Depósito / Tekio Support (Taller)"]["telefono"] == "0422-5284961"
+    assert sucursales["Tekio Central"]["estado"] == "ACTIVA"
+    assert sucursales["Tekio Central"]["telefono"] == "0412-5284961"
+    assert sucursales["Tekio Gran Bazar"]["estado"] == "ACTIVA"
+    assert sucursales["Tekio Gran Bazar"]["telefono"] == "0422-5556609"
     assert sucursales["INFOT"]["estado"] == "CERRADA"
     assert sucursales["INFOT"]["fecha_cierre"] == "2026-11-08"
     assert sucursales["Free Market C13"]["estado"] == "CERRADA"

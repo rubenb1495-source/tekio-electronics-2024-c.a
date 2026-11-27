@@ -215,8 +215,8 @@ def test_logistica_5_flujos_prorrateo_consignacion_traslado_mixto_estado_y_masiv
     # CSV con 1 fila válida y 1 fila inválida (serial duplicado SN-INT-A1) -> rollback completo
     csv_invalido = (
         "serial,sku,modelo,configuracion,categoria,sucursal,costo_compra_usd,precio_promo_usd,proveedor,factura_orden,llega_preparada,nota\n"
-        "SN-CSV-OK1,,Laptop CSV OK,i5/8GB,Laptop,Bodega,200,350,Prov CSV,F-1,SI,ok\n"
-        "SN-INT-A1,,Duplicada,i5/8GB,Laptop,Bodega,200,350,Prov CSV,F-1,SI,dup\n"
+        "SN-CSV-OK1,,Laptop CSV OK,i5/8GB,Laptop,Depósito / Tekio Support (Taller),200,350,Prov CSV,F-1,SI,ok\n"
+        "SN-INT-A1,,Duplicada,i5/8GB,Laptop,Depósito / Tekio Support (Taller),200,350,Prov CSV,F-1,SI,dup\n"
     ).encode("utf-8")
 
     r_prev_bad = cliente.post(
@@ -242,8 +242,8 @@ def test_logistica_5_flujos_prorrateo_consignacion_traslado_mixto_estado_y_masiv
     # CSV válido -> preview OK + confirmar OK
     csv_valido = (
         "serial,sku,modelo,configuracion,categoria,sucursal,costo_compra_usd,precio_promo_usd,proveedor,factura_orden,llega_preparada,nota\n"
-        "SN-CSV-OK1,,Laptop CSV OK,i5/8GB,Laptop,Bodega,200,350,Prov CSV,F-1,SI,ok\n"
-        "SN-CSV-OK2,,Laptop CSV OK 2,i7/16GB,Laptop,Bodega,300,500,Prov CSV,F-1,NO,ok\n"
+        "SN-CSV-OK1,,Laptop CSV OK,i5/8GB,Laptop,Depósito / Tekio Support (Taller),200,350,Prov CSV,F-1,SI,ok\n"
+        "SN-CSV-OK2,,Laptop CSV OK 2,i7/16GB,Laptop,Depósito / Tekio Support (Taller),300,500,Prov CSV,F-1,NO,ok\n"
     ).encode("utf-8")
 
     r_prev_ok = cliente.post(

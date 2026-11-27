@@ -206,8 +206,8 @@ export default function ModalImportarCashea({
                   : "Detección automática de Nro. de Orden, Bruto, Pagado Real y Comisiones/Retenciones."}
               </p>
             </div>
-            <label className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-[#191818] hover:bg-neutral-800 text-white text-xs font-bold cursor-pointer">
-              <Upload className="w-4 h-4 text-[#E85A28]" />
+            <label className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-[#E85A28] hover:bg-[#D14D20] text-white text-xs font-bold cursor-pointer">
+              <Upload className="w-4 h-4 text-white" />
               <span>{analizando ? "Analizando..." : archivo ? "Cambiar archivo" : "Seleccionar .xlsx / .csv"}</span>
               <input
                 type="file"

@@ -205,8 +205,8 @@ def test_traslado_en_dos_pasos_bloqueo_y_confirmacion(cliente: TestClient) -> No
 
     # Obtener IDs de Bodega y Tekio central
     sucs = {s["nombre"]: s["id"] for s in cliente.get("/api/sucursales", headers=cab_dir).json()}
-    bodega_id = sucs["Bodega"]
-    central_id = sucs["Tekio central"]
+    bodega_id = sucs["Depósito / Tekio Support (Taller)"]
+    central_id = sucs["Tekio Central"]
 
     # Crear equipo LISTO en Bodega
     cliente.post(
@@ -276,7 +276,7 @@ def test_ajuste_pendiente_solo_aprobable_por_direccion_y_rbac_oculta_costos(clie
     )
 
     sucs = {s["nombre"]: s["id"] for s in cliente.get("/api/sucursales", headers=cab_dir).json()}
-    bodega_id = sucs["Bodega"]
+    bodega_id = sucs["Depósito / Tekio Support (Taller)"]
 
     # Crear equipo
     cliente.post(

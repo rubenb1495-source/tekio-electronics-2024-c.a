@@ -17,6 +17,8 @@ export interface Sucursal {
   id: number;
   nombre: string;
   direccion: string;
+  telefono?: string;
+  tipo?: string;
   estado: EstadoSucursal;
   fecha_cierre: string | null;
 }

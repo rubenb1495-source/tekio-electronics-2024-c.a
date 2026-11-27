@@ -798,7 +798,7 @@ export default function PaginaPersonalYUsuarios() {
                 <button
                   type="submit"
                   disabled={guardando}
-                  className="px-4 py-2 rounded-xl bg-[#191818] text-white text-xs font-bold cursor-pointer"
+                  className="px-4 py-2 rounded-xl bg-[#E85A28] hover:bg-[#D14D20] text-white text-xs font-bold cursor-pointer"
                 >
                   Confirmar
                 </button>

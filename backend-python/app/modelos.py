@@ -53,6 +53,8 @@ class Sucursal(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     nombre: Mapped[str] = mapped_column(String(120), unique=True, nullable=False)
     direccion: Mapped[str] = mapped_column(String(255), default="", nullable=False)
+    telefono: Mapped[str] = mapped_column(String(40), default="", nullable=False)
+    tipo: Mapped[str] = mapped_column(String(30), default="TIENDA", nullable=False)
     estado: Mapped[str] = mapped_column(String(20), default=EstadoSucursal.ACTIVA.value, nullable=False)
     fecha_cierre: Mapped[date | None] = mapped_column(Date, nullable=True)
 

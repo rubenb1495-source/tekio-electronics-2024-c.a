@@ -27,6 +27,18 @@ from app.servicios.contabilidad_service import asegurar_plan_cuentas
 def asegurar_columnas_compatibles() -> None:
     """Agrega columnas nuevas de forma idempotente en PostgreSQL y SQLite sin perder datos."""
     inspector = inspect(motor)
+    if inspector.has_table("sucursales"):
+        columnas_suc = {col["name"] for col in inspector.get_columns("sucursales")}
+        nuevas_suc = [
+            ("telefono", "VARCHAR(40) NOT NULL DEFAULT ''"),
+            ("tipo", "VARCHAR(30) NOT NULL DEFAULT 'TIENDA'"),
+        ]
+        for nombre_col, ddl_col in nuevas_suc:
+            if nombre_col not in columnas_suc:
+                with motor.begin() as conexion:
+                    conexion.execute(
+                        text(f"ALTER TABLE sucursales ADD COLUMN {nombre_col} {ddl_col}")
+                    )
     if inspector.has_table("ventas_detalle"):
         columnas = {col["name"] for col in inspector.get_columns("ventas_detalle")}
         if "descripcion_servicio" not in columnas:

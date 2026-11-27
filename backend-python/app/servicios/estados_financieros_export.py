@@ -11,7 +11,7 @@ from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import cm
 from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
-from app.utils.pdf_branding import dibujar_marca_de_agua
+from app.utils.pdf_branding import construir_encabezado_corporativo, dibujar_marca_de_agua
 
 
 def _estilos_pdf() -> dict[str, ParagraphStyle]:
@@ -61,14 +61,11 @@ def generar_pdf_pl_escalonado(pl: dict[str, Any]) -> bytes:
         bottomMargin=1.8 * cm,
     )
     est = _estilos_pdf()
-    elementos: list[Any] = [
-        Paragraph("TEKIO ELECTRONICS 2024, C.A. · RIF J-50637518-4", est["sub"]),
-        Paragraph("Estado de Resultados (P&L) Escalonado", est["titulo"]),
-        Paragraph(
-            f"Período: {pl['fecha_inicio']} al {pl['fecha_fin']} · Sucursal: {pl['sucursal']} · Zona horaria: America/Caracas",
-            est["sub"],
-        ),
-    ]
+    elementos: list[Any] = construir_encabezado_corporativo(
+        "Estado de Resultados (P&L) Escalonado",
+        subtitulo=f"Período: {pl['fecha_inicio']} al {pl['fecha_fin']} · Sucursal: {pl['sucursal']} · Zona horaria: America/Caracas",
+        tipo_documento="FINANZAS",
+    )
 
     filas = [
         ["Concepto Contable", "Monto (USD)", "% / Ingresos"],
@@ -90,12 +87,13 @@ def generar_pdf_pl_escalonado(pl: dict[str, Any]) -> bytes:
     tabla.setStyle(
         TableStyle(
             [
-                ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#191818")),
-                ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+                ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#F6F6F6")),
+                ("TEXTCOLOR", (0, 0), (-1, 0), colors.HexColor("#191818")),
+                ("LINEBELOW", (0, 0), (-1, 0), 1.5, colors.HexColor("#E85A28")),
                 ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
                 ("FONTSIZE", (0, 0), (-1, -1), 9),
                 ("ALIGN", (1, 0), (-1, -1), "RIGHT"),
-                ("GRID", (0, 0), (-1, -1), 0.35, colors.HexColor("#DDDDDD")),
+                ("GRID", (0, 0), (-1, -1), 0.35, colors.HexColor("#E5E7EB")),
                 ("BACKGROUND", (0, 3), (-1, 3), colors.HexColor("#F6F6F6")),
                 ("FONTNAME", (0, 3), (-1, 3), "Helvetica-Bold"),
                 ("BACKGROUND", (0, 5), (-1, 5), colors.HexColor("#FDF0EB")),
@@ -181,14 +179,11 @@ def generar_pdf_balance_general(bal: dict[str, Any]) -> bytes:
     )
     est = _estilos_pdf()
     estado_cuadre = "CUADRADO EXACTO (A = P + Pat)" if bal["cuadrado"] else f"DESCUADRE: {_fmt_usd(bal['diferencia_cuadre_usd'])}"
-    elementos: list[Any] = [
-        Paragraph("TEKIO ELECTRONICS 2024, C.A. · RIF J-50637518-4", est["sub"]),
-        Paragraph("Balance General (Estado de Situación Financiera)", est["titulo"]),
-        Paragraph(
-            f"Fecha de corte: {bal['fecha_corte']} · Estado: {estado_cuadre} · Zona horaria: America/Caracas",
-            est["sub"],
-        ),
-    ]
+    elementos: list[Any] = construir_encabezado_corporativo(
+        "Balance General (Estado de Situación Financiera)",
+        subtitulo=f"Fecha de corte: {bal['fecha_corte']} · Estado: {estado_cuadre} · Zona horaria: America/Caracas",
+        tipo_documento="FINANZAS",
+    )
 
     act = bal["activos"]
     pas = bal["pasivos"]
@@ -218,18 +213,21 @@ def generar_pdf_balance_general(bal: dict[str, Any]) -> bytes:
     tabla.setStyle(
         TableStyle(
             [
-                ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#191818")),
-                ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+                ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#F6F6F6")),
+                ("TEXTCOLOR", (0, 0), (-1, 0), colors.HexColor("#191818")),
+                ("LINEBELOW", (0, 0), (-1, 0), 1.5, colors.HexColor("#E85A28")),
                 ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
                 ("BACKGROUND", (0, 6), (-1, 6), colors.HexColor("#FDF0EB")),
                 ("FONTNAME", (0, 6), (-1, 6), "Helvetica-Bold"),
-                ("BACKGROUND", (0, 7), (-1, 7), colors.HexColor("#191818")),
-                ("TEXTCOLOR", (0, 7), (-1, 7), colors.white),
+                ("BACKGROUND", (0, 7), (-1, 7), colors.HexColor("#F6F6F6")),
+                ("TEXTCOLOR", (0, 7), (-1, 7), colors.HexColor("#191818")),
+                ("LINEBELOW", (0, 7), (-1, 7), 1.2, colors.HexColor("#E85A28")),
                 ("FONTNAME", (0, 7), (-1, 7), "Helvetica-Bold"),
                 ("BACKGROUND", (0, 11), (-1, 11), colors.HexColor("#F6F6F6")),
                 ("FONTNAME", (0, 11), (-1, 11), "Helvetica-Bold"),
-                ("BACKGROUND", (0, 12), (-1, 12), colors.HexColor("#191818")),
-                ("TEXTCOLOR", (0, 12), (-1, 12), colors.white),
+                ("BACKGROUND", (0, 12), (-1, 12), colors.HexColor("#F6F6F6")),
+                ("TEXTCOLOR", (0, 12), (-1, 12), colors.HexColor("#191818")),
+                ("LINEBELOW", (0, 12), (-1, 12), 1.2, colors.HexColor("#E85A28")),
                 ("FONTNAME", (0, 12), (-1, 12), "Helvetica-Bold"),
                 ("BACKGROUND", (0, 15), (-1, 15), colors.HexColor("#F6F6F6")),
                 ("FONTNAME", (0, 15), (-1, 15), "Helvetica-Bold"),
@@ -309,25 +307,35 @@ def generar_xlsx_balance_general(bal: dict[str, Any]) -> bytes:
 
 def generar_plantilla_apertura_xlsx(tipo: str) -> bytes:
     """
-    Genera plantillas Excel (.xlsx) oficiales de carga inicial de apertura para Tekio Electronics:
-    - saldos_iniciales (incluyendo Caja Chica $60 USD por sucursal + bancos/billeteras contra Capital Inicial)
-    - inventario_inicial (equipos por serial + componentes/accesorios)
-    - cxc_cxp_iniciales (CxC/Cashea pendiente + CxP proveedores con vencimientos)
+    Genera plantillas Excel (.xlsx) oficiales de carga inicial de apertura — Corte 01/12/2026:
+    - saldos_iniciales (Tekio Central + Tekio Gran Bazar con Caja Chica $60 c/u + bancos contra 3.1.01 Capital Inicial)
+    - inventario_inicial (equipos por serial + componentes/repuestos en las 3 sedes oficiales)
+    - cxc_cxp_iniciales (CxC/Cashea pendiente + CxP proveedores al corte 2026-12-01)
     """
+    from app.core.empresa import FECHA_CORTE_APERTURA, RAZON_SOCIAL, RIF
+
     wb = Workbook()
-    fill_hdr = PatternFill(start_color="191818", end_color="191818", fill_type="solid")
+    fill_banner = PatternFill(start_color="E85A28", end_color="E85A28", fill_type="solid")
+    fill_hdr = PatternFill(start_color="F6F6F6", end_color="F6F6F6", fill_type="solid")
     fill_sub = PatternFill(start_color="FDF0EB", end_color="FDF0EB", fill_type="solid")
-    font_hdr = Font(bold=True, color="FFFFFF")
-    font_note = Font(italic=True, color="555555")
+    font_banner = Font(bold=True, color="FFFFFF", size=11)
+    font_hdr = Font(bold=True, color="191818")
+    font_note = Font(italic=True, color="525252")
 
     if tipo == "saldos_iniciales":
         ws = wb.active
         ws.title = "Saldos Cajas y Bancos"
-        ws["A1"] = "TEKIO ELECTRONICS — Plantilla de Saldos Iniciales de Cajas y Bancos"
-        ws["A1"].font = Font(bold=True, size=12)
-        ws["A2"] = "Contrapartida automática: 3.1.01 Capital Inicial (Impacto $0.00 en Estado de Resultados P&L)"
+        ws["A1"] = f"{RAZON_SOCIAL} (RIF {RIF}) — Saldos Iniciales de Apertura · Corte {FECHA_CORTE_APERTURA}"
+        ws["A1"].fill = fill_banner
+        ws["A1"].font = font_banner
+        ws.merge_cells("A1:H1")
+        ws["A2"] = (
+            f"Fecha oficial de corte: {FECHA_CORTE_APERTURA} · Contrapartida: 3.1.01 Capital Inicial "
+            "(Balance General cuadrado varianza $0.00 / Impacto $0.00 en P&L de Diciembre)"
+        )
         ws["A2"].font = font_note
         headers = [
+            "fecha_apertura",
             "instrumento",
             "sucursal",
             "moneda",
@@ -344,29 +352,30 @@ def generar_plantilla_apertura_xlsx(tipo: str) -> bytes:
             c.font = font_hdr
 
         ejemplos = [
-            ["Efectivo USD Tienda", "Tekio central", "USD", 500.00, 1.00, "3.1.01 - Capital Inicial", "Saldo inicial caja principal"],
-            ["Efectivo USD Tienda", "Gran Bazar", "USD", 350.00, 1.00, "3.1.01 - Capital Inicial", "Saldo inicial caja principal"],
-            ["Caja Chica USD", "Tekio central", "USD", 60.00, 1.00, "3.1.01 - Capital Inicial", "Fondo fijo caja chica $60 USD"],
-            ["Caja Chica USD", "Gran Bazar", "USD", 60.00, 1.00, "3.1.01 - Capital Inicial", "Fondo fijo caja chica $60 USD"],
-            ["Zelle", "General", "USD", 2500.00, 1.00, "3.1.01 - Capital Inicial", "Saldo inicial cuenta Zelle"],
-            ["Binance USDT", "General", "USDT", 1800.00, 1.00, "3.1.01 - Capital Inicial", "Saldo inicial billetera USDT"],
-            ["Banco Mercantil Bs", "General", "BS", 45000.00, 45.00, "3.1.01 - Capital Inicial", "Saldo inicial banco en Bs"],
-            ["Pago Móvil Bs", "General", "BS", 12000.00, 45.00, "3.1.01 - Capital Inicial", "Saldo inicial Pago Móvil"],
+            [FECHA_CORTE_APERTURA, "Efectivo USD Tienda", "Tekio Central", "USD", 0.00, 1.00, "3.1.01 - Capital Inicial", "Efectivo físico apertura 01/12/2026 (0412-5284961)"],
+            [FECHA_CORTE_APERTURA, "Caja Chica USD", "Tekio Central", "USD", 60.00, 1.00, "3.1.01 - Capital Inicial", "Fondo fijo caja chica $60 USD Tekio Central"],
+            [FECHA_CORTE_APERTURA, "Efectivo USD Tienda", "Tekio Gran Bazar", "USD", 0.00, 1.00, "3.1.01 - Capital Inicial", "Efectivo físico apertura 01/12/2026 (0422-5556609)"],
+            [FECHA_CORTE_APERTURA, "Caja Chica USD", "Tekio Gran Bazar", "USD", 60.00, 1.00, "3.1.01 - Capital Inicial", "Fondo fijo caja chica $60 USD Tekio Gran Bazar"],
+            [FECHA_CORTE_APERTURA, "Zelle", "Administración", "USD", 0.00, 1.00, "3.1.01 - Capital Inicial", "Saldo inicial cuenta Zelle (Admin 0424-2231879)"],
+            [FECHA_CORTE_APERTURA, "Binance USDT", "Administración", "USDT", 0.00, 1.00, "3.1.01 - Capital Inicial", "Saldo inicial billetera USDT"],
+            [FECHA_CORTE_APERTURA, "Banco Mercantil Bs", "Administración", "BS", 0.00, 45.00, "3.1.01 - Capital Inicial", "Saldo inicial banco en Bs"],
+            [FECHA_CORTE_APERTURA, "Pago Móvil Bs", "Administración", "BS", 0.00, 45.00, "3.1.01 - Capital Inicial", "Saldo inicial Pago Móvil Bs"],
         ]
         for fila in ejemplos:
             ws.append(fila)
             r = ws.max_row
-            if "Caja Chica" in fila[0]:
+            if "Caja Chica" in fila[1]:
                 for col in range(1, len(headers) + 1):
                     ws.cell(row=r, column=col).fill = fill_sub
 
-        for idx, ancho in enumerate([24, 18, 10, 20, 18, 28, 34], start=1):
+        for idx, ancho in enumerate([16, 24, 24, 10, 20, 18, 28, 42], start=1):
             ws.column_dimensions[chr(64 + idx)].width = ancho
 
     elif tipo == "inventario_inicial":
         ws = wb.active
         ws.title = "Equipos por Serial"
         headers_eq = [
+            "fecha_apertura",
             "serial",
             "sku",
             "modelo",
@@ -384,45 +393,46 @@ def generar_plantilla_apertura_xlsx(tipo: str) -> bytes:
             c = ws.cell(row=1, column=col)
             c.fill = fill_hdr
             c.font = font_hdr
-        ws.append(["SN-APE-0001", "LAP-LEN-T14", "Lenovo ThinkPad T14", "Core i5 / 16GB / 512GB", "Laptop", "Tekio central", "LISTO", 220.00, 25.00, 0.00, 390.00])
-        ws.append(["SN-APE-0002", "LAP-DELL-5420", "Dell Latitude 5420", "Core i5 / 8GB / 256GB", "Laptop", "Bodega", "POR_PREPARAR", 190.00, 20.00, 0.00, 340.00])
+        ws.append([FECHA_CORTE_APERTURA, "SN-APE-0001", "LAP-LEN-T14", "Lenovo ThinkPad T14", "Core i5 / 16GB / 512GB", "Laptop", "Tekio Central", "LISTO", 220.00, 25.00, 0.00, 390.00])
+        ws.append([FECHA_CORTE_APERTURA, "SN-APE-0002", "LAP-HP-840", "HP EliteBook 840 G7", "Core i5 / 16GB / 512GB", "Laptop", "Tekio Gran Bazar", "LISTO", 210.00, 25.00, 0.00, 380.00])
+        ws.append([FECHA_CORTE_APERTURA, "SN-APE-0003", "LAP-DELL-5420", "Dell Latitude 5420", "Core i5 / 8GB / 256GB", "Laptop", "Depósito / Tekio Support (Taller)", "POR_PREPARAR", 190.00, 20.00, 0.00, 340.00])
         for idx in range(1, len(headers_eq) + 1):
-            ws.column_dimensions[chr(64 + idx)].width = 20
+            ws.column_dimensions[chr(64 + idx)].width = 22
 
-        ws2 = wb.create_sheet(title="Componentes y Accesorios")
-        headers_comp = ["sku", "descripcion", "tipo", "sucursal", "cantidad", "costo_unitario_usd", "precio_promo_usd"]
+        ws2 = wb.create_sheet(title="Componentes y Repuestos")
+        headers_comp = ["fecha_apertura", "sku", "descripcion", "tipo", "sucursal", "cantidad", "costo_unitario_usd", "precio_promo_usd"]
         ws2.append(headers_comp)
         for col in range(1, len(headers_comp) + 1):
             c = ws2.cell(row=1, column=col)
             c.fill = fill_hdr
             c.font = font_hdr
-        ws2.append(["RAM-8GB-DDR4", "Memoria RAM 8GB DDR4", "COMPONENTE", "Bodega", 10, 18.00, 35.00])
-        ws2.append(["SSD-512-NVME", "SSD 512GB NVMe", "COMPONENTE", "Bodega", 8, 28.00, 50.00])
+        ws2.append([FECHA_CORTE_APERTURA, "RAM-8GB-DDR4", "Memoria RAM 8GB DDR4", "COMPONENTE", "Depósito / Tekio Support (Taller)", 10, 18.00, 35.00])
+        ws2.append([FECHA_CORTE_APERTURA, "SSD-512-NVME", "SSD 512GB NVMe", "COMPONENTE", "Depósito / Tekio Support (Taller)", 8, 28.00, 50.00])
         for idx in range(1, len(headers_comp) + 1):
-            ws2.column_dimensions[chr(64 + idx)].width = 22
+            ws2.column_dimensions[chr(64 + idx)].width = 24
 
     elif tipo == "cxc_cxp_iniciales":
         ws = wb.active
         ws.title = "CxC y Cashea Pendiente"
-        headers_cxc = ["tipo", "cliente", "documento_ref", "fecha_emision", "fecha_vencimiento", "saldo_pendiente_usd", "nota"]
+        headers_cxc = ["fecha_corte", "tipo", "cliente", "documento_ref", "fecha_emision", "fecha_vencimiento", "saldo_pendiente_usd", "nota"]
         ws.append(headers_cxc)
         for col in range(1, len(headers_cxc) + 1):
             c = ws.cell(row=1, column=col)
             c.fill = fill_hdr
             c.font = font_hdr
-        ws.append(["CASHEA", "Cliente Ejemplo 1", "N-0100", "2026-11-15", "2026-11-30", 240.00, "Cuota pendiente Cashea"])
-        ws.append(["CLIENTE", "Empresa Ejemplo CA", "N-0101", "2026-11-10", "2026-12-10", 150.00, "Saldo crédito cliente"])
+        ws.append([FECHA_CORTE_APERTURA, "CASHEA", "Cliente Ejemplo 1", "N-0100", "2026-11-28", "2026-12-12", 240.00, "Cuota pendiente Cashea al 01/12/2026"])
+        ws.append([FECHA_CORTE_APERTURA, "CLIENTE", "Empresa Ejemplo CA", "N-0101", "2026-11-25", "2026-12-15", 150.00, "Saldo crédito cliente al 01/12/2026"])
         for idx in range(1, len(headers_cxc) + 1):
             ws.column_dimensions[chr(64 + idx)].width = 22
 
         ws2 = wb.create_sheet(title="CxP Proveedores")
-        headers_cxp = ["proveedor", "factura_ref", "origen", "fecha_emision", "fecha_vencimiento", "saldo_pendiente_usd", "nota"]
+        headers_cxp = ["fecha_corte", "proveedor", "factura_ref", "origen", "fecha_emision", "fecha_vencimiento", "saldo_pendiente_usd", "nota"]
         ws2.append(headers_cxp)
         for col in range(1, len(headers_cxp) + 1):
             c = ws2.cell(row=1, column=col)
             c.fill = fill_hdr
             c.font = font_hdr
-        ws2.append(["Miami Tech Wholesale", "INV-MIA-900", "INTERNACIONAL", "2026-11-01", "2026-12-01", 1200.00, "Saldo proveedor exterior"])
+        ws2.append([FECHA_CORTE_APERTURA, "Miami Tech Wholesale", "INV-MIA-900", "INTERNACIONAL", "2026-11-20", "2026-12-20", 1200.00, "Saldo proveedor exterior al corte 01/12/2026"])
         for idx in range(1, len(headers_cxp) + 1):
             ws2.column_dimensions[chr(64 + idx)].width = 22
     else:

@@ -345,10 +345,10 @@ def exportar_cashea_xlsx(
     ws.title = "Conciliación Cashea"
 
     fill_titulo = PatternFill(start_color="E85A28", end_color="E85A28", fill_type="solid")
-    fill_header = PatternFill(start_color="191818", end_color="191818", fill_type="solid")
+    fill_header = PatternFill(start_color="F6F6F6", end_color="F6F6F6", fill_type="solid")
     fill_total = PatternFill(start_color="FDF0EB", end_color="FDF0EB", fill_type="solid")
     font_titulo = Font(bold=True, color="FFFFFF", size=12)
-    font_header = Font(bold=True, color="FFFFFF", size=10)
+    font_header = Font(bold=True, color="191818", size=10)
     font_total = Font(bold=True, color="191818", size=10)
 
     ws.merge_cells("A1:T1")

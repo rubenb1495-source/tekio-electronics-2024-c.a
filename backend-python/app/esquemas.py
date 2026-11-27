@@ -27,6 +27,8 @@ class SucursalSalida(BaseModel):
     id: int
     nombre: str
     direccion: str
+    telefono: str = ""
+    tipo: str = "TIENDA"
     estado: EstadoSucursal
     fecha_cierre: date | None = None
 
