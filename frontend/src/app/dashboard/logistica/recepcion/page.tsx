@@ -24,7 +24,7 @@ import {
   solicitarApi,
   subirArchivoApi,
 } from "@/servicios/api";
-import type { ArticuloCatalogo, Sucursal } from "@/tipos/dominio";
+import type { ArticuloCatalogo, CatalogoPaginado, Sucursal } from "@/tipos/dominio";
 import type {
   GuiaResumen,
   ResultadoRecepcionGuia,
@@ -156,16 +156,26 @@ function ContenidoRecepcionUnificada() {
       const [respComp, respSuc, respArt, respGuias, respVerif] = await Promise.all([
         solicitarApi<CompraPendienteRecepcion[]>("/api/logistica/compras/pendientes-recepcion"),
         solicitarApi<Sucursal[]>("/api/sucursales"),
-        solicitarApi<ArticuloCatalogo[]>("/api/catalogo"),
+        solicitarApi<CatalogoPaginado>("/api/catalogo?por_pagina=100"),
         solicitarApi<GuiaResumen[]>("/api/logistica/guias?estado=EN_TRANSITO"),
         solicitarApi<Verificador[]>("/api/logistica/verificadores"),
       ]);
-      setComprasPendientes(respComp);
-      const activas = respSuc.filter((s) => s.estado === "ACTIVA");
+      const listaCompras = Array.isArray(respComp) ? respComp : [];
+      const listaSuc = Array.isArray(respSuc) ? respSuc : [];
+      const listaArt = Array.isArray(respArt?.elementos)
+        ? respArt.elementos
+        : Array.isArray(respArt)
+          ? (respArt as unknown as ArticuloCatalogo[])
+          : [];
+      const listaGuias = Array.isArray(respGuias) ? respGuias : [];
+      const listaVerif = Array.isArray(respVerif) ? respVerif : [];
+
+      setComprasPendientes(listaCompras);
+      const activas = listaSuc.filter((s) => s.estado === "ACTIVA");
       setSucursales(activas);
-      setArticulos(respArt);
-      setGuias(respGuias);
-      setVerificadores(respVerif);
+      setArticulos(listaArt);
+      setGuias(listaGuias);
+      setVerificadores(listaVerif);
 
       // Preseleccionar Depósito / Tekio Support (Taller)
       const deposito =
@@ -177,8 +187,8 @@ function ContenidoRecepcionUnificada() {
       if (compraIdQuery) {
         setCompraId(compraIdQuery);
         setOrigen("COMPRA");
-      } else if (respComp[0]) {
-        setCompraId((prev) => prev || String(respComp[0].id));
+      } else if (listaCompras[0]) {
+        setCompraId((prev) => prev || String(listaCompras[0].id));
       }
     } catch (err) {
       setError(
