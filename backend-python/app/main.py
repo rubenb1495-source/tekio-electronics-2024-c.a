@@ -18,7 +18,7 @@ from app import modelos_finanzas as _modelos_finanzas  # noqa: F401
 from app import modelos_logistica as _modelos_logistica  # noqa: F401
 from app import modelos_operaciones as _modelos_operaciones  # noqa: F401
 from app import modelos_taller as _modelos_taller  # noqa: F401
-from app.rutas import admin_finanzas, autenticacion, cashea_conciliacion, catalogo, contabilidad_prestamos, direccion_tesoreria, finanzas, liquidaciones_caja, logistica, operaciones, recepcion_compras, respaldo, taller, tasas, usuarios, ventas
+from app.rutas import admin_finanzas, apertura_01_12, autenticacion, cashea_conciliacion, catalogo, contabilidad_prestamos, direccion_tesoreria, finanzas, liquidaciones_caja, logistica, operaciones, recepcion_compras, respaldo, taller, tasas, usuarios, ventas
 from app.semilla import ejecutar_semilla
 from app.semilla_finanzas import ejecutar_semilla_finanzas
 from app.servicios.contabilidad_service import asegurar_plan_cuentas
@@ -162,6 +162,28 @@ def asegurar_columnas_compatibles() -> None:
                     conexion.execute(
                         text(f"ALTER TABLE cierres_caja ADD COLUMN {nombre_col} {ddl_col}")
                     )
+    if inspector.has_table("cuentas_por_cobrar"):
+        columnas_cxc = {col["name"] for col in inspector.get_columns("cuentas_por_cobrar")}
+        nuevas_cxc = [
+            ("sucursal_id", "INTEGER NULL"),
+            ("nro_nota_anterior", "VARCHAR(60) NOT NULL DEFAULT ''"),
+            ("cashea_numero_orden", "VARCHAR(64) NOT NULL DEFAULT ''"),
+            ("fecha_venta_original", "DATE NULL"),
+            ("fecha_vencimiento", "DATE NULL"),
+            ("neto_esperado_usd", "NUMERIC(14, 2) NULL"),
+            ("observaciones", "TEXT NOT NULL DEFAULT ''"),
+        ]
+        for nombre_col, ddl_col in nuevas_cxc:
+            if nombre_col not in columnas_cxc:
+                with motor.begin() as conexion:
+                    conexion.execute(
+                        text(f"ALTER TABLE cuentas_por_cobrar ADD COLUMN {nombre_col} {ddl_col}")
+                    )
+        if motor.dialect.name == "postgresql":
+            with motor.begin() as conexion:
+                conexion.execute(
+                    text("ALTER TABLE cuentas_por_cobrar ALTER COLUMN venta_id DROP NOT NULL")
+                )
     if inspector.has_table("compras"):
         columnas_comp = {col["name"] for col in inspector.get_columns("compras")}
         nuevas_comp = [
@@ -314,5 +336,6 @@ app.include_router(liquidaciones_caja.enrutador)
 app.include_router(operaciones.enrutador)
 app.include_router(direccion_tesoreria.enrutador)
 app.include_router(admin_finanzas.enrutador)
+app.include_router(apertura_01_12.enrutador)
 app.include_router(contabilidad_prestamos.enrutador)
 app.include_router(respaldo.enrutador)

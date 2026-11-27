@@ -248,14 +248,22 @@ class CuentaPorCobrar(Base):
     __tablename__ = "cuentas_por_cobrar"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
-    venta_id: Mapped[int] = mapped_column(ForeignKey("ventas.id"), index=True, nullable=False)
+    venta_id: Mapped[int | None] = mapped_column(ForeignKey("ventas.id"), index=True, nullable=True)
+    sucursal_id: Mapped[int | None] = mapped_column(ForeignKey("sucursales.id"), index=True, nullable=True)
     tipo: Mapped[str] = mapped_column(String(20), nullable=False, index=True)
     cliente_id: Mapped[int | None] = mapped_column(ForeignKey("terceros.id"), nullable=True)
+    nro_nota_anterior: Mapped[str] = mapped_column(String(60), default="", nullable=False)
+    cashea_numero_orden: Mapped[str] = mapped_column(String(64), default="", nullable=False)
+    fecha_venta_original: Mapped[date | None] = mapped_column(Date, nullable=True)
+    fecha_vencimiento: Mapped[date | None] = mapped_column(Date, nullable=True)
     monto_original_usd: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False)
+    neto_esperado_usd: Mapped[Decimal | None] = mapped_column(Numeric(14, 2), nullable=True)
     saldo_pendiente_usd: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False)
+    observaciones: Mapped[str] = mapped_column(Text, default="", nullable=False)
     estado: Mapped[str] = mapped_column(String(20), default=EstadoCuentaPorCobrar.PENDIENTE.value, nullable=False, index=True)
 
     venta = relationship("Venta", back_populates="cuentas_por_cobrar")
+    sucursal = relationship("Sucursal")
     cliente = relationship("Tercero")
 
 

@@ -244,6 +244,12 @@ export default function DisenoDashboard({
           visible: esAdmin,
         },
         {
+          href: "/dashboard/finanzas/apertura",
+          etiqueta: "Apertura 01/12/2026",
+          icono: <FileSpreadsheet className="w-4 h-4 shrink-0 text-[#E85A28]" />,
+          visible: esAdmin,
+        },
+        {
           href: "/dashboard/finanzas/contabilidad",
           etiqueta: "Contabilidad y P&L",
           icono: <FileSpreadsheet className="w-4 h-4 shrink-0" />,
