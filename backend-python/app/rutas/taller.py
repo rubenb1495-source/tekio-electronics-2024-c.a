@@ -328,6 +328,13 @@ def agregar_componente_a_equipo_preparacion(
             creado_por_id=usuario_actual.id,
         )
 
+    if eq.primer_costo_usd is None or eq.primer_costo_usd == Decimal("0"):
+        eq.primer_costo_usd = (eq.costo_compra_usd or Decimal("0")) + (eq.costo_flete_usd or Decimal("0"))
+    eq.costo_final_usd = (
+        (eq.primer_costo_usd or Decimal("0"))
+        + (eq.costo_taller_usd or Decimal("0"))
+    ).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
     registrar_auditoria(
         bd,
         usuario=usuario_actual,
@@ -372,6 +379,7 @@ def obtener_cola_taller(
     incluir_costos = puede_ver_costos(usuario_actual.rol)
 
     estados_cola = [
+        EstadoEquipo.EN_REVISION.value,
         EstadoEquipo.POR_PREPARAR.value,
         EstadoEquipo.EN_PREPARACION.value,
         EstadoEquipo.HOSPITAL.value,
@@ -529,8 +537,23 @@ def registrar_preparacion(
         )
         costo_componentes_total += costo_ref * Decimal(cant)
 
-    # Actualizar estado y costo interno del equipo
-    equipo.costo_taller_usd = (equipo.costo_taller_usd or Decimal("0.00")) + pago_tecnico + costo_componentes_total
+    # Actualizar estado y costo interno del equipo (Costo Final = Primer Costo + Componentes + Comisión)
+    comision_prep = (
+        datos.comision_preparacion_usd
+        if getattr(datos, "comision_preparacion_usd", None) is not None
+        else pago_tecnico
+    )
+    equipo.comision_preparacion_usd = (equipo.comision_preparacion_usd or Decimal("0.00")) + comision_prep
+    equipo.costo_taller_usd = (equipo.costo_taller_usd or Decimal("0.00")) + comision_prep + costo_componentes_total
+    primer_base = (
+        equipo.primer_costo_usd
+        if (equipo.primer_costo_usd or Decimal("0.00")) > Decimal("0.00")
+        else (equipo.costo_compra_usd or Decimal("0.00")) + (equipo.costo_flete_usd or Decimal("0.00"))
+    )
+    equipo.primer_costo_usd = primer_base
+    equipo.costo_final_usd = (primer_base + equipo.costo_taller_usd).quantize(
+        Decimal("0.01"), rounding=ROUND_HALF_UP
+    )
     equipo.estado = datos.resultado.value
     if datos.nota.strip():
         equipo.nota = datos.nota.strip()

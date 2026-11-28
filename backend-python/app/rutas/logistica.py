@@ -148,6 +148,7 @@ def serializar_equipo(equipo: Equipo, incluir_costos: bool) -> dict[str, Any]:
         "ubicacion_id": equipo.ubicacion_id,
         "ubicacion": equipo.ubicacion.nombre if equipo.ubicacion else None,
         "estado": equipo.estado,
+        "proceso_inicial": getattr(equipo, "proceso_inicial", "") or "",
         "precio_promo_usd": redondear_usd(equipo.precio_promo_usd),
         "es_consignacion": bool(getattr(equipo, "es_consignacion", False)),
         "recibido_por": equipo.recibido_por.nombre if equipo.recibido_por else None,
@@ -157,9 +158,24 @@ def serializar_equipo(equipo: Equipo, incluir_costos: bool) -> dict[str, Any]:
     }
     if incluir_costos:
         costo_total = equipo.costo_compra_usd + equipo.costo_flete_usd + equipo.costo_taller_usd
+        primer_costo = (
+            equipo.primer_costo_usd
+            if (getattr(equipo, "primer_costo_usd", None) or Decimal("0")) > Decimal("0")
+            else (equipo.costo_compra_usd + equipo.costo_flete_usd)
+        )
+        costo_final = (
+            equipo.costo_final_usd
+            if (getattr(equipo, "costo_final_usd", None) or Decimal("0")) > Decimal("0")
+            else costo_total
+        )
         datos["costo_compra_usd"] = redondear_usd(equipo.costo_compra_usd)
         datos["costo_flete_usd"] = redondear_usd(equipo.costo_flete_usd)
         datos["costo_taller_usd"] = redondear_usd(equipo.costo_taller_usd)
+        datos["primer_costo_usd"] = redondear_usd(primer_costo)
+        datos["comision_preparacion_usd"] = redondear_usd(
+            getattr(equipo, "comision_preparacion_usd", Decimal("0")) or Decimal("0")
+        )
+        datos["costo_final_usd"] = redondear_usd(costo_final)
         datos["costo_total_usd"] = redondear_usd(costo_total)
         datos["proveedor_consignacion_id"] = equipo.proveedor_consignacion_id
         datos["proveedor_consignacion"] = (
@@ -344,8 +360,6 @@ def crear_compra(
                 )
 
     bodega = obtener_bodega(bd)
-    es_inmediata = datos.origen != OrigenCompra.IMPORTACION
-    estado_compra = EstadoCompra.RECIBIDA.value if es_inmediata else EstadoCompra.PENDIENTE.value
     tipo_efectivo = (
         datos.tipo_compra.strip().upper()
         if datos.tipo_compra and datos.tipo_compra.strip()
@@ -357,15 +371,29 @@ def crear_compra(
             else "NACIONAL"
         )
     )
+    es_lote_en_transito = (
+        datos.origen == OrigenCompra.IMPORTACION
+        or (tipo_efectivo == "INTERNACIONAL" and len(datos.equipos) == 0)
+    )
+    es_inmediata = not es_lote_en_transito
+    estado_compra = "EN_TRANSITO" if es_lote_en_transito else EstadoCompra.RECIBIDA.value
     es_consignacion = (
         datos.es_consignacion
         or datos.origen == OrigenCompra.CONSIGNACION
         or tipo_efectivo == "CONSIGNACION"
     )
+    subtotal_miami = (
+        datos.monto_mercancia_usd + datos.taxes_usd + datos.envio_miami_usd
+    ).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
     # Prorrateo automático de flete + aduana + otros gastos en compras INTERNACIONAL
     gastos_prorrateo = (
-        datos.envio_usd + datos.aduana_usd + datos.otros_gastos_usd
+        datos.taxes_usd
+        + datos.envio_miami_usd
+        + datos.gastos_envio_venezuela_usd
+        + datos.envio_usd
+        + datos.aduana_usd
+        + datos.otros_gastos_usd
         if tipo_efectivo == "INTERNACIONAL"
         else Decimal("0")
     )
@@ -390,9 +418,15 @@ def crear_compra(
         factura_orden=datos.factura_orden.strip(),
         numero_guia=datos.numero_guia.strip(),
         monto_mercancia_usd=datos.monto_mercancia_usd,
+        taxes_usd=datos.taxes_usd,
+        envio_miami_usd=datos.envio_miami_usd,
+        subtotal_miami_usd=subtotal_miami,
+        gastos_envio_venezuela_usd=datos.gastos_envio_venezuela_usd,
         envio_usd=datos.envio_usd,
         aduana_usd=datos.aduana_usd,
         otros_gastos_usd=datos.otros_gastos_usd,
+        cantidad_esperada=datos.cantidad_esperada or len(datos.equipos),
+        descripcion_lote=datos.descripcion_lote.strip(),
         llega_preparada=datos.llega_preparada,
         estado=estado_compra,
         nota=datos.nota.strip(),
@@ -554,7 +588,15 @@ def crear_compra(
         "id": compra.id,
         "numero_compra": compra.numero_compra,
         "origen": compra.origen,
+        "tipo_compra": compra.tipo_compra,
         "estado": compra.estado,
+        "cantidad_esperada": compra.cantidad_esperada,
+        "descripcion_lote": compra.descripcion_lote,
+        "monto_mercancia_usd": redondear_usd(compra.monto_mercancia_usd),
+        "taxes_usd": redondear_usd(compra.taxes_usd),
+        "envio_miami_usd": redondear_usd(compra.envio_miami_usd),
+        "subtotal_miami_usd": redondear_usd(compra.subtotal_miami_usd),
+        "gastos_envio_venezuela_usd": redondear_usd(compra.gastos_envio_venezuela_usd),
         "total_equipos": len(equipos_creados),
         "total_componentes": sum(c.cantidad for c in datos.componentes),
     }
@@ -1629,12 +1671,19 @@ def consultar_kardex_componentes(
     return sanear_respuesta_costos({"saldos": saldos, "movimientos": movimientos}, usuario_actual.rol)
 
 
+@enrutador_inventario.get("/trazabilidad/{serial}")
 @enrutador.get("/trazabilidad/{serial}")
 def obtener_trazabilidad_serial(
     serial: str,
     usuario_actual: Usuario = Depends(obtener_usuario_actual),
     bd: Session = Depends(obtener_bd),
 ) -> dict[str, Any]:
+    from app.modelos_admin_finanzas import AuditoriaSistema
+    from app.modelos_contabilidad import ComponenteInstaladoEquipo as EquipoComponenteInstalado
+    from app.modelos_finanzas import Venta, VentaDetalle
+    from app.modelos_operaciones import DevolucionGarantia
+    from app.modelos_taller import CasoPostventa, Preparacion, PreparacionComponente
+
     serial_norm = normalizar_serial(serial)
     incluir_costos = puede_ver_costos(usuario_actual.rol)
 
@@ -1642,7 +1691,7 @@ def obtener_trazabilidad_serial(
         bd.query(Equipo)
         .options(
             joinedload(Equipo.articulo),
-            joinedload(Equipo.compra),
+            joinedload(Equipo.compra).joinedload(Compra.proveedor),
             joinedload(Equipo.guia),
             joinedload(Equipo.ubicacion),
             joinedload(Equipo.recibido_por),
@@ -1682,9 +1731,270 @@ def obtener_trazabilidad_serial(
             evento["costo_unitario_usd"] = redondear_usd(m.costo_unitario_usd)
         linea_tiempo.append(evento)
 
+    # 1. Compra Internacional / Origen
+    compra_info: dict[str, Any] | None = None
+    if equipo.compra is not None:
+        c = equipo.compra
+        compra_info = {
+            "id": c.id,
+            "numero_compra": c.numero_compra,
+            "fecha": c.fecha.isoformat() if c.fecha else None,
+            "tipo_compra": c.tipo_compra,
+            "origen": c.origen,
+            "proveedor": c.proveedor.nombre if c.proveedor else "Sin proveedor",
+            "factura_orden": c.factura_orden or "",
+            "descripcion_lote": getattr(c, "descripcion_lote", "") or c.nota or "",
+            "cantidad_esperada": int(getattr(c, "cantidad_esperada", 0) or 0),
+        }
+        if incluir_costos:
+            compra_info["monto_mercancia_usd"] = redondear_usd(c.monto_mercancia_usd)
+            compra_info["taxes_usd"] = redondear_usd(getattr(c, "taxes_usd", Decimal("0")) or Decimal("0"))
+            compra_info["envio_miami_usd"] = redondear_usd(getattr(c, "envio_miami_usd", Decimal("0")) or Decimal("0"))
+            compra_info["subtotal_miami_usd"] = redondear_usd(
+                getattr(c, "subtotal_miami_usd", Decimal("0")) or Decimal("0")
+            )
+            compra_info["gastos_envio_venezuela_usd"] = redondear_usd(
+                (getattr(c, "gastos_envio_venezuela_usd", Decimal("0")) or Decimal("0"))
+                + (c.envio_usd or Decimal("0"))
+                + (getattr(c, "aduana_usd", Decimal("0")) or Decimal("0"))
+            )
+
+    # 2. Recepción
+    primer_costo = (
+        equipo.primer_costo_usd
+        if (getattr(equipo, "primer_costo_usd", None) or Decimal("0")) > Decimal("0")
+        else (equipo.costo_compra_usd + equipo.costo_flete_usd)
+    )
+    recepcion_info: dict[str, Any] = {
+        "fecha_recepcion": equipo.fecha_recepcion.isoformat() if equipo.fecha_recepcion else None,
+        "ubicacion": equipo.ubicacion.nombre if equipo.ubicacion else None,
+        "recibido_por": equipo.recibido_por.nombre if equipo.recibido_por else None,
+        "condicion_llegada": getattr(equipo, "condicion_llegada", "BUENO") or "BUENO",
+        "incluye_cargador": bool(getattr(equipo, "incluye_cargador", True)),
+        "observaciones_llegada": getattr(equipo, "observaciones_llegada", "") or equipo.nota or "",
+        "proceso_inicial": getattr(equipo, "proceso_inicial", "") or equipo.estado,
+    }
+    if incluir_costos:
+        recepcion_info["primer_costo_usd"] = redondear_usd(primer_costo)
+
+    # 3. Historial de Procesos (Movimientos + Auditoría)
+    auditorias = (
+        bd.query(AuditoriaSistema)
+        .filter(AuditoriaSistema.entidad_id == equipo.serial)
+        .order_by(AuditoriaSistema.id.asc())
+        .all()
+    )
+    historial_procesos: list[dict[str, Any]] = [
+        {
+            "fecha": m.fecha.isoformat(),
+            "evento": m.tipo,
+            "usuario": m.usuario.nombre if m.usuario else None,
+            "sucursal": m.sucursal.nombre if m.sucursal else None,
+            "notas": m.motivo,
+        }
+        for m in movimientos
+    ]
+    for aud in auditorias:
+        ts_aud = getattr(aud, "fecha_hora", None) or getattr(aud, "creado_en", None)
+        historial_procesos.append(
+            {
+                "fecha": ts_aud.isoformat() if ts_aud else None,
+                "evento": aud.accion,
+                "usuario": aud.usuario_nombre,
+                "sucursal": None,
+                "notas": getattr(aud, "detalle_nuevo_json", "") or "",
+            }
+        )
+    historial_procesos.sort(key=lambda x: str(x.get("fecha") or ""))
+
+    # 4. Preparación y Desglose de Costo Final (componentes + comisión)
+    componentes_inst = (
+        bd.query(EquipoComponenteInstalado)
+        .options(
+            joinedload(EquipoComponenteInstalado.articulo),
+            joinedload(EquipoComponenteInstalado.instalado_por),
+        )
+        .filter(EquipoComponenteInstalado.equipo_id == equipo.id)
+        .order_by(EquipoComponenteInstalado.id.asc())
+        .all()
+    )
+    preparaciones = (
+        bd.query(Preparacion)
+        .options(
+            joinedload(Preparacion.tecnico),
+            joinedload(Preparacion.componentes).joinedload(PreparacionComponente.articulo),
+        )
+        .filter(Preparacion.equipo_id == equipo.id)
+        .order_by(Preparacion.fecha.asc(), Preparacion.id.asc())
+        .all()
+    )
+    componentes_lista: list[dict[str, Any]] = []
+    total_comp_usd = Decimal("0.00")
+    for ci in componentes_inst:
+        sub = (ci.costo_unitario_usd or Decimal("0")) * Decimal(ci.cantidad or 1)
+        total_comp_usd += sub
+        ts_ci = getattr(ci, "creado_en", None) or getattr(ci, "fecha", None)
+        fila_c: dict[str, Any] = {
+            "sku": ci.articulo.sku if ci.articulo else None,
+            "descripcion": ci.articulo.descripcion if ci.articulo else "Componente",
+            "cantidad": ci.cantidad,
+            "fecha": ts_ci.isoformat() if ts_ci else None,
+            "tecnico": ci.instalado_por.nombre if ci.instalado_por else None,
+        }
+        if incluir_costos:
+            fila_c["costo_unitario_usd"] = redondear_usd(ci.costo_unitario_usd)
+            fila_c["costo_total_usd"] = redondear_usd(sub)
+        componentes_lista.append(fila_c)
+
+    for pr in preparaciones:
+        for pc in pr.componentes:
+            sub = (pc.costo_unitario_snapshot_usd or Decimal("0")) * Decimal(pc.cantidad or 1)
+            total_comp_usd += sub
+            fila_pc: dict[str, Any] = {
+                "sku": pc.articulo.sku if pc.articulo else None,
+                "descripcion": pc.articulo.descripcion if pc.articulo else "Componente",
+                "cantidad": pc.cantidad,
+                "fecha": pr.fecha.isoformat() if pr.fecha else None,
+                "tecnico": pr.tecnico.nombre if pr.tecnico else None,
+            }
+            if incluir_costos:
+                fila_pc["costo_unitario_usd"] = redondear_usd(pc.costo_unitario_snapshot_usd)
+                fila_pc["costo_total_usd"] = redondear_usd(sub)
+            componentes_lista.append(fila_pc)
+
+    comision_prep = getattr(equipo, "comision_preparacion_usd", Decimal("0")) or Decimal("0")
+    if comision_prep == Decimal("0") and preparaciones:
+        comision_prep = sum((p.pago_tecnico_usd or Decimal("0") for p in preparaciones), Decimal("0.00"))
+    costo_final_calc = (
+        equipo.costo_final_usd
+        if (getattr(equipo, "costo_final_usd", None) or Decimal("0")) > Decimal("0")
+        else (primer_costo + total_comp_usd + comision_prep)
+    )
+    preparacion_info: dict[str, Any] = {
+        "componentes_agregados": componentes_lista,
+        "cantidad_preparaciones": len(preparaciones),
+        "estado_actual": equipo.estado,
+    }
+    if incluir_costos:
+        preparacion_info["primer_costo_usd"] = redondear_usd(primer_costo)
+        preparacion_info["total_componentes_usd"] = redondear_usd(total_comp_usd)
+        preparacion_info["comision_preparacion_usd"] = redondear_usd(comision_prep)
+        preparacion_info["costo_final_usd"] = redondear_usd(costo_final_calc)
+
+    # 5. Traslados entre almacén/taller y tiendas
+    traslados_det = (
+        bd.query(TrasladoDetalle)
+        .options(
+            joinedload(TrasladoDetalle.traslado).joinedload(Traslado.origen),
+            joinedload(TrasladoDetalle.traslado).joinedload(Traslado.destino),
+        )
+        .filter(TrasladoDetalle.equipo_id == equipo.id)
+        .order_by(TrasladoDetalle.id.asc())
+        .all()
+    )
+    traslados_lista = [
+        {
+            "numero_traslado": td.traslado.numero_traslado,
+            "fecha_envio": td.traslado.fecha_envio.isoformat() if td.traslado.fecha_envio else None,
+            "fecha_recepcion": td.traslado.fecha_recepcion.isoformat() if td.traslado.fecha_recepcion else None,
+            "origen": td.traslado.origen.nombre if td.traslado.origen else None,
+            "destino": td.traslado.destino.nombre if td.traslado.destino else None,
+            "estado": td.traslado.estado,
+        }
+        for td in traslados_det
+        if td.traslado is not None
+    ]
+
+    # 6. Venta y Ganancia Real (vs Costo Final)
+    det_venta = (
+        bd.query(VentaDetalle)
+        .options(
+            joinedload(VentaDetalle.venta).joinedload(Venta.sucursal),
+            joinedload(VentaDetalle.venta).joinedload(Venta.asesor),
+            joinedload(VentaDetalle.venta).joinedload(Venta.cliente),
+        )
+        .join(Venta, Venta.id == VentaDetalle.venta_id)
+        .filter(VentaDetalle.equipo_id == equipo.id, Venta.estado != "ANULADA")
+        .order_by(Venta.id.desc())
+        .first()
+    )
+    venta_info: dict[str, Any] | None = None
+    if det_venta is not None and det_venta.venta is not None:
+        v = det_venta.venta
+        precio_vta = det_venta.precio_pactado_usd if det_venta.precio_pactado_usd is not None else det_venta.precio_promo_usd
+        venta_info = {
+            "venta_id": v.id,
+            "numero_venta": v.numero_venta,
+            "fecha": v.fecha.isoformat() if v.fecha else None,
+            "sede": v.sucursal.nombre if v.sucursal else None,
+            "asesor": v.asesor.nombre if v.asesor else "Tienda",
+            "cliente": v.cliente.nombre if v.cliente else "Cliente general",
+            "precio_venta_usd": redondear_usd(precio_vta),
+            "estado": v.estado,
+        }
+        if incluir_costos:
+            venta_info["costo_final_usd"] = redondear_usd(costo_final_calc)
+            venta_info["ganancia_real_usd"] = redondear_usd(Decimal(precio_vta) - Decimal(costo_final_calc))
+
+    # 7. Incidentes Futuros (Post-venta: Garantías, Servicio Técnico y Devoluciones)
+    casos = (
+        bd.query(CasoPostventa)
+        .options(joinedload(CasoPostventa.tecnico))
+        .filter(
+            (CasoPostventa.equipo_id == equipo.id)
+            | (func.upper(CasoPostventa.serial_o_codigo) == equipo.serial.upper())
+        )
+        .order_by(CasoPostventa.id.asc())
+        .all()
+    )
+    devoluciones = (
+        bd.query(DevolucionGarantia)
+        .filter(
+            (DevolucionGarantia.equipo_origen_id == equipo.id)
+            | (DevolucionGarantia.equipo_destino_id == equipo.id)
+        )
+        .order_by(DevolucionGarantia.id.asc())
+        .all()
+    )
+    incidentes_lista: list[dict[str, Any]] = []
+    for cp in casos:
+        f_cp = getattr(cp, "fecha_ingreso", None) or getattr(cp, "creado_en", None)
+        incidentes_lista.append(
+            {
+                "origen": "POSTVENTA",
+                "codigo": getattr(cp, "codigo", None) or getattr(cp, "numero_caso", f"CASO-{cp.id}"),
+                "tipo": cp.tipo,
+                "fecha": f_cp.isoformat()[:10] if f_cp else None,
+                "falla_reportada": getattr(cp, "falla_reportada", "") or "",
+                "tecnico": cp.tecnico.nombre if cp.tecnico else None,
+                "estado": cp.estado,
+                "resolucion": getattr(cp, "diagnostico", "") or getattr(cp, "nota", "") or "",
+            }
+        )
+    for dv in devoluciones:
+        incidentes_lista.append(
+            {
+                "origen": "DEVOLUCION_GARANTIA",
+                "codigo": dv.numero_documento,
+                "tipo": dv.escenario,
+                "fecha": dv.creado_en.date().isoformat() if dv.creado_en else None,
+                "falla_reportada": dv.motivo or "",
+                "tecnico": None,
+                "estado": dv.estado,
+                "resolucion": dv.observaciones or "",
+            }
+        )
+
     return sanear_respuesta_costos(
         {
             "equipo": serializar_equipo(equipo, incluir_costos),
+            "compra_internacional": compra_info,
+            "recepcion": recepcion_info,
+            "historial_procesos": historial_procesos,
+            "preparacion": preparacion_info,
+            "traslados": traslados_lista,
+            "venta": venta_info,
+            "incidentes_postventa": incidentes_lista,
             "linea_tiempo": linea_tiempo,
         },
         usuario_actual.rol,

@@ -55,6 +55,7 @@ class EstadoGuia(str, Enum):
 
 class EstadoEquipo(str, Enum):
     EN_TRANSITO = "EN_TRANSITO"
+    EN_REVISION = "EN_REVISION"
     POR_PREPARAR = "POR_PREPARAR"
     EN_PREPARACION = "EN_PREPARACION"
     LISTO = "LISTO"
@@ -145,11 +146,16 @@ class Compra(Base):
     factura_orden: Mapped[str] = mapped_column(String(100), default="", nullable=False)
     numero_guia: Mapped[str] = mapped_column(String(100), default="", nullable=False)
     monto_mercancia_usd: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=Decimal("0"), nullable=False)
+    taxes_usd: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=Decimal("0"), nullable=False)
+    envio_miami_usd: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=Decimal("0"), nullable=False)
+    subtotal_miami_usd: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=Decimal("0"), nullable=False)
+    gastos_envio_venezuela_usd: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=Decimal("0"), nullable=False)
     envio_usd: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=Decimal("0"), nullable=False)
     aduana_usd: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=Decimal("0"), nullable=False)
     otros_gastos_usd: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=Decimal("0"), nullable=False)
     llega_preparada: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     cantidad_esperada: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    descripcion_lote: Mapped[str] = mapped_column(Text, default="", nullable=False)
     estado: Mapped[str] = mapped_column(String(25), default=EstadoCompra.PENDIENTE.value, nullable=False)
     nota: Mapped[str] = mapped_column(Text, default="", nullable=False)
     creado_por_id: Mapped[int | None] = mapped_column(ForeignKey("usuarios.id"), nullable=True)
@@ -235,6 +241,10 @@ class Equipo(Base):
     costo_compra_usd: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=Decimal("0"), nullable=False)
     costo_flete_usd: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=Decimal("0"), nullable=False)
     costo_taller_usd: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=Decimal("0"), nullable=False)
+    primer_costo_usd: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=Decimal("0"), nullable=False)
+    comision_preparacion_usd: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=Decimal("0"), nullable=False)
+    costo_final_usd: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=Decimal("0"), nullable=False)
+    proceso_inicial: Mapped[str] = mapped_column(String(30), default="", nullable=False)
     precio_promo_usd: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=Decimal("0"), nullable=False)
     es_consignacion: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     proveedor_consignacion_id: Mapped[int | None] = mapped_column(ForeignKey("terceros.id"), nullable=True)

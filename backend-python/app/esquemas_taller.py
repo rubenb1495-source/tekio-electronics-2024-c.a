@@ -35,6 +35,7 @@ class PreparacionCrearEntrada(BaseModel):
     equipo_id: int
     tipo: TipoPreparacion = TipoPreparacion.ESTANDAR
     pago_tecnico_usd: Decimal | None = Field(default=None, ge=0)
+    comision_preparacion_usd: Decimal | None = Field(default=None, ge=0)
     componentes_usados: list[ComponenteUsadoEntrada] = Field(default_factory=list)
     resultado: ResultadoPreparacion
     repuestos_faltantes: list[RepuestoFaltanteEntrada] = Field(default_factory=list)

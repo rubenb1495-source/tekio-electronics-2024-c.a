@@ -121,9 +121,14 @@ class CompraCrearEntrada(ModeloEntradaLimpio):
     factura_orden: str = Field(default="", max_length=100)
     numero_guia: str = Field(default="", max_length=100)
     monto_mercancia_usd: Decimal = Field(default=Decimal("0"), ge=0)
+    taxes_usd: Decimal = Field(default=Decimal("0"), ge=0)
+    envio_miami_usd: Decimal = Field(default=Decimal("0"), ge=0)
+    gastos_envio_venezuela_usd: Decimal = Field(default=Decimal("0"), ge=0)
     envio_usd: Decimal = Field(default=Decimal("0"), ge=0)
     aduana_usd: Decimal = Field(default=Decimal("0"), ge=0)
     otros_gastos_usd: Decimal = Field(default=Decimal("0"), ge=0)
+    cantidad_esperada: int = Field(default=0, ge=0)
+    descripcion_lote: str = Field(default="", max_length=1000)
     llega_preparada: bool = False
     es_consignacion: bool = False
     nota: str = Field(default="", max_length=1000)

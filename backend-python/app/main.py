@@ -209,6 +209,11 @@ def asegurar_columnas_compatibles() -> None:
             ("fecha_vencimiento", "DATE NULL"),
             ("saldo_pendiente_usd", "NUMERIC(14, 2) NOT NULL DEFAULT 0"),
             ("cantidad_esperada", "INTEGER NOT NULL DEFAULT 0"),
+            ("descripcion_lote", "TEXT NOT NULL DEFAULT ''"),
+            ("taxes_usd", "NUMERIC(14, 2) NOT NULL DEFAULT 0"),
+            ("envio_miami_usd", "NUMERIC(14, 2) NOT NULL DEFAULT 0"),
+            ("subtotal_miami_usd", "NUMERIC(14, 2) NOT NULL DEFAULT 0"),
+            ("gastos_envio_venezuela_usd", "NUMERIC(14, 2) NOT NULL DEFAULT 0"),
         ]
         for nombre_col, ddl_col in nuevas_comp:
             if nombre_col not in columnas_comp:
@@ -224,6 +229,10 @@ def asegurar_columnas_compatibles() -> None:
             ("condicion_llegada", "VARCHAR(30) NOT NULL DEFAULT 'BUENO'"),
             ("incluye_cargador", "BOOLEAN NOT NULL DEFAULT TRUE"),
             ("observaciones_llegada", "TEXT NOT NULL DEFAULT ''"),
+            ("primer_costo_usd", "NUMERIC(12, 2) NOT NULL DEFAULT 0"),
+            ("comision_preparacion_usd", "NUMERIC(12, 2) NOT NULL DEFAULT 0"),
+            ("costo_final_usd", "NUMERIC(12, 2) NOT NULL DEFAULT 0"),
+            ("proceso_inicial", "VARCHAR(30) NOT NULL DEFAULT ''"),
         ]
         for nombre_col, ddl_col in nuevas_eq:
             if nombre_col not in columnas_eq:

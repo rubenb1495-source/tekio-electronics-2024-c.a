@@ -34,7 +34,7 @@ import type {
 type OrigenRecepcion = "COMPRA" | "TRASLADO_GUIA";
 type ModoCarga = "UNO_A_UNO" | "MASIVA";
 type CondicionLlegada = "EXCELENTE" | "BUENO" | "CON_DETALLES" | "CON_FALLA";
-type EstadoInicialEquipo = "POR_PREPARAR" | "HOSPITAL";
+type EstadoInicialEquipo = "EN_REVISION" | "POR_PREPARAR" | "HOSPITAL" | "CEMENTERIO";
 
 interface CompraPendienteRecepcion {
   id: number;
@@ -48,6 +48,12 @@ interface CompraPendienteRecepcion {
   estado: string;
   equipos_recibidos: number;
   cantidad_esperada: number;
+  descripcion_lote?: string;
+  monto_mercancia_usd?: number;
+  taxes_usd?: number;
+  envio_miami_usd?: number;
+  subtotal_miami_usd?: number;
+  gastos_envio_venezuela_usd?: number;
   trackings: {
     id: number;
     numero_tracking: string;
@@ -67,6 +73,7 @@ interface FilaEquipoEscaneado {
   incluye_cargador: boolean;
   observaciones_llegada: string;
   estado_inicial: EstadoInicialEquipo;
+  primer_costo_usd: string;
 }
 
 interface FilaComponenteRecepcion {
@@ -124,6 +131,7 @@ function ContenidoRecepcionUnificada() {
   const [compraId, setCompraId] = useState<string>(compraIdQuery);
   const [sucursalDestinoId, setSucursalDestinoId] = useState<string>("");
   const [trackingId, setTrackingId] = useState<string>("");
+  const [gastosEnvioVzla, setGastosEnvioVzla] = useState<string>("");
   const [cerrarCompra, setCerrarCompra] = useState(false);
 
   // Modo 1: Uno a Uno (Escáner / Manual)
@@ -238,6 +246,7 @@ function ContenidoRecepcionUnificada() {
         incluye_cargador: true,
         observaciones_llegada: "",
         estado_inicial: "POR_PREPARAR",
+        primer_costo_usd: "",
       },
     ]);
     setInputEscaner("");
@@ -258,6 +267,7 @@ function ContenidoRecepcionUnificada() {
         incluye_cargador: true,
         observaciones_llegada: "",
         estado_inicial: "POR_PREPARAR",
+        primer_costo_usd: "",
       },
     ]);
   };
@@ -296,6 +306,9 @@ function ContenidoRecepcionUnificada() {
         body: JSON.stringify({
           sucursal_destino_id: Number(sucursalDestinoId),
           tracking_id: trackingId ? Number(trackingId) : null,
+          gastos_envio_venezuela_usd: gastosEnvioVzla.trim()
+            ? Number(gastosEnvioVzla)
+            : null,
           cerrar_compra: cerrarCompra,
           equipos: eqValidos.map((eq) => ({
             serial: eq.serial.trim().toUpperCase(),
@@ -307,6 +320,9 @@ function ContenidoRecepcionUnificada() {
             incluye_cargador: eq.incluye_cargador,
             observaciones_llegada: eq.observaciones_llegada.trim(),
             estado_inicial: eq.estado_inicial,
+            primer_costo_usd: eq.primer_costo_usd.trim()
+              ? Number(eq.primer_costo_usd)
+              : null,
           })),
           componentes: compValidos.map((c) => ({
             articulo_id: Number(c.articulo_id),
@@ -627,16 +643,37 @@ function ContenidoRecepcionUnificada() {
                   <span className="text-neutral-600">
                     Progreso: <strong className="text-[#191818]">{compraActual.equipos_recibidos} de {compraActual.cantidad_esperada}</strong> recibidos
                   </span>
+                  {compraActual.subtotal_miami_usd !== undefined && (
+                    <span className="text-neutral-600 tabular-nums">
+                      Subtotal Miami: <strong className="text-[#191818]">{formatearUsd(compraActual.subtotal_miami_usd)}</strong>
+                    </span>
+                  )}
                 </div>
-                <label className="inline-flex items-center gap-2 font-semibold text-neutral-700 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={cerrarCompra}
-                    onChange={(e) => setCerrarCompra(e.target.checked)}
-                    className="accent-[#E85A28]"
-                  />
-                  Marcar compra como RECIBIDA (completa) al confirmar
-                </label>
+                <div className="flex flex-wrap items-center gap-3">
+                  <div className="inline-flex items-center gap-1.5">
+                    <label className="text-[11px] font-bold text-neutral-600">
+                      Envío a Venezuela (USD):
+                    </label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      value={gastosEnvioVzla}
+                      onChange={(e) => setGastosEnvioVzla(e.target.value)}
+                      placeholder={String(compraActual.gastos_envio_venezuela_usd || 0)}
+                      className="w-24 px-2 py-1 rounded-lg border border-neutral-300 bg-white text-xs font-mono tabular-nums"
+                    />
+                  </div>
+                  <label className="inline-flex items-center gap-2 font-semibold text-neutral-700 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={cerrarCompra}
+                      onChange={(e) => setCerrarCompra(e.target.checked)}
+                      className="accent-[#E85A28]"
+                    />
+                    Marcar RECIBIDA
+                  </label>
+                </div>
               </div>
             )}
           </div>
@@ -813,9 +850,25 @@ function ContenidoRecepcionUnificada() {
                                 }}
                                 className="px-2 py-1 rounded-lg border border-neutral-300 bg-white text-xs font-semibold"
                               >
-                                <option value="POR_PREPARAR">POR_PREPARAR</option>
-                                <option value="HOSPITAL">HOSPITAL</option>
+                                <option value="EN_REVISION">Revisión</option>
+                                <option value="POR_PREPARAR">Preparación</option>
+                                <option value="HOSPITAL">Hospital</option>
+                                <option value="CEMENTERIO">Cementerio</option>
                               </select>
+                              <input
+                                type="number"
+                                step="0.01"
+                                min="0"
+                                value={eq.primer_costo_usd}
+                                placeholder="Primer costo (auto)"
+                                title="Ajuste manual opcional del Primer Costo USD"
+                                onChange={(e) => {
+                                  const copia = [...equiposLista];
+                                  copia[idx] = { ...eq, primer_costo_usd: e.target.value };
+                                  setEquiposLista(copia);
+                                }}
+                                className="mt-1 w-28 px-2 py-0.5 rounded-lg border border-neutral-200 bg-[#F6F6F6] text-[11px] font-mono tabular-nums"
+                              />
                             </td>
                             <td className="px-2 py-2 text-right">
                               <button

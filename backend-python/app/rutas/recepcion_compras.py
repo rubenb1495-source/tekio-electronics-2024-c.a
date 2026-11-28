@@ -41,7 +41,30 @@ from app.servicios.contabilidad_service import registrar_asiento
 enrutador = APIRouter(prefix="/api/logistica", tags=["Recepción de Compras (Escáner y Masiva)"])
 
 CONDICIONES_VALIDAS = frozenset({"EXCELENTE", "BUENO", "CON_DETALLES", "CON_FALLA"})
-ESTADOS_INICIALES_VALIDOS = frozenset({EstadoEquipo.POR_PREPARAR.value, EstadoEquipo.HOSPITAL.value, EstadoEquipo.LISTO.value})
+ESTADOS_INICIALES_VALIDOS = frozenset(
+    {
+        EstadoEquipo.EN_REVISION.value,
+        EstadoEquipo.POR_PREPARAR.value,
+        EstadoEquipo.EN_PREPARACION.value,
+        EstadoEquipo.HOSPITAL.value,
+        EstadoEquipo.CEMENTERIO.value,
+        EstadoEquipo.LISTO.value,
+    }
+)
+
+MAPA_PROCESO_A_ESTADO: dict[str, str] = {
+    "REVISION": EstadoEquipo.EN_REVISION.value,
+    "REVISIÓN": EstadoEquipo.EN_REVISION.value,
+    "EN_REVISION": EstadoEquipo.EN_REVISION.value,
+    "PREPARACION": EstadoEquipo.POR_PREPARAR.value,
+    "PREPARACIÓN": EstadoEquipo.POR_PREPARAR.value,
+    "POR_PREPARAR": EstadoEquipo.POR_PREPARAR.value,
+    "EN_PREPARACION": EstadoEquipo.EN_PREPARACION.value,
+    "HOSPITAL": EstadoEquipo.HOSPITAL.value,
+    "CEMENTERIO": EstadoEquipo.CEMENTERIO.value,
+    "LISTO": EstadoEquipo.LISTO.value,
+    "DISPONIBLE": EstadoEquipo.LISTO.value,
+}
 
 
 def _d2(val: Decimal | float | int) -> Decimal:
@@ -79,8 +102,12 @@ class EquipoRecepcionEntrada(ModeloEntradaLimpio):
     condicion_llegada: Literal["EXCELENTE", "BUENO", "CON_DETALLES", "CON_FALLA"] = "BUENO"
     incluye_cargador: bool = True
     observaciones_llegada: str = Field(default="", max_length=500)
-    estado_inicial: Literal["POR_PREPARAR", "HOSPITAL", "LISTO"] = "POR_PREPARAR"
+    estado_inicial: Literal[
+        "EN_REVISION", "POR_PREPARAR", "EN_PREPARACION", "HOSPITAL", "CEMENTERIO", "LISTO"
+    ] = "POR_PREPARAR"
+    proceso_inicial: str | None = Field(default=None, max_length=30)
     costo_compra_usd: Decimal | None = Field(default=None, ge=0)
+    primer_costo_usd: Decimal | None = Field(default=None, ge=0)
     precio_promo_usd: Decimal | None = Field(default=None, ge=0)
 
 
@@ -93,6 +120,7 @@ class ComponenteRecepcionEntrada(ModeloEntradaLimpio):
 class RecepcionCompraEntrada(ModeloEntradaLimpio):
     sucursal_destino_id: int
     tracking_id: int | None = None
+    gastos_envio_venezuela_usd: Decimal | None = Field(default=None, ge=0)
     cerrar_compra: bool = False
     equipos: list[EquipoRecepcionEntrada] = Field(default_factory=list)
     componentes: list[ComponenteRecepcionEntrada] = Field(default_factory=list)
@@ -153,9 +181,17 @@ def listar_compras_pendientes_recepcion(
         }
         if ver_costos:
             fila["monto_mercancia_usd"] = _r2(c.monto_mercancia_usd or 0)
+            fila["taxes_usd"] = _r2(getattr(c, "taxes_usd", 0) or 0)
+            fila["envio_miami_usd"] = _r2(getattr(c, "envio_miami_usd", 0) or 0)
+            fila["subtotal_miami_usd"] = _r2(
+                getattr(c, "subtotal_miami_usd", 0)
+                or ((c.monto_mercancia_usd or 0) + (getattr(c, "taxes_usd", 0) or 0) + (getattr(c, "envio_miami_usd", 0) or 0))
+            )
+            fila["gastos_envio_venezuela_usd"] = _r2(getattr(c, "gastos_envio_venezuela_usd", 0) or 0)
             fila["envio_usd"] = _r2(c.envio_usd or 0)
             fila["aduana_usd"] = _r2(getattr(c, "aduana_usd", 0) or 0)
             fila["otros_gastos_usd"] = _r2(c.otros_gastos_usd or 0)
+        fila["descripcion_lote"] = getattr(c, "descripcion_lote", "") or c.nota or ""
         salida.append(fila)
     return salida
 
@@ -273,12 +309,21 @@ def _ejecutar_recepcion_compra_atomica(
                 detail=f"Los siguientes seriales ya existen en el inventario: {dups}.",
             )
 
-    # Prorrateo automático de flete + aduana + otros gastos
+    # Actualizar gastos de envío a Venezuela si se informan en esta recepción
+    if datos.gastos_envio_venezuela_usd is not None:
+        compra.gastos_envio_venezuela_usd = _d2(datos.gastos_envio_venezuela_usd)
+
+    # Prorrateo automático del Primer Costo (Costo Aterrizado):
+    # (Monto compra + Taxes + Envío a Miami + Gastos envío a Venezuela + envío/aduana/otros) / Cantidad de equipos
     gastos_log = _d2(
-        Decimal(compra.envio_usd or 0)
+        Decimal(getattr(compra, "taxes_usd", 0) or 0)
+        + Decimal(getattr(compra, "envio_miami_usd", 0) or 0)
+        + Decimal(getattr(compra, "gastos_envio_venezuela_usd", 0) or 0)
+        + Decimal(compra.envio_usd or 0)
         + Decimal(getattr(compra, "aduana_usd", 0) or 0)
         + Decimal(compra.otros_gastos_usd or 0)
     )
+    costo_total_lote = _d2(Decimal(compra.monto_mercancia_usd or 0) + gastos_log)
     total_unidades_base = max(
         int(getattr(compra, "cantidad_esperada", 0) or 0),
         len(compra.equipos or []) + len(datos.equipos),
@@ -290,6 +335,29 @@ def _ejecutar_recepcion_compra_atomica(
         if Decimal(compra.monto_mercancia_usd or 0) > 0
         else Decimal("0.00")
     )
+    primer_costo_auto = _d2(costo_total_lote / Decimal(total_unidades_base)) if costo_total_lote > 0 else Decimal("0.00")
+
+    # Si se suministra ajuste manual de primer_costo_usd en todos los equipos del lote completo, validar cuadre exacto
+    tiene_manual_todos = (
+        len(datos.equipos) > 0
+        and all(eq_in.primer_costo_usd is not None for eq_in in datos.equipos)
+        and (len(compra.equipos or []) + len(datos.equipos) >= total_unidades_base or datos.cerrar_compra)
+        and costo_total_lote > Decimal("0.00")
+    )
+    if tiene_manual_todos:
+        ya_asignado = sum(
+            (Decimal(e.primer_costo_usd or (e.costo_compra_usd + e.costo_flete_usd)) for e in (compra.equipos or [])),
+            Decimal("0.00"),
+        )
+        suma_manual = _d2(ya_asignado + sum((_d2(eq_in.primer_costo_usd or 0) for eq_in in datos.equipos), Decimal("0.00")))
+        if abs(suma_manual - costo_total_lote) > Decimal("0.05"):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=(
+                    f"La suma de los costos manuales por serial (${float(suma_manual):,.2f}) no cuadra con el "
+                    f"costo total aterrizado del lote (${float(costo_total_lote):,.2f})."
+                ),
+            )
 
     equipos_creados: list[Equipo] = []
     valor_total_equipos = Decimal("0.00")
@@ -304,12 +372,32 @@ def _ejecutar_recepcion_compra_atomica(
             modelo_final = eq_in.modelo.strip() or (art.descripcion if art else sn)
             specs_partes = [p for p in [eq_in.ram.strip(), eq_in.almacenamiento.strip()] if p]
             config_final = " / ".join(specs_partes)
-            costo_compra = _d2(eq_in.costo_compra_usd) if eq_in.costo_compra_usd is not None else costo_base_auto
+
+            if eq_in.primer_costo_usd is not None:
+                primer_costo_eq = _d2(eq_in.primer_costo_usd)
+                costo_compra = max(Decimal("0.00"), _d2(primer_costo_eq - flete_unitario))
+                flete_eq = _d2(primer_costo_eq - costo_compra)
+            else:
+                costo_compra = _d2(eq_in.costo_compra_usd) if eq_in.costo_compra_usd is not None else costo_base_auto
+                flete_eq = flete_unitario
+                primer_costo_eq = _d2(costo_compra + flete_eq)
+
             precio_promo = _d2(eq_in.precio_promo_usd) if eq_in.precio_promo_usd is not None else Decimal("0.00")
+            proc_txt = (eq_in.proceso_inicial or "").strip().upper()
+            estado_resuelto = MAPA_PROCESO_A_ESTADO.get(proc_txt, eq_in.estado_inicial)
             estado_dest = (
                 EstadoEquipo.LISTO.value
-                if (compra.llega_preparada and eq_in.estado_inicial == EstadoEquipo.POR_PREPARAR.value)
-                else eq_in.estado_inicial
+                if (compra.llega_preparada and estado_resuelto == EstadoEquipo.POR_PREPARAR.value and not proc_txt)
+                else estado_resuelto
+            )
+            proceso_guardado = proc_txt or (
+                "REVISION"
+                if estado_dest == EstadoEquipo.EN_REVISION.value
+                else "HOSPITAL"
+                if estado_dest == EstadoEquipo.HOSPITAL.value
+                else "CEMENTERIO"
+                if estado_dest == EstadoEquipo.CEMENTERIO.value
+                else "PREPARACION"
             )
 
             nuevo_eq = Equipo(
@@ -321,9 +409,13 @@ def _ejecutar_recepcion_compra_atomica(
                 categoria=eq_in.categoria.strip() or "Laptop",
                 ubicacion_id=sucursal.id,
                 estado=estado_dest,
+                proceso_inicial=proceso_guardado,
                 costo_compra_usd=costo_compra,
-                costo_flete_usd=flete_unitario,
+                costo_flete_usd=flete_eq,
                 costo_taller_usd=Decimal("0.00"),
+                primer_costo_usd=primer_costo_eq,
+                comision_preparacion_usd=Decimal("0.00"),
+                costo_final_usd=primer_costo_eq,
                 precio_promo_usd=precio_promo,
                 recibido_por_id=usuario_actual.id,
                 fecha_recepcion=hoy,
@@ -341,14 +433,15 @@ def _ejecutar_recepcion_compra_atomica(
                     equipo_id=nuevo_eq.id,
                     articulo_id=nuevo_eq.articulo_id,
                     cantidad=1,
+                    costo_unitario_usd=primer_costo_eq,
                     sucursal_id=sucursal.id,
                     documento_ref=compra.numero_compra,
                     usuario_id=usuario_actual.id,
-                    motivo=f"Recepción {modo} compra {compra.numero_compra} ({eq_in.condicion_llegada})",
+                    motivo=f"Recepción {modo} compra {compra.numero_compra} → {proceso_guardado} ({eq_in.condicion_llegada})",
                 )
             )
             equipos_creados.append(nuevo_eq)
-            valor_total_equipos += costo_compra + flete_unitario
+            valor_total_equipos += primer_costo_eq
 
         componentes_recibidos = 0
         for comp_in in datos.componentes:
@@ -487,6 +580,7 @@ def _ejecutar_recepcion_compra_atomica(
                 "modelo": e.modelo,
                 "configuracion": e.configuracion,
                 "estado": e.estado,
+                "proceso_inicial": e.proceso_inicial,
                 "condicion_llegada": e.condicion_llegada,
                 "incluye_cargador": e.incluye_cargador,
                 "observaciones_llegada": e.observaciones_llegada,
@@ -494,6 +588,8 @@ def _ejecutar_recepcion_compra_atomica(
                     {
                         "costo_compra_usd": _r2(e.costo_compra_usd),
                         "costo_flete_usd": _r2(e.costo_flete_usd),
+                        "primer_costo_usd": _r2(e.primer_costo_usd),
+                        "costo_final_usd": _r2(e.costo_final_usd),
                         "costo_total_usd": _r2(e.costo_compra_usd + e.costo_flete_usd),
                     }
                     if ver_costos

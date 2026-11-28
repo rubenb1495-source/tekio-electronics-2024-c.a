@@ -191,6 +191,12 @@ export default function DisenoDashboard({
           icono: <Boxes className="w-4 h-4 shrink-0" />,
           visible: true,
         },
+        {
+          href: "/dashboard/logistica/trazabilidad",
+          etiqueta: "Trazabilidad por Serial",
+          icono: <ScanBarcode className="w-4 h-4 shrink-0 text-[#E85A28]" />,
+          visible: true,
+        },
       ],
     },
     {
