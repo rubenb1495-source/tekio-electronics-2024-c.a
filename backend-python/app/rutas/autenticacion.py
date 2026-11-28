@@ -1,10 +1,12 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
+from typing import Any
 from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import func
+from pydantic import BaseModel, Field
+from sqlalchemy import func, or_
 from sqlalchemy.orm import Session, joinedload
 
 from app.base_datos import obtener_bd
@@ -151,3 +153,185 @@ def cambiar_password_propio(
 @enrutador.get("/perfil", response_model=UsuarioSalida)
 def obtener_perfil(usuario_actual: Usuario = Depends(obtener_usuario_actual)) -> UsuarioSalida:
     return UsuarioSalida.model_validate(usuario_actual)
+
+
+class SolicitarRecuperacionEntrada(BaseModel):
+    usuario: str = Field(min_length=1, max_length=180)
+
+
+class ConfirmarRecuperacionEntrada(BaseModel):
+    usuario: str = Field(min_length=1, max_length=180)
+    codigo: str = Field(min_length=4, max_length=32)
+    nueva_clave: str = Field(min_length=8, max_length=128)
+    confirmar_clave: str = Field(min_length=8, max_length=128)
+
+
+def _enviar_codigo_smtp(destinatario: str, nombre: str, codigo: str) -> bool:
+    import os
+    import smtplib
+    from email.message import EmailMessage
+
+    host = os.getenv("SMTP_HOST", "").strip()
+    user = os.getenv("SMTP_USER", "").strip()
+    pwd = os.getenv("SMTP_PASSWORD", "").strip()
+    port = int(os.getenv("SMTP_PORT", "587") or "587")
+    remitente = os.getenv("SMTP_FROM", user).strip() or user
+    if not host or not user or not pwd or not destinatario:
+        return False
+    try:
+        msg = EmailMessage()
+        msg["Subject"] = "Código de recuperación de contraseña — Tekio Electronics"
+        msg["From"] = remitente
+        msg["To"] = destinatario
+        msg.set_content(
+            f"Hola {nombre},\n\n"
+            f"Tu código temporal de recuperación es: {codigo}\n"
+            "Este código vence en 15 minutos.\n\n"
+            "Si no solicitaste este cambio, ignora este mensaje.\n"
+            "— Tekio Electronics 2024, C.A."
+        )
+        with smtplib.SMTP(host, port, timeout=10) as smtp:
+            smtp.starttls()
+            smtp.login(user, pwd)
+            smtp.send_message(msg)
+        return True
+    except Exception:
+        return False
+
+
+@enrutador.post("/solicitar-recuperacion")
+def solicitar_recuperacion_clave(
+    datos: SolicitarRecuperacionEntrada,
+    bd: Session = Depends(obtener_bd),
+) -> dict[str, Any]:
+    import secrets
+
+    ident = datos.usuario.strip().lower()
+    usuario = (
+        bd.query(Usuario)
+        .filter(
+            or_(
+                func.lower(Usuario.username) == ident,
+                func.lower(Usuario.correo) == ident,
+                func.lower(Usuario.nombre) == ident,
+            )
+        )
+        .first()
+    )
+    if usuario is None or not usuario.activo or not usuario.tiene_acceso:
+        return {
+            "modo": "ALERTA_ADMIN",
+            "mensaje": (
+                "Si el usuario existe, se notificó a Administración / Dirección. "
+                "Contacta a tu supervisor para recibir tu clave temporal."
+            ),
+        }
+
+    codigo = "".join(secrets.choice("0123456789") for _ in range(6))
+    enviado_smtp = _enviar_codigo_smtp(usuario.correo or "", usuario.nombre, codigo)
+    if enviado_smtp:
+        usuario.recuperacion_token_hash = generar_hash_clave(codigo)
+        usuario.recuperacion_expira_en = datetime.now(timezone.utc) + timedelta(minutes=15)
+        registrar_auditoria(
+            bd,
+            usuario=usuario,
+            modulo="SEGURIDAD",
+            accion="SOLICITUD_RECUPERACION_SMTP",
+            entidad_id=usuario.username or usuario.nombre or str(usuario.id),
+            detalle_anterior={},
+            detalle_nuevo={"canal": "SMTP", "expira_minutos": 15},
+        )
+        bd.commit()
+        return {
+            "modo": "SMTP",
+            "mensaje": "Enviamos un código de 6 dígitos a tu correo registrado (válido por 15 minutos).",
+        }
+
+    registrar_auditoria(
+        bd,
+        usuario=usuario,
+        modulo="SEGURIDAD",
+        accion="SOLICITUD_RECUPERACION_CLAVE",
+        entidad_id=usuario.username or usuario.nombre or str(usuario.id),
+        detalle_anterior={},
+        detalle_nuevo={
+            "usuario_id": usuario.id,
+            "nombre": usuario.nombre,
+            "username": usuario.username or "",
+            "motivo": "Usuario solicitó recuperación de clave desde Login",
+        },
+    )
+    bd.commit()
+    return {
+        "modo": "ALERTA_ADMIN",
+        "mensaje": (
+            "Se registró una alerta para Administración / Dirección. "
+            "Contacta a tu supervisor para que te genere y envíe una clave temporal."
+        ),
+    }
+
+
+@enrutador.post("/confirmar-recuperacion")
+def confirmar_recuperacion_clave(
+    datos: ConfirmarRecuperacionEntrada,
+    bd: Session = Depends(obtener_bd),
+) -> dict[str, str]:
+    if datos.nueva_clave != datos.confirmar_clave:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="La confirmación no coincide con la nueva contraseña.",
+        )
+    ident = datos.usuario.strip().lower()
+    usuario = (
+        bd.query(Usuario)
+        .filter(
+            or_(
+                func.lower(Usuario.username) == ident,
+                func.lower(Usuario.correo) == ident,
+                func.lower(Usuario.nombre) == ident,
+            )
+        )
+        .first()
+    )
+    if (
+        usuario is None
+        or not usuario.recuperacion_token_hash
+        or not usuario.recuperacion_expira_en
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No hay un código de recuperación activo para este usuario.",
+        )
+    expira = usuario.recuperacion_expira_en
+    if expira.tzinfo is None:
+        expira = expira.replace(tzinfo=timezone.utc)
+    if datetime.now(timezone.utc) > expira:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="El código de recuperación ha expirado (15 minutos). Solicita uno nuevo.",
+        )
+    if not verificar_clave(datos.codigo.strip(), usuario.recuperacion_token_hash):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="El código de recuperación es incorrecto.",
+        )
+
+    usuario.clave_hash = generar_hash_clave(datos.nueva_clave)
+    usuario.intentos_fallidos_login = 0
+    usuario.cuenta_bloqueada = False
+    usuario.bloqueado_hasta = None
+    usuario.bloqueado_en = None
+    usuario.debe_cambiar_clave = False
+    usuario.recuperacion_token_hash = None
+    usuario.recuperacion_expira_en = None
+    registrar_auditoria(
+        bd,
+        usuario=usuario,
+        modulo="SEGURIDAD",
+        accion="RECUPERACION_CLAVE_CONFIRMADA",
+        entidad_id=usuario.username or usuario.nombre or str(usuario.id),
+        detalle_anterior={},
+        detalle_nuevo={"desbloqueado": True},
+    )
+    bd.commit()
+    return {"mensaje": "Contraseña restablecida correctamente. Ya puedes iniciar sesión."}

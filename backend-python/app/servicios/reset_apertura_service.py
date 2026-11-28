@@ -31,6 +31,7 @@ FRASE_CONFIRMACION_RESET = "REINICIAR TEKIO 01-12"
 # Tablas transaccionales que se limpian por completo (reiniciando secuencias a 1)
 TABLAS_TRANSACCIONALES_RESET: tuple[str, ...] = (
     # Contabilidad y Auditoría
+    "solicitudes_recuperacion_clave",
     "asientos_lineas",
     "asientos_contables",
     "auditoria_sistema",

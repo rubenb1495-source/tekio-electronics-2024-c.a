@@ -246,6 +246,34 @@ def _calcular_alertas_internas(bd: Session, hoy: date) -> dict[str, Any]:
             }
         )
 
+    # Solicitudes de recuperación de clave olvidada (últimas 10)
+    from app.modelos_admin_finanzas import AuditoriaSistema
+    solicitudes_rec = (
+        bd.query(AuditoriaSistema)
+        .filter(AuditoriaSistema.accion == "SOLICITUD_RECUPERACION_CLAVE")
+        .order_by(AuditoriaSistema.id.desc())
+        .limit(10)
+        .all()
+    )
+    vistos_rec: set[str] = set()
+    for sr in solicitudes_rec:
+        ent = sr.entidad_id or ""
+        if ent in vistos_rec:
+            continue
+        vistos_rec.add(ent)
+        alertas_seguridad.append(
+            {
+                "usuario_id": sr.usuario_id,
+                "nombre": sr.usuario_nombre or ent,
+                "username": ent,
+                "rol": sr.usuario_rol or "OPERATIVO",
+                "intentos_fallidos": 0,
+                "bloqueado_hasta": None,
+                "bloqueado_en": None,
+                "mensaje": f"Solicitud de recuperación de contraseña para '{sr.usuario_nombre or ent}'. Usa 'Regenerar clave temporal' en Usuarios.",
+            }
+        )
+
     return {
         "fecha_corte": hoy.isoformat(),
         "total_alertas": len(stock_bajo) + len(cxp_alertas),
@@ -599,6 +627,21 @@ def registrar_movimiento_tesoreria(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Instrumento financiero de origen o destino no encontrado.",
         )
+
+    no_liquidos = {
+        "cashea · financiado",
+        "equipo como parte de pago",
+        "cuenta por cobrar",
+    }
+    for etiqueta, inst_chk in (("origen", inst_orig), ("destino", inst_dest)):
+        if inst_chk.nombre.strip().lower() in no_liquidos:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=(
+                    f"El instrumento de {etiqueta} '{inst_chk.nombre}' no es un instrumento líquido "
+                    "y no puede usarse en transferencias ni cambios de divisas."
+                ),
+            )
 
     fecha_op = datos.fecha or obtener_fecha_hoy()
     tasa_bcv, tasa_usdt, _ = _obtener_tasas_vigentes(bd, fecha_op)

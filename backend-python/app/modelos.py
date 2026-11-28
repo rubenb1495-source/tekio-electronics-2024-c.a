@@ -79,6 +79,8 @@ class Usuario(Base):
     bloqueado_en: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     cuenta_bloqueada: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     debe_cambiar_clave: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    recuperacion_token_hash: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    recuperacion_expira_en: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     sucursal_id: Mapped[int | None] = mapped_column(ForeignKey("sucursales.id"), nullable=True)
     activo: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     motivo_estado: Mapped[str | None] = mapped_column(String(255), nullable=True)

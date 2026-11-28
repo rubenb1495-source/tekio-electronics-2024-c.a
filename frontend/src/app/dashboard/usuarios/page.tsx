@@ -493,7 +493,7 @@ export default function PaginaPersonalYUsuarios() {
                             className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-emerald-200 bg-emerald-50 hover:bg-emerald-100 text-xs font-bold text-emerald-700 cursor-pointer"
                           >
                             <Share2 className="w-3.5 h-3.5" />
-                            Compartir acceso
+                            Regenerar clave temporal
                           </button>
                         )}
                         <button

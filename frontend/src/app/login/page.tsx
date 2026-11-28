@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { AlertCircle, ArrowRight, Lock, Mail } from "lucide-react";
 import LogoTekio from "@/components/LogoTekio";
 import { usarSesion } from "@/contexto/SesionContexto";
-import { ErrorApi } from "@/servicios/api";
+import { ErrorApi, solicitarApi } from "@/servicios/api";
 
 export default function PaginaLogin() {
   const { usuario, cargandoSesion, iniciarSesion } = usarSesion();
@@ -15,6 +15,69 @@ export default function PaginaLogin() {
   const [clave, setClave] = useState("");
   const [enviando, setEnviando] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Recuperación de contraseña olvidada
+  const [modalRec, setModalRec] = useState(false);
+  const [usuarioRec, setUsuarioRec] = useState("");
+  const [codigoRec, setCodigoRec] = useState("");
+  const [nuevaClaveRec, setNuevaClaveRec] = useState("");
+  const [confClaveRec, setConfClaveRec] = useState("");
+  const [enviandoRec, setEnviandoRec] = useState(false);
+  const [recError, setRecError] = useState<string | null>(null);
+  const [recEstado, setRecEstado] = useState<{ modo: string; mensaje: string } | null>(null);
+
+  const solicitarRecuperacion = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    setRecError(null);
+    setRecEstado(null);
+    setEnviandoRec(true);
+    try {
+      const resp = await solicitarApi<{ modo: string; mensaje: string }>(
+        "/api/auth/solicitar-recuperacion",
+        {
+          method: "POST",
+          body: JSON.stringify({ usuario: usuarioRec.trim() }),
+        }
+      );
+      setRecEstado(resp);
+    } catch (err) {
+      setRecError(
+        err instanceof ErrorApi ? err.message : "No se pudo procesar la solicitud."
+      );
+    } finally {
+      setEnviandoRec(false);
+    }
+  };
+
+  const confirmarRecuperacion = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    setRecError(null);
+    setEnviandoRec(true);
+    try {
+      const resp = await solicitarApi<{ mensaje: string }>(
+        "/api/auth/confirmar-recuperacion",
+        {
+          method: "POST",
+          body: JSON.stringify({
+            usuario: usuarioRec.trim(),
+            codigo: codigoRec.trim(),
+            nueva_clave: nuevaClaveRec,
+            confirmar_clave: confClaveRec,
+          }),
+        }
+      );
+      setRecEstado({ modo: "COMPLETADO", mensaje: resp.mensaje });
+      setCodigoRec("");
+      setNuevaClaveRec("");
+      setConfClaveRec("");
+    } catch (err) {
+      setRecError(
+        err instanceof ErrorApi ? err.message : "No se pudo restablecer la contraseña."
+      );
+    } finally {
+      setEnviandoRec(false);
+    }
+  };
 
   useEffect(() => {
     if (!cargandoSesion && usuario) {
@@ -149,7 +212,103 @@ export default function PaginaLogin() {
               </span>
               {!enviando && <ArrowRight className="w-4 h-4" />}
             </button>
+
+            <div className="text-center pt-1">
+              <button
+                type="button"
+                onClick={() => {
+                  setModalRec(true);
+                  setUsuarioRec(correo);
+                  setRecEstado(null);
+                  setRecError(null);
+                }}
+                className="text-xs font-bold text-[#E85A28] hover:underline cursor-pointer"
+              >
+                ¿Olvidaste tu contraseña?
+              </button>
+            </div>
           </form>
+
+          {modalRec && (
+            <div className="rounded-2xl border border-[#E85A28]/35 bg-[#FDF0EB]/70 p-4 space-y-3 text-xs">
+              <div className="flex items-center justify-between">
+                <p className="font-black text-[#191818]">Recuperar acceso</p>
+                <button
+                  type="button"
+                  onClick={() => setModalRec(false)}
+                  className="text-neutral-500 hover:text-[#191818] font-bold cursor-pointer"
+                >
+                  Cerrar
+                </button>
+              </div>
+              {recError && (
+                <div className="p-2.5 rounded-xl bg-red-50 border border-red-200 text-red-700 font-semibold">
+                  {recError}
+                </div>
+              )}
+              {recEstado?.mensaje && (
+                <div className="p-2.5 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 font-semibold">
+                  {recEstado.mensaje}
+                </div>
+              )}
+
+              {recEstado?.modo !== "SMTP" ? (
+                <form onSubmit={solicitarRecuperacion} className="space-y-2.5">
+                  <input
+                    type="text"
+                    required
+                    value={usuarioRec}
+                    onChange={(e) => setUsuarioRec(e.target.value)}
+                    placeholder="Ingresa tu nombre de usuario"
+                    className="w-full px-3 py-2 rounded-xl border border-neutral-300 bg-white text-xs text-[#191818]"
+                  />
+                  <button
+                    type="submit"
+                    disabled={enviandoRec}
+                    className="w-full py-2 rounded-xl bg-[#E85A28] hover:bg-[#D14D20] disabled:opacity-50 text-white font-bold cursor-pointer"
+                  >
+                    {enviandoRec ? "Enviando solicitud..." : "Solicitar recuperación"}
+                  </button>
+                </form>
+              ) : (
+                <form onSubmit={confirmarRecuperacion} className="space-y-2">
+                  <input
+                    type="text"
+                    required
+                    value={codigoRec}
+                    onChange={(e) => setCodigoRec(e.target.value)}
+                    placeholder="Código de 6 dígitos enviado al correo"
+                    className="w-full px-3 py-2 rounded-xl border border-neutral-300 bg-white font-mono text-xs"
+                  />
+                  <input
+                    type="password"
+                    required
+                    minLength={8}
+                    value={nuevaClaveRec}
+                    onChange={(e) => setNuevaClaveRec(e.target.value)}
+                    placeholder="Nueva contraseña (mínimo 8 caracteres)"
+                    className="w-full px-3 py-2 rounded-xl border border-neutral-300 bg-white text-xs"
+                  />
+                  <input
+                    type="password"
+                    required
+                    minLength={8}
+                    value={confClaveRec}
+                    onChange={(e) => setConfClaveRec(e.target.value)}
+                    placeholder="Confirmar nueva contraseña"
+                    className="w-full px-3 py-2 rounded-xl border border-neutral-300 bg-white text-xs"
+                  />
+                  <button
+                    type="submit"
+                    disabled={enviandoRec}
+                    className="w-full py-2 rounded-xl bg-[#E85A28] hover:bg-[#D14D20] disabled:opacity-50 text-white font-bold cursor-pointer"
+                  >
+                    {enviandoRec ? "Restableciendo..." : "Confirmar nueva contraseña"}
+                  </button>
+                </form>
+              )}
+            </div>
+          )}
 
           <p className="text-center text-[11px] text-neutral-400 pt-1">
             Valencia, Edo. Carabobo · Venezuela

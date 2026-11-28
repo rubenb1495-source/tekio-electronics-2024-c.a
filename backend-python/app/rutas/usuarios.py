@@ -409,6 +409,7 @@ def desbloquear_usuario(
     return UsuarioSalida.model_validate(usuario)
 
 
+@enrutador.post("/usuarios/{usuario_id}/regenerar-clave-temporal", response_model=AccesoTemporalSalida)
 @enrutador.post("/usuarios/{usuario_id}/generar-acceso-temporal", response_model=AccesoTemporalSalida)
 def generar_acceso_temporal(
     usuario_id: int,

@@ -129,6 +129,8 @@ def asegurar_columnas_compatibles() -> None:
             ("bloqueado_en", f"{tipo_ts_usr} NULL"),
             ("cuenta_bloqueada", "BOOLEAN NOT NULL DEFAULT FALSE"),
             ("debe_cambiar_clave", "BOOLEAN NOT NULL DEFAULT FALSE"),
+            ("recuperacion_token_hash", "VARCHAR(255) NULL"),
+            ("recuperacion_expira_en", f"{tipo_ts_usr} NULL"),
         ]
         for nombre_col, ddl_col in nuevas_usuarios:
             if nombre_col not in columnas_usr:
