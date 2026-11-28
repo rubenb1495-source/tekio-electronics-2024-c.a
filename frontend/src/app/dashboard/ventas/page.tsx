@@ -205,6 +205,14 @@ export default function PaginaHistorialVentas() {
                           Cashea #{v.cashea_numero_orden}
                         </p>
                       )}
+                      {v.sin_cargador && (
+                        <p
+                          className="text-[10px] font-bold text-amber-700"
+                          title={v.motivo_sin_cargador || "Equipo entregado sin cargador"}
+                        >
+                          Sin cargador
+                        </p>
+                      )}
                     </td>
                     <td className="px-4 py-3 text-xs">
                       <p className="font-semibold">{v.fecha}</p>

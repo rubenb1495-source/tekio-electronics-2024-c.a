@@ -356,6 +356,29 @@ def generar_pdf_nota_entrega(venta: Venta) -> bytes:
             )
             y -= 10
 
+    # Constancia visible si el equipo fue entregado SIN cargador
+    if bool(getattr(venta, "sin_cargador", False)):
+        motivo_sc = (getattr(venta, "motivo_sin_cargador", "") or "").strip()
+        texto_sc = "Observación: Equipo entregado SIN cargador"
+        if motivo_sc:
+            texto_sc += f" ({motivo_sc})"
+        y -= 10
+        if y < 1.8 * inch:
+            pdf.showPage()
+            pagina_actual += 1
+            y = _dibujar_encabezado(pdf, ancho, alto, venta, pagina=pagina_actual)
+        alto_sc = 22
+        y_sc_bottom = y - alto_sc
+        pdf.setFillColorRGB(0.996, 0.953, 0.922)  # #FDF0EB suave
+        pdf.setStrokeColorRGB(0.910, 0.353, 0.157)  # #E85A28
+        pdf.setLineWidth(1.0)
+        pdf.rect(0.50 * inch, y_sc_bottom, ancho - 1.00 * inch, alto_sc, fill=1, stroke=1)
+        pdf.setFillColorRGB(0.60, 0.20, 0.07)
+        pdf.setFont("Helvetica-Bold", 8.4)
+        pdf.drawString(0.62 * inch, y_sc_bottom + 7, texto_sc[:110])
+        pdf.setFillColorRGB(0.098, 0.094, 0.094)
+        y = y_sc_bottom - 6
+
     # Bloque estructurado de Delivery o Envío Nacional si aplica
     datos_entrega = _parsear_datos_entrega(venta)
     if datos_entrega:

@@ -111,6 +111,7 @@ def test_logistica_5_flujos_prorrateo_consignacion_traslado_mixto_estado_y_masiv
             "sucursal_id": 1,
             "cliente_id": ctx["cliente_id"],
             "asesor_id": ctx["asesora_id"],
+            "sin_cargador": True,
             "items": [{"equipo_id": eq_cons["id"], "cantidad": 1}],
             "pagos": [
                 {
@@ -310,6 +311,7 @@ def test_cierre_diario_ampliado_y_anulacion_liquidacion_comisiones(
             "sucursal_id": 1,
             "cliente_id": ctx["cliente_id"],
             "asesor_id": ctx["asesora_id"],
+            "sin_cargador": True,
             "items": [{"equipo_id": ctx["eq_hp_1"], "cantidad": 1}],
             "pagos": [
                 {

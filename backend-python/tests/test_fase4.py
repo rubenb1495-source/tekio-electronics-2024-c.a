@@ -139,6 +139,7 @@ def test_venta_mixta_pdf_bloqueo_serial_sucursal_cerrada_y_rbac(cliente: TestCli
         headers=cab_asesora,
         json={
             "sucursal_id": infot_id,
+            "sin_cargador": True,
             "items": [{"equipo_id": eq_central["id"]}],
             "pagos": [{"instrumento_id": insts["Efectivo divisas"], "monto_moneda_origen": 200.0}],
         },
@@ -151,6 +152,7 @@ def test_venta_mixta_pdf_bloqueo_serial_sucursal_cerrada_y_rbac(cliente: TestCli
         headers=cab_asesora,
         json={
             "sucursal_id": central_id,
+            "sin_cargador": True,
             "items": [{"equipo_id": eq_bodega["id"]}],
             "pagos": [{"instrumento_id": insts["Efectivo divisas"], "monto_moneda_origen": 250.0}],
         },
@@ -177,6 +179,7 @@ def test_venta_mixta_pdf_bloqueo_serial_sucursal_cerrada_y_rbac(cliente: TestCli
         json={
             "sucursal_id": central_id,
             "asesor_id": asesora_u["id"],
+            "sin_cargador": True,
             "items": [{"equipo_id": eq_central["id"]}],
             "pagos": [
                 {"instrumento_id": insts["Efectivo divisas"], "monto_moneda_origen": 100.0},
@@ -205,6 +208,7 @@ def test_venta_mixta_pdf_bloqueo_serial_sucursal_cerrada_y_rbac(cliente: TestCli
         headers=cab_asesora,
         json={
             "sucursal_id": central_id,
+            "sin_cargador": True,
             "items": [{"equipo_id": eq_central["id"]}],
             "pagos": [{"instrumento_id": insts["Efectivo divisas"], "monto_moneda_origen": 200.0}],
         },
@@ -262,6 +266,7 @@ def test_devolucion_comisiones_y_cierre_mensual_bloquea_periodo(cliente: TestCli
         json={
             "sucursal_id": central_id,
             "asesor_id": asesora_u["id"],
+            "sin_cargador": True,
             "items": [{"equipo_id": eqs["COM-EQ-1"]}],
             "pagos": [{"instrumento_id": insts["Efectivo divisas"], "monto_moneda_origen": 1000.0}],
         },
@@ -274,6 +279,7 @@ def test_devolucion_comisiones_y_cierre_mensual_bloquea_periodo(cliente: TestCli
         json={
             "sucursal_id": central_id,
             "asesor_id": lider_u["id"],
+            "sin_cargador": True,
             "items": [{"equipo_id": eqs["COM-EQ-2"]}],
             "pagos": [{"instrumento_id": insts["Efectivo divisas"], "monto_moneda_origen": 500.0}],
         },
@@ -286,6 +292,7 @@ def test_devolucion_comisiones_y_cierre_mensual_bloquea_periodo(cliente: TestCli
         json={
             "sucursal_id": central_id,
             "asesor_id": asesora_u["id"],
+            "sin_cargador": True,
             "items": [{"equipo_id": eqs["COM-EQ-3"]}],
             "pagos": [{"instrumento_id": insts["Efectivo divisas"], "monto_moneda_origen": 300.0}],
         },
@@ -412,6 +419,7 @@ def test_venta_cashea_con_inicial_divisas_aplica_precio_regular_estricto(cliente
             "sucursal_id": central_id,
             "asesor_id": asesora_u["id"],
             "cashea_numero_orden": "CSH-FASE4-001",
+            "sin_cargador": True,
             "items": [{"equipo_id": eq["id"]}],
             "pagos": [
                 {"instrumento_id": insts["Efectivo divisas"], "monto_moneda_origen": 100.0},
@@ -446,6 +454,7 @@ def test_venta_cashea_con_inicial_divisas_aplica_precio_regular_estricto(cliente
             "sucursal_id": central_id,
             "asesor_id": asesora_u["id"],
             "cashea_numero_orden": "CSH-FASE4-001",
+            "sin_cargador": True,
             "items": [{"equipo_id": eq["id"]}],
             "pagos": [
                 {"instrumento_id": insts["Efectivo divisas"], "monto_moneda_origen": 100.0},
@@ -715,6 +724,7 @@ def test_obsequio_imputa_costo_al_equipo_descuenta_stock_y_rbac(cliente: TestCli
         json={
             "sucursal_id": central_id,
             "asesor_id": asesora_u["id"],
+            "sin_cargador": True,
             "items": [
                 {"equipo_id": eq["id"], "precio_pactado_usd": 320.0},
                 {"articulo_id": carg_id, "cantidad": 1, "precio_pactado_usd": 0.0},
@@ -827,6 +837,7 @@ def test_lider_multitienda_comision_en_multiples_sucursales(cliente: TestClient)
         json={
             "sucursal_id": central_id,
             "asesor_id": lider_u["id"],
+            "sin_cargador": True,
             "items": [{"equipo_id": eqs["MULTI-1"]}],
             "pagos": [{"instrumento_id": insts["Efectivo divisas"], "monto_moneda_origen": 500.0}],
         },
@@ -839,6 +850,7 @@ def test_lider_multitienda_comision_en_multiples_sucursales(cliente: TestClient)
         json={
             "sucursal_id": central_id,
             "asesor_id": asesora_c["id"],
+            "sin_cargador": True,
             "items": [{"equipo_id": eqs["MULTI-2"]}],
             "pagos": [{"instrumento_id": insts["Efectivo divisas"], "monto_moneda_origen": 400.0}],
         },
@@ -851,6 +863,7 @@ def test_lider_multitienda_comision_en_multiples_sucursales(cliente: TestClient)
         json={
             "sucursal_id": gran_bazar_id,
             "asesor_id": asesora_gb["id"],
+            "sin_cargador": True,
             "items": [{"equipo_id": eqs["MULTI-3"]}],
             "pagos": [{"instrumento_id": insts["Efectivo divisas"], "monto_moneda_origen": 600.0}],
         },
@@ -964,6 +977,7 @@ def test_creacion_rapida_clientes_natural_juridico_duplicado_409_y_pdf(
             "sucursal_id": central_id,
             "cliente_id": cli_jur["id"],
             "asesor_id": asesora_u["id"],
+            "sin_cargador": True,
             "items": [{"equipo_id": eq["id"]}],
             "pagos": [{"instrumento_id": insts["Efectivo divisas"], "monto_moneda_origen": 350.0}],
         },
@@ -1074,6 +1088,7 @@ def test_pdf_sin_etiquetas_internas_monto_total_regular_bs_y_envio_nacional(
             "sucursal_id": central_id,
             "asesor_id": asesora_u["id"],
             "canal_visita": "Instagram",
+            "sin_cargador": True,
             "items": [{"equipo_id": eq_promo["id"]}],
             "pagos": [{"instrumento_id": insts["Efectivo divisas"], "monto_moneda_origen": 200.0}],
         },
@@ -1116,6 +1131,7 @@ def test_pdf_sin_etiquetas_internas_monto_total_regular_bs_y_envio_nacional(
                 "direccion_oficina": "Av. Francisco de Miranda, Edif. Centro Plaza",
                 "modalidad": "Cobro en destino",
             },
+            "sin_cargador": True,
             "items": [{"equipo_id": eq_reg["id"]}],
             "pagos": [
                 {

@@ -49,6 +49,19 @@ def asegurar_columnas_compatibles() -> None:
                         "ADD COLUMN descripcion_servicio TEXT NOT NULL DEFAULT ''"
                     )
                 )
+    if inspector.has_table("instrumentos_financieros"):
+        columnas_inst = {col["name"] for col in inspector.get_columns("instrumentos_financieros")}
+        nuevas_inst = [
+            ("tipo_instrumento", "VARCHAR(30) NOT NULL DEFAULT ''"),
+            ("cuenta_contable", "VARCHAR(120) NOT NULL DEFAULT ''"),
+            ("sucursal_id", "INTEGER NULL"),
+        ]
+        for nombre_col, ddl_col in nuevas_inst:
+            if nombre_col not in columnas_inst:
+                with motor.begin() as conexion:
+                    conexion.execute(
+                        text(f"ALTER TABLE instrumentos_financieros ADD COLUMN {nombre_col} {ddl_col}")
+                    )
     if inspector.has_table("terceros"):
         columnas_ter = {col["name"] for col in inspector.get_columns("terceros")}
         nuevas_terceros = [
@@ -78,6 +91,8 @@ def asegurar_columnas_compatibles() -> None:
             ("envio_referencia", "VARCHAR(255) NOT NULL DEFAULT ''"),
             ("envio_modalidad_pago", "VARCHAR(40) NOT NULL DEFAULT ''"),
             ("envio_notas", "TEXT NOT NULL DEFAULT ''"),
+            ("sin_cargador", "BOOLEAN NOT NULL DEFAULT FALSE"),
+            ("motivo_sin_cargador", "VARCHAR(255) NOT NULL DEFAULT ''"),
             ("precio_regular_bs", "NUMERIC(16, 2) NOT NULL DEFAULT 0"),
             ("monto_financiado_cashea_usd", "NUMERIC(14, 2) NOT NULL DEFAULT 0"),
             ("comision_cashea_venta_total_usd", "NUMERIC(14, 2) NOT NULL DEFAULT 0"),

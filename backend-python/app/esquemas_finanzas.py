@@ -62,6 +62,8 @@ class VentaCrearEntrada(BaseModel):
     vuelto_usd: Decimal = Field(default=Decimal("0"), ge=0)
     queda_con_saldo: bool = False
     cashea_numero_orden: str | None = Field(default=None, max_length=64)
+    sin_cargador: bool = False
+    motivo_sin_cargador: str = Field(default="", max_length=255)
     nota: str = Field(default="", max_length=1000)
     cotizacion_id: int | None = None
 

@@ -179,6 +179,7 @@ def test_componente_en_preparacion_margen_real_prestamos_y_estados_financieros(
             "sucursal_id": 1,
             "fecha": hoy_str,
             "asesor_id": ctx["asesora_id"],
+            "sin_cargador": True,
             "items": [{"equipo_id": eq_id, "cantidad": 1, "precio_pactado_usd": 500}],
             "pagos": [{"instrumento_id": inst_usd["id"], "monto_moneda_origen": 500}],
         },

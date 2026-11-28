@@ -115,6 +115,7 @@ def test_conciliacion_cashea_una_fila_por_nota_con_multiples_articulos_y_pagos(
             "tipo_entrega": "TIENDA",
             "canal_visita": "TIENDA",
             "fecha": hoy_str,
+            "sin_cargador": True,
             "items": [
                 {"tipo_item": "EQUIPO", "equipo_id": eq_id, "cantidad": 1},
                 {"tipo_item": "COMPONENTE", "articulo_id": art_acc_id, "cantidad": 1},

@@ -258,6 +258,7 @@ def test_e2e_ciclo_completo_ingreso_preparacion_venta_y_estados_financieros(
             "asesor_id": ctx["asesora_id"],
             "canal_visita": "Tienda",
             "entrega": "Tienda",
+            "sin_cargador": True,
             "items": [
                 {
                     "equipo_id": laptop_id,

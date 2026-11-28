@@ -118,6 +118,7 @@ def test_cashea_orden_obligatoria_filtro_xlsx_y_liquidacion_lote_atomica(
             "cliente_id": ctx["cliente_id"],
             "asesor_id": ctx["asesora_id"],
             "fecha": hoy_str,
+            "sin_cargador": True,
             "items": [{"equipo_id": eq1_id, "cantidad": 1}],
             "pagos": [
                 {"instrumento_id": inst_usd["id"], "monto_moneda_origen": inicial},
@@ -138,6 +139,7 @@ def test_cashea_orden_obligatoria_filtro_xlsx_y_liquidacion_lote_atomica(
             "asesor_id": ctx["asesora_id"],
             "fecha": hoy_str,
             "cashea_numero_orden": "  csh-990011  ",
+            "sin_cargador": True,
             "items": [{"equipo_id": eq1_id, "cantidad": 1}],
             "pagos": [
                 {"instrumento_id": inst_usd["id"], "monto_moneda_origen": inicial},
@@ -159,6 +161,7 @@ def test_cashea_orden_obligatoria_filtro_xlsx_y_liquidacion_lote_atomica(
             "asesor_id": ctx["asesora_id"],
             "fecha": hoy_str,
             "cashea_numero_orden": "CSH-990011",
+            "sin_cargador": True,
             "items": [{"equipo_id": eq2_id, "cantidad": 1}],
             "pagos": [
                 {"instrumento_id": inst_usd["id"], "monto_moneda_origen": inicial},

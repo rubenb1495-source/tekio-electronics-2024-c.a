@@ -138,6 +138,7 @@ def test_rbac_estricto_encargado_vs_administracion(cliente: TestClient) -> None:
             "sucursal_id": 1,
             "cliente_id": ctx["cliente_id"],
             "asesor_id": enc_id,
+            "sin_cargador": True,
             "items": [{"equipo_id": ctx["eq_hp_1"], "cantidad": 1}],
             "pagos": [
                 {

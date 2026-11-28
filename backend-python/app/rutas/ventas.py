@@ -543,6 +543,8 @@ def serializar_venta(venta: Venta, incluir_costos: bool) -> dict[str, Any]:
         "creado_en": venta.creado_en.isoformat() if venta.creado_en else None,
         "estado": venta.estado,
         "motivo_anulacion": venta.motivo_anulacion,
+        "sin_cargador": bool(getattr(venta, "sin_cargador", False)),
+        "motivo_sin_cargador": getattr(venta, "motivo_sin_cargador", "") or "",
         "nota": venta.nota,
         "detalles": [
             {
@@ -871,6 +873,43 @@ def crear_venta(
                 detail=f"Ese número de orden de Cashea ya está registrado en la nota {dup_cashea.numero_venta}.",
             )
 
+    # Validación obligatoria de cargador al vender equipos
+    tiene_equipo_en_venta = False
+    tiene_cargador_en_venta = False
+    articulos_ids_vta = [d["articulo_id"] for d in calc["detalles"] if d.get("articulo_id")]
+    mapa_art_vta: dict[int, CatalogoArticulo] = (
+        {
+            a.id: a
+            for a in bd.query(CatalogoArticulo)
+            .filter(CatalogoArticulo.id.in_(articulos_ids_vta))
+            .all()
+        }
+        if articulos_ids_vta
+        else {}
+    )
+    for det in calc["detalles"]:
+        art_obj = mapa_art_vta.get(det["articulo_id"]) if det.get("articulo_id") else None
+        if det.get("equipo") is not None or (art_obj is not None and art_obj.tipo == TipoArticulo.EQUIPO.value):
+            tiene_equipo_en_venta = True
+        sku_txt = (art_obj.sku if art_obj else "") or ""
+        cat_txt = (art_obj.categoria if art_obj else "") or ""
+        desc_txt = (det.get("descripcion") or "") + " " + ((art_obj.descripcion if art_obj else "") or "")
+        if (
+            sku_txt.strip().upper().startswith(("AC-CARG", "CARG-", "CARGADOR"))
+            or "cargador" in cat_txt.lower()
+            or "cargador" in desc_txt.lower()
+        ):
+            tiene_cargador_en_venta = True
+
+    if tiene_equipo_en_venta and not tiene_cargador_en_venta and not datos.sin_cargador:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=(
+                "¡Atención! Estás vendiendo un equipo sin cargador en el carrito. "
+                "Agrega el cargador correspondiente o autoriza el desbloqueo (sin_cargador = true) antes de finalizar la venta."
+            ),
+        )
+
     tipo_entrega_norm = normalizar_tipo_entrega(datos.entrega)
     campos_envio = extraer_datos_envio_entrada(
         tipo_entrega_norm,
@@ -923,6 +962,8 @@ def crear_venta(
         es_factura=datos.es_factura,
         numero_control=datos.numero_control.strip(),
         estado=calc["estado"],
+        sin_cargador=bool(datos.sin_cargador),
+        motivo_sin_cargador=(datos.motivo_sin_cargador or "").strip() if datos.sin_cargador else "",
         nota=datos.nota.strip(),
         creado_por_id=usuario_actual.id,
     )

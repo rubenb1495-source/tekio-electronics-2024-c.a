@@ -70,6 +70,8 @@ export interface VentaResumen {
   creado_en?: string | null;
   estado: "CUADRADA" | "CON_SALDO" | "ANULADA" | "DEVUELTA";
   motivo_anulacion: string;
+  sin_cargador?: boolean;
+  motivo_sin_cargador?: string;
   nota: string;
   detalles: {
     id: number;

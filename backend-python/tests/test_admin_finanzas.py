@@ -67,6 +67,7 @@ def test_modulo_integral_administracion_finanzas_y_rbac(cliente: TestClient) -> 
             "sucursal_id": 1,
             "cliente_id": ctx["cliente_id"],
             "asesor_id": ctx["asesora_id"],
+            "sin_cargador": True,
             "items": [{"equipo_id": ctx["eq_hp_1"], "cantidad": 1}],
             "pagos": [
                 {
@@ -337,6 +338,7 @@ def test_resumen_ejecutivo_pl_whatsapp_variacion_y_rbac(cliente: TestClient) -> 
             "sucursal_id": 1,
             "cliente_id": ctx["cliente_id"],
             "asesor_id": ctx["asesora_id"],
+            "sin_cargador": True,
             "items": [{"equipo_id": ctx["eq_hp_1"], "cantidad": 1}],
             "pagos": [{"instrumento_id": ctx["inst_usd_id"], "monto_moneda_origen": 400.0, "referencia": "V1"}],
         },
@@ -350,6 +352,7 @@ def test_resumen_ejecutivo_pl_whatsapp_variacion_y_rbac(cliente: TestClient) -> 
             "sucursal_id": 1,
             "cliente_id": ctx["cliente_id"],
             "asesor_id": ctx["asesora_id"],
+            "sin_cargador": True,
             "items": [{"equipo_id": ctx["eq_hp_2"], "cantidad": 1}],
             "pagos": [{"instrumento_id": ctx["inst_usd_id"], "monto_moneda_origen": 400.0, "referencia": "V2"}],
         },

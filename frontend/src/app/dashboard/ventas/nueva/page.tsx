@@ -175,6 +175,8 @@ export default function PaginaNuevaVentaPOS() {
 
   const [simulacion, setSimulacion] = useState<SimulacionVenta | null>(null);
   const [casheaNumeroOrden, setCasheaNumeroOrden] = useState("");
+  const [sinCargadorAutorizado, setSinCargadorAutorizado] = useState(false);
+  const [motivoSinCargador, setMotivoSinCargador] = useState("");
   const [guardando, setGuardando] = useState(false);
   const [ventaCreada, setVentaCreada] = useState<VentaResumen | null>(null);
   const [copiado, setCopiado] = useState(false);
@@ -432,6 +434,74 @@ export default function PaginaNuevaVentaPOS() {
     [carrito]
   );
 
+  const tieneEquipoEnCarrito = useMemo(
+    () =>
+      carrito.some((item) => {
+        if (item.tipo === "EQUIPO" || Boolean(item.equipo_id)) return true;
+        if (item.articulo_id) {
+          const art = catalogo.find((a) => a.id === item.articulo_id);
+          if (art?.tipo === "EQUIPO") return true;
+        }
+        return false;
+      }),
+    [carrito, catalogo]
+  );
+
+  const tieneCargadorEnCarrito = useMemo(
+    () =>
+      carrito.some((item) => {
+        const art = item.articulo_id
+          ? catalogo.find((a) => a.id === item.articulo_id)
+          : undefined;
+        const sku = (art?.sku || "").trim().toUpperCase();
+        const cat = (art?.categoria || "").toLowerCase();
+        const texto = `${item.etiqueta || ""} ${art?.descripcion || ""}`.toLowerCase();
+        return (
+          sku.startsWith("AC-CARG") ||
+          sku.startsWith("CARG-") ||
+          sku.startsWith("CARGADOR") ||
+          cat.includes("cargador") ||
+          texto.includes("cargador")
+        );
+      }),
+    [carrito, catalogo]
+  );
+
+  const faltaCargador = tieneEquipoEnCarrito && !tieneCargadorEnCarrito;
+  const bloqueadoPorCargador = faltaCargador && !sinCargadorAutorizado;
+
+  useEffect(() => {
+    if (!faltaCargador) {
+      setSinCargadorAutorizado(false);
+      setMotivoSinCargador("");
+      return;
+    }
+    // Sonido suave opcional de advertencia al detectar equipo sin cargador
+    try {
+      const AudioCtx =
+        typeof window !== "undefined"
+          ? window.AudioContext ||
+            (window as unknown as { webkitAudioContext?: typeof AudioContext })
+              .webkitAudioContext
+          : undefined;
+      if (AudioCtx) {
+        const ctx = new AudioCtx();
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = "sine";
+        osc.frequency.setValueAtTime(520, ctx.currentTime);
+        gain.gain.setValueAtTime(0.04, ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.18);
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start();
+        osc.stop(ctx.currentTime + 0.19);
+      }
+    } catch {
+      // Silencioso si el navegador restringe audio automático
+    }
+  }, [faltaCargador]);
+
   const mapaInstrumentos = useMemo(() => {
     const mapa = new Map<string, InstrumentoFinanciero>();
     for (const inst of instrumentos) {
@@ -680,6 +750,13 @@ export default function PaginaNuevaVentaPOS() {
       return;
     }
 
+    if (bloqueadoPorCargador) {
+      setError(
+        "¡Atención! Estás vendiendo un equipo sin cargador en el carrito. Agrega el cargador correspondiente o presiona 'Desbloquear: este equipo no lleva cargador'."
+      );
+      return;
+    }
+
     const pagosValidos = pagos
       .filter(
         (p) => p.instrumento_id !== "" && Number(p.monto_moneda_origen) > 0
@@ -741,6 +818,9 @@ export default function PaginaNuevaVentaPOS() {
           pagos: pagosValidos,
           queda_con_saldo: quedaConSaldo,
           cashea_numero_orden: usaCasheaLocal ? casheaNumeroOrden.trim().toUpperCase() : null,
+          sin_cargador: faltaCargador && sinCargadorAutorizado,
+          motivo_sin_cargador:
+            faltaCargador && sinCargadorAutorizado ? motivoSinCargador.trim() : "",
           nota: nota.trim(),
           cotizacion_id: cotizacionOrigenId,
         }),
@@ -803,6 +883,8 @@ export default function PaginaNuevaVentaPOS() {
   const iniciarNuevaVenta = () => {
     setVentaCreada(null);
     setCasheaNumeroOrden("");
+    setSinCargadorAutorizado(false);
+    setMotivoSinCargador("");
     setCopiado(false);
     setError(null);
     setCarrito([]);
@@ -2162,12 +2244,81 @@ export default function PaginaNuevaVentaPOS() {
             Permitir registrar como Cuenta por Cobrar (CON_SALDO)
           </label>
 
+          {/* Alerta obligatoria de cargador al vender equipos */}
+          {faltaCargador && (
+            <div
+              role="alert"
+              className={`rounded-2xl p-4 border-2 space-y-3 ${
+                sinCargadorAutorizado
+                  ? "bg-amber-50/90 border-amber-400 text-amber-950"
+                  : "bg-red-50/95 border-red-400 text-red-900"
+              }`}
+            >
+              {!sinCargadorAutorizado ? (
+                <>
+                  <div className="flex items-start gap-2.5">
+                    <AlertCircle className="w-5 h-5 text-red-600 shrink-0 mt-0.5" />
+                    <div className="space-y-1 text-xs">
+                      <p className="font-black text-red-800">
+                        ¡Atención! Estás vendiendo un equipo sin cargador en el carrito.
+                      </p>
+                      <p className="text-red-700 leading-relaxed">
+                        Agrega el cargador correspondiente antes de finalizar la venta (SKU <code>AC-CARG-...</code> o artículo de cargador), o autoriza el desbloqueo si el equipo no lleva cargador.
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSinCargadorAutorizado(true);
+                      setError(null);
+                    }}
+                    className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl border border-amber-500 bg-white hover:bg-amber-50 text-amber-900 text-xs font-black shadow-xs cursor-pointer"
+                  >
+                    Desbloquear: este equipo no lleva cargador
+                  </button>
+                </>
+              ) : (
+                <div className="space-y-2.5">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-[#E85A28] text-white text-xs font-black">
+                      <CheckCircle2 className="w-3.5 h-3.5" />
+                      Venta autorizada sin cargador
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSinCargadorAutorizado(false);
+                        setMotivoSinCargador("");
+                      }}
+                      className="text-[11px] font-bold text-amber-800 underline cursor-pointer"
+                    >
+                      Volver a bloquear
+                    </button>
+                  </div>
+                  <input
+                    type="text"
+                    maxLength={255}
+                    value={motivoSinCargador}
+                    onChange={(e) => setMotivoSinCargador(e.target.value)}
+                    placeholder="Nota breve opcional (ej. Equipo solo / cliente ya tiene cargador / CPU de escritorio)"
+                    className="w-full px-3 py-2 rounded-xl border border-amber-300 bg-white text-xs text-[#191818]"
+                  />
+                  <p className="text-[11px] text-amber-800">
+                    Quedará constancia en la Nota de Entrega PDF: <strong>&ldquo;Observación: Equipo entregado SIN cargador&rdquo;</strong>.
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
+
           <button
             type="submit"
             disabled={
               guardando ||
               carrito.length === 0 ||
               ventaCreada !== null ||
+              bloqueadoPorCargador ||
               (usaCasheaLocal && !casheaNumeroOrden.trim())
             }
             className="w-full py-3 rounded-xl bg-[#E85A28] hover:bg-[#C9461A] disabled:opacity-50 disabled:cursor-not-allowed text-white font-black text-sm cursor-pointer transition-colors"
@@ -2176,6 +2327,8 @@ export default function PaginaNuevaVentaPOS() {
               ? "Registrando venta..."
               : ventaCreada
               ? `Nota ${ventaCreada.numero_venta} emitida · Usa el panel inferior`
+              : bloqueadoPorCargador
+              ? "Agrega un cargador o desbloquea 'Sin cargador' para emitir"
               : usaCasheaLocal && !casheaNumeroOrden.trim()
               ? "Ingresa el Nro. de Orden Cashea para emitir"
               : "Confirmar y Emitir Nota"}
