@@ -647,8 +647,17 @@ export default function DisenoDashboard({
       {/* Modal bloqueante de confirmación de recargo diario */}
       <ModalRecargoDiario />
       <ModalCambiarPassword
-        abierto={modalPassword}
-        alCerrar={() => setModalPassword(false)}
+        abierto={modalPassword || Boolean(usuario?.debe_cambiar_clave)}
+        obligatorio={Boolean(usuario?.debe_cambiar_clave)}
+        alCerrar={() => {
+          if (!usuario?.debe_cambiar_clave) setModalPassword(false);
+        }}
+        alCompletar={() => {
+          setModalPassword(false);
+          if (usuario?.debe_cambiar_clave && typeof window !== "undefined") {
+            window.location.reload();
+          }
+        }}
       />
     </div>
   );

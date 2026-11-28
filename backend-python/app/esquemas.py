@@ -124,6 +124,7 @@ class UsuarioSalida(BaseModel):
     tiene_acceso_sistema: bool = True
     intentos_fallidos_login: int = 0
     cuenta_bloqueada: bool = False
+    debe_cambiar_clave: bool = False
     bloqueado_hasta: datetime | None = None
     bloqueado_en: datetime | None = None
     activo: bool

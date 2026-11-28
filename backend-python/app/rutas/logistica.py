@@ -231,7 +231,7 @@ def listar_compras(
     origen: OrigenCompra | None = Query(default=None),
     estado: EstadoCompra | None = Query(default=None),
     pagina: int = Query(default=1, ge=1),
-    por_pagina: int = Query(default=20, ge=1, le=100),
+    por_pagina: int = Query(default=50, ge=1, le=500),
     usuario_actual: Usuario = Depends(requerir_roles(*ROLES_LOGISTICA)),
     bd: Session = Depends(obtener_bd),
 ) -> dict[str, Any]:

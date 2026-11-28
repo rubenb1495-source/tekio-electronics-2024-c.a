@@ -129,7 +129,7 @@ def listar_catalogo(
     categoria: str | None = Query(default=None),
     incluir_inactivos: bool = Query(default=False),
     pagina: int = Query(default=1, ge=1),
-    por_pagina: int = Query(default=20, ge=1, le=100),
+    por_pagina: int = Query(default=50, ge=1, le=1000),
     usuario_actual: Usuario = Depends(obtener_usuario_actual),
     bd: Session = Depends(obtener_bd),
 ) -> dict[str, Any]:

@@ -92,7 +92,7 @@ def listar_tasas(
     desde: date | None = Query(default=None),
     hasta: date | None = Query(default=None),
     pagina: int = Query(default=1, ge=1),
-    por_pagina: int = Query(default=20, ge=1, le=100),
+    por_pagina: int = Query(default=50, ge=1, le=500),
     _usuario: Usuario = Depends(obtener_usuario_actual),
     bd: Session = Depends(obtener_bd),
 ) -> TasasPaginadasSalida:

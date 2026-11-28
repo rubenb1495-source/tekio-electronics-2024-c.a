@@ -3,10 +3,12 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   AlertCircle,
+  Building2,
   Check,
   CheckCircle2,
   Copy,
   FileDown,
+  Landmark,
   Loader2,
   Receipt,
   Save,
@@ -28,8 +30,41 @@ import {
 import type { Sucursal } from "@/tipos/dominio";
 import type { CierreCajaResumen, PreviewCierreCaja } from "@/tipos/finanzas";
 
+interface SaldoInstrumentoItem {
+  id: number;
+  nombre: string;
+  moneda: string;
+  saldo_moneda_origen: number;
+  saldo_usd: number;
+}
+
+interface TableroSaldosCierre {
+  fecha: string;
+  sucursal_id: number | null;
+  ambito_usuario: "ADMINISTRACION_GENERAL" | "TIENDA";
+  tienda: {
+    sucursal: string;
+    efectivo_esperado_dia_usd: number;
+    ventas_del_dia_usd: number;
+    cantidad_ventas: number;
+    vueltos_entregados_usd: number;
+    canales_locales: SaldoInstrumentoItem[];
+    total_saldos_locales_usd: number;
+  };
+  administracion_general: {
+    cuentas_corporativas: SaldoInstrumentoItem[];
+    total_liquidez_corporativa_usd: number;
+    total_liquidez_consolidada_usd: number;
+    cashea_por_cobrar_usd: number;
+    cxc_clientes_usd: number;
+    cxp_proveedores_usd: number;
+  } | null;
+}
+
 export default function PaginaCierreCajaDiario() {
   const permisos = usePermisos();
+  const [vistaAmbito, setVistaAmbito] = useState<"TIENDA" | "ADMIN_GENERAL">("TIENDA");
+  const [tableroSaldos, setTableroSaldos] = useState<TableroSaldosCierre | null>(null);
   const [fecha, setFecha] = useState(fechaHoyCaracas());
   const [sucursalId, setSucursalId] = useState(
     permisos.sucursalRestringidaId ? String(permisos.sucursalRestringidaId) : ""
@@ -72,16 +107,20 @@ export default function PaginaCierreCajaDiario() {
       if (sucursalId) paramsPrev.set("sucursal_id", sucursalId);
 
       const paramsHist = sucursalId ? `?sucursal_id=${sucursalId}` : "";
-      const [respPrev, respHist] = await Promise.all([
+      const [respPrev, respHist, respTablero] = await Promise.all([
         solicitarApi<PreviewCierreCaja>(
           `/api/finanzas/cierre-caja/preview?${paramsPrev.toString()}`
         ),
         solicitarApi<CierreCajaResumen[]>(
           `/api/finanzas/cierre-caja${paramsHist}`
         ),
+        solicitarApi<TableroSaldosCierre>(
+          `/api/finanzas/cierre-caja/tablero-saldos?${paramsPrev.toString()}`
+        ).catch(() => null),
       ]);
       setPreview(respPrev);
       setCierres(respHist);
+      setTableroSaldos(respTablero);
       setEfectivoDeclarado(String(respPrev.efectivo_esperado_usd));
     } catch (err) {
       setError(
@@ -163,11 +202,39 @@ export default function PaginaCierreCajaDiario() {
             Cierre de Caja Diario
           </h2>
           <p className="text-sm text-neutral-500">
-            Cuadre consolidado por sucursal de efectivo, transferencias, Pago Móvil, USDT, Cashea y egresos del día.
+            Separación estricta entre caja operativa de Tienda y cuentas corporativas de Administración General.
           </p>
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
+          {permisos.esAdmin && (
+            <div className="inline-flex items-center gap-1 bg-[#F6F6F6] p-1 rounded-xl border border-neutral-200 mr-1">
+              <button
+                type="button"
+                onClick={() => setVistaAmbito("TIENDA")}
+                className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-colors cursor-pointer ${
+                  vistaAmbito === "TIENDA"
+                    ? "bg-[#E85A28] text-white shadow-xs"
+                    : "text-neutral-600 hover:text-[#191818]"
+                }`}
+              >
+                <Building2 className="w-3.5 h-3.5" />
+                Cierre Tienda
+              </button>
+              <button
+                type="button"
+                onClick={() => setVistaAmbito("ADMIN_GENERAL")}
+                className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-colors cursor-pointer ${
+                  vistaAmbito === "ADMIN_GENERAL"
+                    ? "bg-[#E85A28] text-white shadow-xs"
+                    : "text-neutral-600 hover:text-[#191818]"
+                }`}
+              >
+                <Landmark className="w-3.5 h-3.5" />
+                Administración General
+              </button>
+            </div>
+          )}
           <input
             type="date"
             value={fecha}
@@ -198,6 +265,119 @@ export default function PaginaCierreCajaDiario() {
           <span>{error}</span>
         </div>
       )}
+
+      {/* Tablero Visual de Saldos: Administración General vs Tienda */}
+      {vistaAmbito === "ADMIN_GENERAL" &&
+        permisos.esAdmin &&
+        tableroSaldos?.administracion_general && (
+          <div className="space-y-4">
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+              <div className="bg-white/85 backdrop-blur-md border border-neutral-200/80 rounded-2xl p-4">
+                <p className="text-[11px] font-bold uppercase text-neutral-500">
+                  Saldos Locales (Tiendas)
+                </p>
+                <p className="text-2xl font-black text-[#191818] tabular-nums mt-1">
+                  {formatearUsd(tableroSaldos.tienda.total_saldos_locales_usd)}
+                </p>
+              </div>
+              <div className="bg-white/85 backdrop-blur-md border border-neutral-200/80 rounded-2xl p-4">
+                <p className="text-[11px] font-bold uppercase text-neutral-500">
+                  Cuentas Corporativas (Admin)
+                </p>
+                <p className="text-2xl font-black text-[#E85A28] tabular-nums mt-1">
+                  {formatearUsd(
+                    tableroSaldos.administracion_general.total_liquidez_corporativa_usd
+                  )}
+                </p>
+              </div>
+              <div className="bg-[#FDF0EB]/80 backdrop-blur-md border-2 border-[#E85A28]/40 rounded-2xl p-4">
+                <p className="text-[11px] font-bold uppercase text-[#E85A28]">
+                  Liquidez Total Consolidada
+                </p>
+                <p className="text-2xl font-black text-[#191818] tabular-nums mt-1">
+                  {formatearUsd(
+                    tableroSaldos.administracion_general.total_liquidez_consolidada_usd
+                  )}
+                </p>
+              </div>
+              <div className="bg-white/85 backdrop-blur-md border border-neutral-200/80 rounded-2xl p-4 text-xs space-y-1 tabular-nums">
+                <p className="text-[11px] font-bold uppercase text-neutral-500">
+                  Posición CxC / CxP
+                </p>
+                <p className="text-neutral-700">
+                  Cashea por cobrar:{" "}
+                  <strong className="text-[#191818]">
+                    {formatearUsd(
+                      tableroSaldos.administracion_general.cashea_por_cobrar_usd
+                    )}
+                  </strong>
+                </p>
+                <p className="text-neutral-700">
+                  CxC Clientes:{" "}
+                  <strong className="text-[#191818]">
+                    {formatearUsd(
+                      tableroSaldos.administracion_general.cxc_clientes_usd
+                    )}
+                  </strong>
+                </p>
+                <p className="text-red-700">
+                  CxP Proveedores:{" "}
+                  <strong>
+                    {formatearUsd(
+                      tableroSaldos.administracion_general.cxp_proveedores_usd
+                    )}
+                  </strong>
+                </p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              <div className="bg-white/85 backdrop-blur-md border border-neutral-200/80 rounded-2xl p-5 space-y-3">
+                <h3 className="text-sm font-black text-[#191818] flex items-center gap-2">
+                  <Building2 className="w-4 h-4 text-[#E85A28]" />
+                  Canales Operativos de Tienda
+                </h3>
+                <div className="divide-y divide-neutral-100 text-xs">
+                  {tableroSaldos.tienda.canales_locales.map((item) => (
+                    <div key={item.id} className="py-2 flex items-center justify-between gap-2">
+                      <span className="font-semibold text-[#191818]">
+                        {item.nombre}{" "}
+                        <span className="text-[10px] text-neutral-400">({item.moneda})</span>
+                      </span>
+                      <span className="font-black text-[#191818] tabular-nums">
+                        {item.moneda === "BS"
+                          ? `${formatearBs(item.saldo_moneda_origen)} · ${formatearUsd(item.saldo_usd)}`
+                          : formatearUsd(item.saldo_usd)}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="bg-white/85 backdrop-blur-md border border-neutral-200/80 rounded-2xl p-5 space-y-3">
+                <h3 className="text-sm font-black text-[#191818] flex items-center gap-2">
+                  <Landmark className="w-4 h-4 text-[#E85A28]" />
+                  Cuentas Corporativas — Administración General
+                </h3>
+                <div className="divide-y divide-neutral-100 text-xs">
+                  {tableroSaldos.administracion_general.cuentas_corporativas.map((item) => (
+                    <div key={item.id} className="py-2 flex items-center justify-between gap-2">
+                      <span className="font-semibold text-[#191818]">
+                        {item.nombre}{" "}
+                        <span className="text-[10px] text-neutral-400">({item.moneda})</span>
+                      </span>
+                      <span className="font-black text-[#E85A28] tabular-nums">
+                        {item.moneda === "BS"
+                          ? `${formatearBs(item.saldo_moneda_origen)} · ${formatearUsd(item.saldo_usd)}`
+                          : formatearUsd(item.saldo_usd)}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
 
       {cierreReciente && (
         <div className="bg-white/85 backdrop-blur-md border-2 border-[#E85A28]/40 rounded-2xl p-4 flex flex-wrap items-center justify-between gap-3">

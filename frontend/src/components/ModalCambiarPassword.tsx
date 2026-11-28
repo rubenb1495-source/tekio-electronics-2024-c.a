@@ -7,9 +7,13 @@ import { extraerMensajeError, solicitarApi } from "@/servicios/api";
 export default function ModalCambiarPassword({
   abierto,
   alCerrar,
+  obligatorio = false,
+  alCompletar,
 }: {
   abierto: boolean;
   alCerrar: () => void;
+  obligatorio?: boolean;
+  alCompletar?: () => void;
 }) {
   const [claveActual, setClaveActual] = useState("");
   const [claveNueva, setClaveNueva] = useState("");
@@ -51,6 +55,9 @@ export default function ModalCambiarPassword({
       setClaveActual("");
       setClaveNueva("");
       setConfirmacion("");
+      if (alCompletar) {
+        setTimeout(() => alCompletar(), 400);
+      }
     } catch (err) {
       setError(extraerMensajeError(err, "No se pudo cambiar la contraseña."));
     } finally {
@@ -65,19 +72,26 @@ export default function ModalCambiarPassword({
           <div className="flex items-center gap-2">
             <KeyRound className="w-4 h-4 text-[#E85A28]" />
             <h3 className="text-sm font-black text-[#191818]">
-              Cambiar contraseña
+              {obligatorio ? "Cambio obligatorio de contraseña" : "Cambiar contraseña"}
             </h3>
           </div>
-          <button
-            type="button"
-            onClick={alCerrar}
-            className="p-1 rounded-lg hover:bg-neutral-100 text-neutral-500 cursor-pointer"
-          >
-            <X className="w-4 h-4" />
-          </button>
+          {!obligatorio && (
+            <button
+              type="button"
+              onClick={alCerrar}
+              className="p-1 rounded-lg hover:bg-neutral-100 text-neutral-500 cursor-pointer"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          )}
         </div>
 
         <form onSubmit={manejarGuardar} className="p-5 space-y-3.5">
+          {obligatorio && (
+            <div className="p-3 rounded-xl bg-[#FDF0EB] border border-[#E85A28]/40 text-xs text-[#9A3412] font-semibold">
+              Por seguridad, debes establecer tu nueva contraseña personal antes de ingresar al sistema.
+            </div>
+          )}
           {error && (
             <div className="flex items-center gap-2 p-3 rounded-xl bg-red-50 border border-red-200 text-xs text-red-700">
               <AlertCircle className="w-4 h-4 shrink-0" />
@@ -163,13 +177,15 @@ export default function ModalCambiarPassword({
           </div>
 
           <div className="flex justify-end gap-2 pt-2">
-            <button
-              type="button"
-              onClick={alCerrar}
-              className="px-4 py-2 rounded-xl border border-neutral-200 text-xs font-bold text-neutral-600 cursor-pointer"
-            >
-              Cerrar
-            </button>
+            {!obligatorio && (
+              <button
+                type="button"
+                onClick={alCerrar}
+                className="px-4 py-2 rounded-xl border border-neutral-200 text-xs font-bold text-neutral-600 cursor-pointer"
+              >
+                Cerrar
+              </button>
+            )}
             <button
               type="submit"
               disabled={guardando}

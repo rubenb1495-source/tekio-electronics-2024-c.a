@@ -48,6 +48,7 @@ export interface Usuario {
   tiene_acceso_sistema?: boolean;
   intentos_fallidos_login?: number;
   cuenta_bloqueada?: boolean;
+  debe_cambiar_clave?: boolean;
   bloqueado_hasta?: string | null;
   bloqueado_en?: string | null;
   activo: boolean;

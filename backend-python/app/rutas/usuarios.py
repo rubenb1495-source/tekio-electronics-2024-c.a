@@ -196,6 +196,7 @@ def crear_usuario(
         telefono=datos.telefono.strip(),
         cedula=datos.cedula.strip(),
         tiene_acceso=acceso,
+        debe_cambiar_clave=acceso,
         sucursal_id=datos.sucursal_id,
         activo=True,
     )

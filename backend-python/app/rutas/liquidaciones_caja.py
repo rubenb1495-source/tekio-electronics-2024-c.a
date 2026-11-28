@@ -18,16 +18,20 @@ from app.esquemas_operaciones import (
 )
 from app.modelos import RolUsuario, Sucursal, TasaDiaria, Usuario
 from app.modelos_finanzas import (
+    CuentaPorCobrar,
+    EstadoCuentaPorCobrar,
     EstadoVenta,
     EstadoVerificacionPago,
     InstrumentoFinanciero,
     MonedaInstrumento,
     Pago,
+    TipoCuentaPorCobrar,
     TipoDocumentoPago,
     TipoMovimientoPago,
     Venta,
 )
 from app.modelos_logistica import (
+    Compra,
     Equipo,
     EstadoEquipo,
     MovimientoInventario,
@@ -870,3 +874,145 @@ def descargar_pdf_cierre_caja(
         media_type="application/pdf",
         headers={"Content-Disposition": f'inline; filename="cierre-caja-{cierre.fecha.isoformat()}-{cierre.id}.pdf"'},
     )
+
+
+@enrutador.get("/cierre-caja/tablero-saldos")
+def obtener_tablero_saldos_cierre(
+    fecha: date | None = Query(default=None),
+    sucursal_id: int | None = Query(default=None),
+    usuario_actual: Usuario = Depends(require_permiso(Permiso.CIERRE_CAJA)),
+    bd: Session = Depends(obtener_bd),
+) -> dict[str, Any]:
+    """
+    Separación estricta Tienda vs Administración General con tablero visual de saldos:
+    - Roles de tienda (LIDER/ASESORA/ENCARGADO): solo ven su sucursal (`tienda`), nunca `administracion_general`.
+    - DIRECCION / ADMINISTRACION: ven ambos ámbitos separados y la liquidez consolidada.
+    """
+    fecha_op = fecha or obtener_fecha_hoy()
+    suc_efectiva = validar_sucursal_permitida(
+        usuario_actual,
+        sucursal_id,
+        contexto="consultar el tablero de saldos de cierre diario",
+    )
+    es_admin_global = usuario_actual.rol in (
+        RolUsuario.DIRECCION.value,
+        RolUsuario.ADMINISTRACION.value,
+    )
+
+    preview_tienda = _calcular_preview_cierre_caja(bd, fecha_op, suc_efectiva)
+
+    # Clasificar instrumentos del día para la vista Tienda
+    canales_tienda_kw = ("efectivo", "caja chica", "punto de venta", "pago móvil", "pago movil")
+    instrumentos_activos = (
+        bd.query(InstrumentoFinanciero)
+        .filter(InstrumentoFinanciero.activo.is_(True))
+        .order_by(InstrumentoFinanciero.nombre.asc())
+        .all()
+    )
+
+    # Tasa de conversión a la fecha
+    tasa = (
+        bd.query(TasaDiaria)
+        .filter(TasaDiaria.fecha <= fecha_op)
+        .order_by(TasaDiaria.fecha.desc())
+        .first()
+    )
+    tasa_conv = (
+        tasa.tasa_usdt
+        if tasa and tasa.tasa_usdt and tasa.tasa_usdt > 0
+        else (tasa.tasa_bcv if tasa and tasa.tasa_bcv else Decimal("1"))
+    )
+
+    pagos_hasta_fecha = (
+        bd.query(Pago)
+        .filter(Pago.anulado.is_(False), Pago.fecha <= fecha_op)
+        .all()
+    )
+    saldos_por_inst: dict[int, Decimal] = {i.id: Decimal("0.00") for i in instrumentos_activos}
+    for p in pagos_hasta_fecha:
+        if p.instrumento_id not in saldos_por_inst:
+            continue
+        signo = Decimal("1") if p.tipo_movimiento == TipoMovimientoPago.INGRESO.value else Decimal("-1")
+        saldos_por_inst[p.instrumento_id] += signo * p.monto_moneda_origen
+
+    saldos_tienda_inst: list[dict[str, Any]] = []
+    saldos_admin_inst: list[dict[str, Any]] = []
+    total_tienda_usd = Decimal("0.00")
+    total_admin_usd = Decimal("0.00")
+
+    for inst in instrumentos_activos:
+        nom_l = inst.nombre.lower()
+        if "cashea" in nom_l or "parte de pago" in nom_l or "cuenta por cobrar" in nom_l:
+            continue
+        saldo_orig = saldos_por_inst.get(inst.id, Decimal("0.00"))
+        equiv_usd = (
+            (saldo_orig / tasa_conv).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+            if inst.moneda == MonedaInstrumento.BS.value and tasa_conv > 0
+            else saldo_orig.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        )
+        fila = {
+            "id": inst.id,
+            "nombre": inst.nombre,
+            "moneda": inst.moneda,
+            "saldo_moneda_origen": redondear_usd(saldo_orig),
+            "saldo_usd": redondear_usd(equiv_usd),
+        }
+        if any(k in nom_l for k in canales_tienda_kw):
+            saldos_tienda_inst.append(fila)
+            total_tienda_usd += equiv_usd
+        else:
+            saldos_admin_inst.append(fila)
+            total_admin_usd += equiv_usd
+
+    salida: dict[str, Any] = {
+        "fecha": fecha_op.isoformat(),
+        "sucursal_id": suc_efectiva,
+        "ambito_usuario": "ADMINISTRACION_GENERAL" if es_admin_global else "TIENDA",
+        "tienda": {
+            "sucursal": preview_tienda["sucursal"],
+            "efectivo_esperado_dia_usd": preview_tienda["efectivo_esperado_usd"],
+            "ventas_del_dia_usd": preview_tienda["total_ventas_usd"],
+            "cantidad_ventas": preview_tienda["cantidad_ventas"],
+            "vueltos_entregados_usd": preview_tienda["total_egresos_usd"],
+            "canales_locales": saldos_tienda_inst,
+            "total_saldos_locales_usd": redondear_usd(total_tienda_usd),
+        },
+        "administracion_general": None,
+    }
+
+    if es_admin_global:
+        cxcs = (
+            bd.query(CuentaPorCobrar)
+            .filter(
+                CuentaPorCobrar.estado == EstadoCuentaPorCobrar.PENDIENTE.value,
+                CuentaPorCobrar.saldo_pendiente_usd > Decimal("0"),
+            )
+            .all()
+        )
+        cashea_cobrar = sum(
+            (c.saldo_pendiente_usd for c in cxcs if c.tipo == TipoCuentaPorCobrar.CASHEA.value),
+            Decimal("0.00"),
+        )
+        cxc_clientes = sum(
+            (c.saldo_pendiente_usd for c in cxcs if c.tipo != TipoCuentaPorCobrar.CASHEA.value),
+            Decimal("0.00"),
+        )
+        cxp_proveedores = sum(
+            (
+                c.saldo_pendiente_usd
+                for c in bd.query(Compra)
+                .filter(Compra.saldo_pendiente_usd > Decimal("0"), Compra.fecha <= fecha_op)
+                .all()
+            ),
+            Decimal("0.00"),
+        )
+        salida["administracion_general"] = {
+            "cuentas_corporativas": saldos_admin_inst,
+            "total_liquidez_corporativa_usd": redondear_usd(total_admin_usd),
+            "total_liquidez_consolidada_usd": redondear_usd(total_tienda_usd + total_admin_usd),
+            "cashea_por_cobrar_usd": redondear_usd(cashea_cobrar),
+            "cxc_clientes_usd": redondear_usd(cxc_clientes),
+            "cxp_proveedores_usd": redondear_usd(cxp_proveedores),
+        }
+
+    return salida
